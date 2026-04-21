@@ -59,17 +59,16 @@ Out of scope:
 - **Release signing (planned, not shipped yet).** `.goreleaser.yaml`
   wires sigstore/cosign keyless signing for when the first release is
   cut. Pre-release, reeve is built from source only.
-- **Pinned third-party GitHub Actions.** The `.github/workflows/security.yml`
-  job `action-pin-check` fails CI if a third-party action is referenced
-  by tag instead of SHA.
 - **Vulnerability scanning on every PR:**
-  - `govulncheck` — Go standard library + module CVE database.
-  - `gosec` — static Go security analyzer (SARIF → GitHub code scanning).
-  - CodeQL — `security-extended` and `security-and-quality` query packs.
-  - `actions/dependency-review-action` — block PRs that introduce HIGH+
+  - `govulncheck` — Go's reachability-aware vuln scanner against the
+    official Go vulnerability database.
+  - `gosec` — static Go security analyzer (SARIF uploaded to GitHub code
+    scanning).
+  - `actions/dependency-review-action` — blocks PRs that introduce HIGH+
     CVEs in dependencies.
-- **Renovate auto-updates** — weekly PRs for module + action bumps;
-  vulnerability alerts get their own `security` label.
+- **Renovate auto-updates** — weekly PRs for module bumps + GitHub
+  Action digest pinning. Vulnerability alerts get a `security` label and
+  bypass the schedule.
 - **No external network calls at test time.** Core tests use an
   in-memory filesystem blob adapter and stubbed VCS clients.
 
