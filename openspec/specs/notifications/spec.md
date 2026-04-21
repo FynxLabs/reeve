@@ -1,7 +1,5 @@
 # Notifications
 
-Seeded from DESIGN.md §5.6.
-
 ## Scope
 
 PR-scoped human-readable status. Slack first. Runs **last** in the

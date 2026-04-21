@@ -1,7 +1,5 @@
 # Locking
 
-Seeded from DESIGN.md §5.2.
-
 ## Granularity
 
 Per-stack. Acquired at apply, not preview — previews are parallel-safe.

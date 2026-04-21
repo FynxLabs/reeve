@@ -1,10 +1,8 @@
 # Configuration
 
-Seeded from DESIGN.md §8.
-
 ## Layout
 
-```
+```text
 .reeve/
 ├── shared.yaml           # approvals, locking, bucket, freeze, comments
 ├── auth.yaml             # credential providers and bindings
@@ -45,7 +43,7 @@ allowed, each with unique `engine.type`).
 
 `~/.config/reeve/*.yaml` holds local-only preferences (`config_type: user`).
 No overlap with repo config fields. CLI flags override user config overrides
-defaults, per parity rule (DESIGN.md §2.8).
+defaults.
 
 `user.yaml` in v1 carries only rendering and local-auth preferences.
 Single-field concerns are kept to env vars.

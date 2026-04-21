@@ -1,7 +1,5 @@
 # Preconditions
 
-Seeded from DESIGN.md §5.4.
-
 ## Evaluation
 
 Ordered, fail-fast. Each gate emits a structured result consumed by the PR

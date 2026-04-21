@@ -1,7 +1,5 @@
 # PR Flow
 
-Seeded from DESIGN.md §5.1.
-
 ## Overview
 
 On PR open or update, reeve runs **preview** for every stack touched. A single

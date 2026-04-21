@@ -1,7 +1,5 @@
 # VCS Abstraction
 
-Seeded from DESIGN.md §6.5.
-
 ## Design target
 
 GitHub first; moderate future-proofing for GitLab. Interfaces abstract

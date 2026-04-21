@@ -1,7 +1,5 @@
 # Observability
 
-Seeded from DESIGN.md §5.7.
-
 ## Principle
 
 Opt-in. Off by default. reeve emits telemetry only when

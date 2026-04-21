@@ -1,7 +1,5 @@
 # Blob Storage
 
-Seeded from DESIGN.md §4, §5.8.
-
 ## Responsibility
 
 Locks, run artifacts, drift state, audit logs. The user owns the bucket —

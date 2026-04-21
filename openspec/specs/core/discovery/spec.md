@@ -1,7 +1,5 @@
 # Stack Discovery
 
-Seeded from DESIGN.md §6.4, §8.3.
-
 ## Split
 
 - **Engine owns:** `EnumerateStacks(ctx, root)` returning `(project, path, name, raw)` tuples; `ValidateStack(ctx, stack)`.
@@ -35,5 +33,5 @@ shared-prefix, generates suggested pattern entries. With `--write`, mutates
 engine config via a comment-preserving YAML writer. Same command supports
 modules via `reeve stacks discover --kind modules`.
 
-The `reeve <engine> find` grammar from DESIGN.md is **not shipped** —
-`reeve stacks discover --engine <e>` is the canonical surface.
+`reeve stacks discover --engine <engine>` is the canonical surface for
+discovery; per-engine subcommands (`reeve <engine> find`) are not supported.

@@ -1,7 +1,5 @@
 # Approvals
 
-Seeded from DESIGN.md §5.3, §6.5.
-
 ## Sources
 
 Pluggable. v1 ships:

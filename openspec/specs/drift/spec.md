@@ -1,7 +1,5 @@
 # Drift Detection
 
-Seeded from DESIGN.md §5.9.
-
 ## Third run mode
 
 Drift is a run mode alongside preview and apply — not a separate subsystem.

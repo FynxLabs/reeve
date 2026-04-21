@@ -1,7 +1,5 @@
 # Policy Hooks
 
-Seeded from DESIGN.md §6.6, §8.9.
-
 ## Model
 
 Generic command-execution hooks. reeve runs user-specified commands against

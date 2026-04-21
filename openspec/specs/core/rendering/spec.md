@@ -1,7 +1,5 @@
 # PR Comment Rendering
 
-Seeded from DESIGN.md §5.5.
-
 ## Single comment, edited in place
 
 Identified by hidden HTML marker (`<!-- reeve:pr-comment:v1 -->`). VCS

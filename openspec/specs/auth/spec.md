@@ -1,7 +1,5 @@
 # Auth
 
-Seeded from DESIGN.md §8.5.
-
 ## Principle
 
 Zero-trust. Short-lived federated credentials only. reeve consumes creds;
@@ -44,8 +42,7 @@ Rules:
 
 ## Hardening
 
-- Local providers **refuse** under `CI=true` with no override. The
-  `--allow-local-creds-in-ci` flag from DESIGN.md is **not shipped**.
+- Local providers **refuse** under `CI=true`. There is no CLI override.
 - `env_passthrough` requires `providers.<name>.i_understand_this_is_dangerous: true`
   AND emits a loud warning every run. Lint flags as ERROR without the field.
 - Fork PRs receive dry-run-only credentials by default. Full creds require

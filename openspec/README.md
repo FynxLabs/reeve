@@ -25,9 +25,3 @@ changes/<name>/
 On merge, the proposal archives and its delta specs fold into `specs/`.
 
 Small fixes (typos, obvious bugs) can skip the proposal.
-
-## Seeded from DESIGN.md
-
-`specs/` was seeded on 2026-04-20 from `docs/design/DESIGN.md` (the retired
-design doc). See that file for the original full-v1 vision. Authoritative
-per-capability behavior now lives here.

@@ -1,7 +1,5 @@
 # IaC Engine Interface
 
-Seeded from DESIGN.md §4, §6.3.
-
 ## Contract
 
 Every adapter implements:

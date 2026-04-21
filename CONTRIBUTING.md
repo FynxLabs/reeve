@@ -7,9 +7,8 @@ relicense reeve. See `LICENSE`.
 
 ## Development workflow: OpenSpec
 
-reeve is developed using [OpenSpec](https://openspec.dev/). Specs live in
-`openspec/`; the original design doc (now retired) is at
-`docs/design/DESIGN.md`.
+reeve is developed using [OpenSpec](https://openspec.dev/). Per-capability
+behavior lives in [`openspec/specs/`](openspec/specs/).
 
 ### Small fixes
 
