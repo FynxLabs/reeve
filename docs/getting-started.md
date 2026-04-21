@@ -17,19 +17,18 @@ see [configuration.md](configuration.md) and [auth.md](auth.md).
 
 ## 1. Install reeve locally
 
-```bash
-brew install thefynx/tap/reeve
-# or
-curl -fsSL https://github.com/thefynx/reeve/releases/latest/download/reeve_linux_amd64.tar.gz \
-  | tar xz -C /usr/local/bin reeve
-```
-
-Verify:
+reeve is pre-release. No published binary, no Homebrew tap, no container
+image. Build from source:
 
 ```bash
-reeve --version
-reeve --help
+git clone https://github.com/FynxLabs/reeve
+cd reeve
+mise install           # go + tooling (go, golangci-lint, govulncheck, gosec, hk)
+go build -o ./bin/reeve ./cmd/reeve
+./bin/reeve --help
 ```
+
+Put `./bin/reeve` on your `$PATH` or invoke it directly.
 
 ## 2. Create `.reeve/`
 
@@ -119,7 +118,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write          # for /reeve apply via issue_comment
-  id-token: write        # only needed for OIDC federation (Phase 4)
+  id-token: write        # only needed for OIDC federation
 
 jobs:
   preview:
@@ -127,27 +126,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
         with:
-          command: preview
-          pulumi-version: "3.231.0"
-
-  apply:
-    # Only fire on "/reeve apply" comments on PRs.
-    if: |
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/reeve apply')
-    runs-on: ubuntu-latest
-    steps:
+          repository: FynxLabs/reeve
+          path: _reeve
       - uses: actions/checkout@v6
         with:
-          ref: refs/pull/${{ github.event.issue.number }}/head
-      - uses: thefynx/reeve@v1
+          path: _src
+      - uses: actions/setup-go@v6
         with:
-          command: apply
+          go-version-file: _reeve/go.mod
+      - run: go build -o /usr/local/bin/reeve ./cmd/reeve
+        working-directory: _reeve
+      - uses: pulumi/actions@v6
+        with:
           pulumi-version: "3.231.0"
+      - run: reeve run preview --pr ${{ github.event.pull_request.number }}
+        working-directory: _src
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 ```
+
+A published Composite Action / release binary will replace the
+build-from-source pattern once reeve cuts its first release. For now
+the workflow above is what a real install looks like.
 
 Open a PR. reeve posts a comment within ~30 seconds showing the plan for
 every stack touched by the changed files.
@@ -247,19 +248,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
-        with:
-          command: "drift run"
-          extra-args: "--schedule prod"
+        with: { repository: FynxLabs/reeve, path: _reeve }
+      - uses: actions/checkout@v6
+        with: { path: _src }
+      - uses: actions/setup-go@v6
+        with: { go-version-file: _reeve/go.mod }
+      - run: go build -o /usr/local/bin/reeve ./cmd/reeve
+        working-directory: _reeve
+      - uses: pulumi/actions@v6
+        with: { pulumi-version: "3.231.0" }
+      - run: reeve drift run --schedule prod
+        working-directory: _src
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 ```
 
 Configure schedules + sinks in `.reeve/drift.yaml` — see [drift.md](drift.md).
 
 ## Troubleshooting
 
-- **`pulumi: executable file not found`** — the action's `pulumi-version`
-  input installs it for you. If you're running reeve in a custom job,
-  install Pulumi separately with `pulumi/actions@v6`.
+- **`pulumi: executable file not found`** — install Pulumi via
+  `pulumi/actions@v6` before running reeve in the same job.
 - **Comment keeps duplicating instead of editing in place** — reeve finds
   its comment by the hidden HTML marker `<!-- reeve:pr-comment:v1 -->`. If
   someone manually edited the comment and stripped the marker, reeve will

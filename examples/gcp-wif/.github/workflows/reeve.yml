@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
+      - uses: FynxLabs/reeve@main
         with:
           command: preview
           pulumi-version: "3.231.0"
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
+      - uses: FynxLabs/reeve@main
         with:
           command: apply
           pulumi-version: "3.231.0"

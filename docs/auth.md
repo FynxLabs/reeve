@@ -308,7 +308,7 @@ providers:
 In the workflow:
 
 ```yaml
-- uses: thefynx/reeve@v1
+- uses: FynxLabs/reeve@main
   env:
     MY_CUSTOM_SECRET: ${{ secrets.MY_CUSTOM_SECRET }}
 ```

@@ -175,7 +175,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
+      - uses: FynxLabs/reeve@main
         with:
           command: "drift run"
           extra-args: "--schedule critical"
@@ -185,7 +185,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
+      - uses: FynxLabs/reeve@main
         with:
           command: "drift run"
           extra-args: "--schedule slow-movers"
@@ -305,8 +305,8 @@ Payload shape:
 ```
 
 Named presets for `incident_io` / `rootly` / `opsgenie` are deliberately
-**not** shipped in v1. Template the payload in your webhook receiver
-instead — that's where the transformation logic belongs.
+**not** built in. Template the payload in your webhook receiver instead —
+that's where the transformation logic belongs.
 
 ### PagerDuty
 

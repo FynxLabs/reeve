@@ -39,20 +39,22 @@ Every arrow leaves your trust boundary. `reeve` holds nothing.
 
 ---
 
-## Quickstart
+## Status
+
+Pre-release. There is no published binary, no Homebrew tap, no GitHub
+Marketplace Action, and no container image yet. Run it from source:
 
 ```bash
-# Install via Homebrew
-brew install thefynx/tap/reeve
-
-# Or grab a signed release binary
-curl -fsSL https://github.com/thefynx/reeve/releases/latest/download/reeve_linux_amd64.tar.gz | tar xz
-
-# Verify
-reeve --version
+git clone https://github.com/FynxLabs/reeve
+cd reeve
+mise install         # go, golangci-lint, govulncheck, gosec, hk, goreleaser
+go build -o bin/reeve ./cmd/reeve
+./bin/reeve --help
 ```
 
-In your repo, create `.reeve/`:
+## Configure
+
+Create `.reeve/` in your repo:
 
 ```yaml
 # .reeve/shared.yaml
@@ -82,44 +84,11 @@ engine:
       stacks: [dev, staging, prod]
 ```
 
-Add a GitHub workflow:
+Then invoke via `go run` in a GitHub Actions job (or `./bin/reeve` after
+building). The composite Action at `action.yml` in this repo is intended
+for use once a release is cut — it is not published to the Marketplace.
 
-```yaml
-# .github/workflows/reeve.yml
-name: reeve
-on:
-  pull_request:
-  issue_comment:
-    types: [created]
-permissions:
-  contents: read
-  pull-requests: write
-  id-token: write # for OIDC federation
-jobs:
-  preview:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
-        with:
-          command: preview
-          pulumi-version: "3.231.0"
-  apply:
-    if: |
-      github.event_name == 'issue_comment' &&
-      startsWith(github.event.comment.body, '/reeve apply')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: thefynx/reeve@v1
-        with:
-          command: apply
-          pulumi-version: "3.231.0"
-```
-
-That's it. Open a PR and reeve will comment with the plan. Approve and
-comment `/reeve apply` to apply.
+Walk-through from here: [docs/getting-started.md](docs/getting-started.md).
 
 ## Local development
 
@@ -149,40 +118,42 @@ mise run release-check # goreleaser config validation
 - [Drift detection](docs/drift.md) — schedules, sinks, bootstrap modes
 - [Policy hooks](docs/policy-hooks.md) — OPA, Conftest, CrossGuard, custom
 - [Self-hosting](docs/self-hosting.md) — bucket choice, GH App, scope
-- [Design doc (retired)](docs/design/DESIGN.md) — the original vision
 - [Spec](openspec/specs/) — authoritative per-capability behavior
 
 ## Architecture at a glance
 
-```text
-┌──────────────────────────────────────────────────────────────────┐
-│                        CI Runner (GH Actions)                    │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │                       reeve (binary)                       │  │
-│  │                                                            │  │
-│  │   ┌──────────────────────────────────────────────────┐    │  │
-│  │   │                   Pure Core                      │    │  │
-│  │   │  stack discovery · rule resolver · lock FSM      │    │  │
-│  │   │  precondition eval · comment render · redact     │    │  │
-│  │   └──────────────────────────────────────────────────┘    │  │
-│  │                         │                                  │  │
-│  │   ┌─────────┬─────────┬─────────┬─────────┬─────────┬──────┐│  │
-│  │   ▼         ▼         ▼         ▼         ▼         ▼      ▼│  │
-│  │ IaC      VCS       Blob     Notify     Obs       Auth   Policy│
-│  │(Pulumi)(GitHub) (S3/GCS)   (Slack)   (OTEL)    (OIDC)  (hooks)│
-│  └────│────────│────────│────────│──────────│─────────│────────┘  │
-└──────│────────│────────│────────│──────────│─────────│──────────-┘
-       │        │        │        │          │         │
-       ▼        ▼        ▼        ▼          ▼         ▼
-   pulumi   GitHub    user's   Slack      user's    Cloud IAM
-    CLI      API     bucket     API       OTEL     (federated)
-                                         collector
+```mermaid
+flowchart TB
+  subgraph CI["CI Runner (GitHub Actions)"]
+    subgraph Reeve["reeve (binary)"]
+      Core["<b>Pure Core</b><br/>stack discovery · rule resolver · lock FSM<br/>precondition eval · comment render · redact"]
+      Core --> IaC["IaC<br/><i>Pulumi</i>"]
+      Core --> VCS["VCS<br/><i>GitHub</i>"]
+      Core --> Blob["Blob<br/><i>S3 / GCS / Azure</i>"]
+      Core --> Notify["Notify<br/><i>Slack</i>"]
+      Core --> Obs["Obs<br/><i>OTEL</i>"]
+      Core --> Auth["Auth<br/><i>OIDC / WIF / App</i>"]
+      Core --> Policy["Policy<br/><i>hooks</i>"]
+    end
+  end
+
+  IaC --> PulumiCLI(["pulumi CLI"])
+  VCS --> GitHubAPI(["GitHub API"])
+  Blob --> Bucket[("user's bucket")]
+  Notify --> SlackAPI(["Slack API"])
+  Obs --> OTELCollector(["user's OTEL collector"])
+  Auth --> CloudIAM(["Cloud IAM<br/>(federated)"])
+
+  classDef core fill:#e0f2fe,stroke:#0369a1,stroke-width:2px,color:#000;
+  classDef adapter fill:#f1f5f9,stroke:#475569,color:#000;
+  classDef ext fill:#fafafa,stroke:#94a3b8,stroke-dasharray:3 3,color:#000;
+  class Core core;
+  class IaC,VCS,Blob,Notify,Obs,Auth,Policy adapter;
+  class PulumiCLI,GitHubAPI,Bucket,SlackAPI,OTELCollector,CloudIAM ext;
 ```
 
-## Status
-
-**v1 shipped.** See [CHANGELOG](https://github.com/thefynx/reeve/releases) for
-release history. See [openspec/changes/](openspec/changes/) for proposed work.
+Every arrow leaves the `reeve` binary's trust boundary — the user owns
+everything it talks to.
 
 ## Contributing
 

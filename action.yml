@@ -5,6 +5,11 @@ branding:
   icon: shield
   color: blue
 
+# NOTE: This composite action is pre-release. It builds reeve from source
+# on every run (~30s for the first cache-miss, seconds after). When a
+# first release is cut, the install step will switch to downloading a
+# signed release tarball.
+
 inputs:
   command:
     description: >-
@@ -12,12 +17,12 @@ inputs:
       "locks list", etc. Multi-word commands are passed verbatim.
     required: true
     default: preview
-  version:
-    description: reeve version to install. "latest" pulls the latest release.
+  ref:
+    description: Git ref of FynxLabs/reeve to build from. Defaults to `main`.
     required: false
-    default: latest
+    default: main
   root:
-    description: Path to the repo root (where .reeve/ lives). Defaults to $GITHUB_WORKSPACE.
+    description: Path to the consumer repo root (where .reeve/ lives). Defaults to $GITHUB_WORKSPACE.
     required: false
     default: ""
   pulumi-version:
@@ -29,7 +34,7 @@ inputs:
     required: false
     default: ${{ github.token }}
   slack-token:
-    description: Slack bot OAuth token ($SLACK_BOT_TOKEN).
+    description: Slack bot OAuth token.
     required: false
     default: ""
   extra-args:
@@ -40,31 +45,32 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Checkout reeve source
+      uses: actions/checkout@v6
+      with:
+        repository: FynxLabs/reeve
+        ref: ${{ inputs.ref }}
+        path: _reeve
+
+    - name: Set up Go (from reeve's go.mod)
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: _reeve/go.mod
+        cache-dependency-path: _reeve/go.sum
+
+    - name: Build reeve
+      shell: bash
+      run: |
+        set -euo pipefail
+        go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/reeve-bin/reeve" ./cmd/reeve
+        echo "$RUNNER_TEMP/reeve-bin" >> "$GITHUB_PATH"
+      working-directory: _reeve
+
     - name: Install Pulumi CLI
       if: ${{ inputs.pulumi-version != '' }}
       uses: pulumi/actions@v6
       with:
         pulumi-version: ${{ inputs.pulumi-version }}
-
-    - name: Install reeve
-      shell: bash
-      run: |
-        set -euo pipefail
-        VERSION="${{ inputs.version }}"
-        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-        ARCH="$(uname -m)"
-        case "$ARCH" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; esac
-
-        if [ "$VERSION" = "latest" ]; then
-          VERSION=$(curl -sSL https://api.github.com/repos/thefynx/reeve/releases/latest | jq -r .tag_name)
-        fi
-        TARBALL="reeve_${VERSION#v}_${OS}_${ARCH}.tar.gz"
-        URL="https://github.com/thefynx/reeve/releases/download/${VERSION}/${TARBALL}"
-        echo "Fetching $URL"
-        curl -fsSL -o /tmp/reeve.tar.gz "$URL"
-        mkdir -p "$RUNNER_TEMP/reeve"
-        tar -xzf /tmp/reeve.tar.gz -C "$RUNNER_TEMP/reeve"
-        echo "$RUNNER_TEMP/reeve" >> "$GITHUB_PATH"
 
     - name: Run reeve
       shell: bash
@@ -80,7 +86,6 @@ runs:
         CMD="${{ inputs.command }}"
         EXTRA="${{ inputs.extra-args }}"
 
-        # PR-scoped commands auto-derive --pr from the event.
         case "$CMD" in
           preview|"run preview")
             if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
@@ -91,7 +96,8 @@ runs:
             fi
             ;;
           apply|"run apply")
-            PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH")
+            PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH" 2>/dev/null \
+              || jq -r .issue.number < "$GITHUB_EVENT_PATH")
             reeve run apply --pr "$PR_NUMBER" $EXTRA
             ;;
           *)

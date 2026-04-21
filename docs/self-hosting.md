@@ -25,15 +25,21 @@ binary is hermetic.
 
 Each arrow out of the reeve binary crosses **your** trust boundary:
 
-```text
- reeve binary (in your CI runner)
-       │
-       ├─▶ pulumi CLI  (runs in the same process)
-       ├─▶ GitHub API  (via $GITHUB_TOKEN or your GitHub App)
-       ├─▶ S3 / GCS / Azure / R2  (your bucket, your creds)
-       ├─▶ Slack API  (your bot token)
-       ├─▶ OTEL collector  (your endpoint)
-       └─▶ Cloud IAM  (federated credentials, 1h max)
+```mermaid
+flowchart LR
+  Reeve["<b>reeve binary</b><br/><i>in your CI runner</i>"]
+
+  Reeve -->|"same process"| Pulumi(["pulumi CLI"])
+  Reeve -->|"GITHUB_TOKEN or GitHub App"| GitHub(["GitHub API"])
+  Reeve -->|"your creds, your bucket"| Bucket[("S3 / GCS / Azure / R2")]
+  Reeve -->|"your bot token"| Slack(["Slack API"])
+  Reeve -->|"your endpoint"| OTEL(["OTEL collector"])
+  Reeve -->|"federated, 1h max"| IAM(["Cloud IAM"])
+
+  classDef reeve fill:#e0f2fe,stroke:#0369a1,stroke-width:2px,color:#000;
+  classDef ext fill:#fafafa,stroke:#94a3b8,stroke-dasharray:3 3,color:#000;
+  class Reeve reeve;
+  class Pulumi,GitHub,Bucket,Slack,OTEL,IAM ext;
 ```
 
 reeve never calls anything reeve-operated. There is nothing reeve-operated.
@@ -255,71 +261,25 @@ overriding the workflow's default token.
 
 ---
 
-## Distribution strategy
+## Distribution
 
-Options, roughly in order of how most teams adopt:
+reeve has not cut a release. The only supported distribution today is
+**build from source in CI** — clone `FynxLabs/reeve`, run
+`go build ./cmd/reeve`, invoke the resulting binary.
 
-1. **Use the prebuilt GitHub Action** (`thefynx/reeve@v1`). Pulls signed
-   release binaries, no build step in your workflow.
-2. **Pin to a release in your own fork.** Zero-trust of upstream
-   binaries at the cost of maintaining a fork.
-3. **Build from source in CI.** `go build ./cmd/reeve` in every run —
-   adds ~30s but gives you pinned source. Only recommended for very
-   security-sensitive deployments.
-4. **Self-host the binary.** Mirror release artifacts to your own
-   artifact store, distribute via your internal package manager
-   (Artifactory, Nexus, internal Homebrew tap).
-
-### Verifying release binaries
-
-Every release is signed via sigstore/cosign (keyless, Rekor-logged):
-
-```bash
-cosign verify-blob \
-  --certificate reeve_<version>_<os>_<arch>.tar.gz.sig.cert \
-  --signature reeve_<version>_<os>_<arch>.tar.gz.sig \
-  --certificate-identity-regexp 'https://github.com/thefynx/reeve/.*' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  reeve_<version>_<os>_<arch>.tar.gz
-```
-
-Checksums file (`checksums.txt`) is signed alongside the archives — verify
-once, then trust the hashes.
-
-### Homebrew tap
-
-```bash
-brew install thefynx/tap/reeve
-```
-
-The tap is pinned to the latest release. For a specific version:
-
-```bash
-brew install thefynx/tap/reeve@v1.2.3
-```
-
-### Container image
-
-Distroless, signed:
-
-```bash
-docker pull ghcr.io/thefynx/reeve:v1
-cosign verify ghcr.io/thefynx/reeve:v1 \
-  --certificate-identity-regexp 'https://github.com/thefynx/reeve/.*' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-```
-
-Useful for running reeve in non-Actions CI (GitLab, Buildkite, Jenkins).
+`.goreleaser.yaml`, the Homebrew formula block, the GHCR image pipeline,
+and the `cosign` signing steps are all wired up but haven't been run.
+When the first release is cut, signed release tarballs + a container
+image + a Homebrew tap will land; update this section at the same time.
 
 ---
 
 ## Upgrading
 
-### Binary / action version
+### Binary
 
-Pin the action to a major version (`thefynx/reeve@v1`) in your workflows.
-Breaking changes ship as a major bump and include a migration guide in
-the release notes.
+Until releases exist: `git pull` the reeve repo and rebuild. CI jobs
+that build from source pick up the new SHA on their next run.
 
 ### Config schema
 

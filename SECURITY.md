@@ -5,7 +5,7 @@
 **Do not open a public GitHub issue for security reports.**
 
 Use GitHub's private vulnerability reporting:
-<https://github.com/thefynx/reeve/security/advisories/new>.
+<https://github.com/FynxLabs/reeve/security/advisories/new>.
 
 Expect an acknowledgement within 72 hours. We aim to triage and respond
 with a remediation plan within 7 days of acknowledgement.
@@ -56,18 +56,9 @@ Out of scope:
 
 ## Supply-chain controls
 
-- **Signed releases.** All release artifacts are signed with
-  sigstore/cosign (keyless, Rekor-logged). Verify with:
-
-  ```bash
-  cosign verify-blob \
-    --certificate-identity-regexp 'https://github.com/thefynx/reeve/.*' \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --certificate <file>.cert \
-    --signature <file>.sig \
-    <file>
-  ```
-
+- **Release signing (planned, not shipped yet).** `.goreleaser.yaml`
+  wires sigstore/cosign keyless signing for when the first release is
+  cut. Pre-release, reeve is built from source only.
 - **Pinned third-party GitHub Actions.** The `.github/workflows/security.yml`
   job `action-pin-check` fails CI if a third-party action is referenced
   by tag instead of SHA.

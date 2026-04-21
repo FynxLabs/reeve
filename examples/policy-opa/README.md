@@ -27,7 +27,7 @@ steps:
   - uses: infracost/actions/setup@v4
     with:
       api-key: ${{ secrets.INFRACOST_API_KEY }}
-  - uses: thefynx/reeve@v1
+  - uses: FynxLabs/reeve@main
     with:
       command: apply
       pulumi-version: "3.231.0"
