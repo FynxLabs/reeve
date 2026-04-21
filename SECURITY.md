@@ -62,8 +62,7 @@ Out of scope:
 - **Vulnerability scanning on every PR:**
   - `govulncheck` — Go's reachability-aware vuln scanner against the
     official Go vulnerability database.
-  - `gosec` — static Go security analyzer (SARIF uploaded to GitHub code
-    scanning).
+  - `gosec` — static Go security analyzer.
   - `actions/dependency-review-action` — blocks PRs that introduce HIGH+
     CVEs in dependencies.
 - **Renovate auto-updates** — weekly PRs for module bumps + GitHub

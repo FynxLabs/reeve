@@ -58,17 +58,8 @@ jobs:
         uses: jdx/mise-action@v4
 
       - name: gosec
-        # Non-zero exits on findings; CI fails the job if gosec surfaces
-        # anything. Excludes docs / examples / openspec.
-        run: gosec -quiet -fmt=sarif -out=gosec.sarif -exclude=G104,G115,G204,G304,G703,G704 -exclude-dir=openspec -exclude-dir=docs -exclude-dir=examples ./...
-        continue-on-error: false
-
-      - name: Upload SARIF to code scanning
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: gosec.sarif
-          category: gosec
+        # Non-zero exit on findings; text output goes to the job log.
+        run: gosec -quiet -fmt=text -exclude=G104,G115,G204,G304,G703,G704 -exclude-dir=openspec -exclude-dir=docs -exclude-dir=examples ./...
 
   govet-extended:
     # Catches issues golangci-lint's vet settings sometimes miss.
