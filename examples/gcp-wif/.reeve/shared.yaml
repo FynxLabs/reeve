@@ -1,0 +1,37 @@
+version: 1
+config_type: shared
+
+bucket:
+  type: gcs
+  name: mycompany-reeve
+
+comments:
+  sort: status_grouped
+
+locking:
+  ttl: 4h
+  queue: fifo
+
+approvals:
+  sources:
+    - type: pr_review
+      enabled: true
+  default:
+    required_approvals: 1
+    approvers: ["@org/infra-reviewers"]
+    dismiss_on_new_commit: true
+  stacks:
+    "*/prod":
+      required_approvals: 2
+      approvers: ["@org/sre", "@org/security"]
+      require_all_groups: true
+
+preconditions:
+  require_up_to_date: true
+  require_checks_passing: true
+  preview_freshness: 2h
+
+apply:
+  trigger: comment
+  command: "/reeve apply"
+  allow_fork_prs: false

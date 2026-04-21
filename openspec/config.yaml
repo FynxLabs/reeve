@@ -1,0 +1,7 @@
+project: reeve
+description: PR-native, self-hosted GitOps orchestrator for Pulumi
+conventions:
+  commit_prefix: "spec:"
+  change_folder: openspec/changes
+  archive_folder: openspec/changes/archive
+  spec_folder: openspec/specs

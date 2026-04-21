@@ -1,0 +1,105 @@
+[tools]
+go = "1.26"
+goreleaser = "latest"
+golangci-lint = "latest"
+hk = "latest"
+pkl = "latest"
+"go:golang.org/x/vuln/cmd/govulncheck" = "latest"
+"go:github.com/securego/gosec/v2/cmd/gosec" = "latest"
+"npm:@fission-ai/openspec" = "latest"
+
+[env]
+HK_MISE = "1"
+# CGO stays at its default (enabled) so `go test -race` works locally.
+# Release binaries force CGO_ENABLED=0 in .goreleaser.yaml for static linking.
+
+[hooks]
+postinstall = """
+  # Install git hooks (pre-commit, pre-push, check) defined in hk.pkl.
+  hk install --mise || true
+
+  # Initialize or update the OpenSpec scaffold.
+  if [ ! -d openspec ]; then
+    openspec init --tools claude
+  else
+    openspec update
+  fi
+"""
+
+# ── build ──────────────────────────────────────────────────────────────
+
+[tasks.build]
+run = "go build -o bin/reeve ./cmd/reeve"
+description = "Build reeve binary to bin/reeve"
+
+[tasks.build-release]
+run = "go build -trimpath -ldflags='-s -w -X main.version=$(git describe --tags --always --dirty)' -o bin/reeve ./cmd/reeve"
+description = "Build optimized release binary (trimpath + stripped)"
+
+# ── run ────────────────────────────────────────────────────────────────
+
+[tasks.run]
+run = "go run ./cmd/reeve"
+description = "Build and run reeve (pass args via: mise run run -- lint)"
+
+[tasks.demo]
+run = "cd examples/toy-stack && go run ../../cmd/reeve plan-run --sha demo --run-number 1"
+description = "Run plan-run against the toy-stack example"
+
+# ── test / lint ────────────────────────────────────────────────────────
+
+[tasks.test]
+run = "go test -race ./..."
+description = "Run all tests with the race detector"
+
+[tasks."test:golden"]
+run = "go test ./internal/core/render/ -update"
+description = "Regenerate golden files (internal/core/render/testdata)"
+
+[tasks.fmt]
+run = "go fmt ./..."
+description = "Format Go source"
+
+[tasks.vet]
+run = "go vet ./..."
+description = "Run go vet"
+
+[tasks.lint]
+run = "golangci-lint run"
+description = "Run golangci-lint (enforces internal/core/* purity via depguard)"
+
+[tasks.vuln]
+run = "govulncheck ./..."
+description = "Go vulnerability scanner (Go standard library + dependencies)"
+
+[tasks.sec]
+run = "gosec -quiet -fmt=text -exclude=G104,G115,G204,G304,G703,G704 -exclude-dir=openspec -exclude-dir=docs -exclude-dir=examples ./..."
+description = "Static security analyzer for Go (gosec)"
+
+[tasks.check]
+depends = ["fmt", "vet", "lint", "vuln", "sec", "test"]
+description = "Format, vet, lint, vuln-scan, sec-scan, and test — run before pushing"
+
+[tasks.hooks]
+run = "hk run check"
+description = "Run the hk `check` hook (fmt + lint + vuln + sec + test)"
+
+# ── release ────────────────────────────────────────────────────────────
+
+[tasks.release-snapshot]
+run = "goreleaser release --snapshot --clean"
+description = "Local snapshot build via goreleaser (no upload)"
+
+[tasks.release-check]
+run = "goreleaser check"
+description = "Validate the goreleaser config"
+
+# ── maintenance ────────────────────────────────────────────────────────
+
+[tasks.tidy]
+run = "go mod tidy"
+description = "Tidy go.mod / go.sum"
+
+[tasks.clean]
+run = "rm -rf bin/ dist/"
+description = "Remove build artifacts"

@@ -1,0 +1,124 @@
+version: 2
+
+project_name: reeve
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: reeve
+    main: ./cmd/reeve
+    binary: reeve
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    builds: [reeve]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - CONTRIBUTING.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+signs:
+  # cosign keyless — requires sigstore/cosign-installer in the release workflow
+  # and OIDC-enabled GH Actions.
+  - cmd: cosign
+    stdin: "{{ .Env.COSIGN_PASSWORD }}"
+    args:
+      - sign-blob
+      - "--yes"
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-dev"
+
+changelog:
+  use: github-native
+  sort: asc
+
+release:
+  github:
+    owner: thefynx
+    name: reeve
+  draft: true
+  replace_existing_draft: true
+  prerelease: auto
+  header: |
+    # reeve {{ .Version }}
+
+    PR-native, self-hosted GitOps orchestrator for Pulumi. No control plane,
+    no telemetry, MIT-licensed.
+
+brews:
+  - name: reeve
+    repository:
+      owner: thefynx
+      name: homebrew-tap
+    directory: Formula
+    homepage: "https://github.com/thefynx/reeve"
+    description: "PR-native, self-hosted GitOps orchestrator for Pulumi"
+    license: MIT
+    test: |
+      system "#{bin}/reeve --version"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/thefynx/reeve:{{ .Tag }}-amd64"
+      - "ghcr.io/thefynx/reeve:v{{ .Major }}-amd64"
+      - "ghcr.io/thefynx/reeve:latest-amd64"
+    dockerfile: Dockerfile.release
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/thefynx/reeve"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+  - image_templates:
+      - "ghcr.io/thefynx/reeve:{{ .Tag }}-arm64"
+      - "ghcr.io/thefynx/reeve:v{{ .Major }}-arm64"
+      - "ghcr.io/thefynx/reeve:latest-arm64"
+    dockerfile: Dockerfile.release
+    use: buildx
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/thefynx/reeve"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.licenses=MIT"
+
+docker_manifests:
+  - name_template: "ghcr.io/thefynx/reeve:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/thefynx/reeve:{{ .Tag }}-amd64"
+      - "ghcr.io/thefynx/reeve:{{ .Tag }}-arm64"
+  - name_template: "ghcr.io/thefynx/reeve:latest"
+    image_templates:
+      - "ghcr.io/thefynx/reeve:latest-amd64"
+      - "ghcr.io/thefynx/reeve:latest-arm64"

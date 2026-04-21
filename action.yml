@@ -1,0 +1,100 @@
+name: reeve
+description: PR-native, self-hosted GitOps orchestrator for Pulumi
+author: reeve contributors
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  command:
+    description: >-
+      reeve subcommand: "preview", "apply", "lint", "stacks", "drift run",
+      "locks list", etc. Multi-word commands are passed verbatim.
+    required: true
+    default: preview
+  version:
+    description: reeve version to install. "latest" pulls the latest release.
+    required: false
+    default: latest
+  root:
+    description: Path to the repo root (where .reeve/ lives). Defaults to $GITHUB_WORKSPACE.
+    required: false
+    default: ""
+  pulumi-version:
+    description: Version of the Pulumi CLI to install. Leave blank to skip.
+    required: false
+    default: ""
+  github-token:
+    description: GitHub token (needs issues:write to upsert PR comment).
+    required: false
+    default: ${{ github.token }}
+  slack-token:
+    description: Slack bot OAuth token ($SLACK_BOT_TOKEN).
+    required: false
+    default: ""
+  extra-args:
+    description: Additional args passed verbatim to the reeve subcommand.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install Pulumi CLI
+      if: ${{ inputs.pulumi-version != '' }}
+      uses: pulumi/actions@v5
+      with:
+        pulumi-version: ${{ inputs.pulumi-version }}
+
+    - name: Install reeve
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ inputs.version }}"
+        OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        ARCH="$(uname -m)"
+        case "$ARCH" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; esac
+
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(curl -sSL https://api.github.com/repos/thefynx/reeve/releases/latest | jq -r .tag_name)
+        fi
+        TARBALL="reeve_${VERSION#v}_${OS}_${ARCH}.tar.gz"
+        URL="https://github.com/thefynx/reeve/releases/download/${VERSION}/${TARBALL}"
+        echo "Fetching $URL"
+        curl -fsSL -o /tmp/reeve.tar.gz "$URL"
+        mkdir -p "$RUNNER_TEMP/reeve"
+        tar -xzf /tmp/reeve.tar.gz -C "$RUNNER_TEMP/reeve"
+        echo "$RUNNER_TEMP/reeve" >> "$GITHUB_PATH"
+
+    - name: Run reeve
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        SLACK_BOT_TOKEN: ${{ inputs.slack-token }}
+      run: |
+        set -euo pipefail
+        ROOT="${{ inputs.root }}"
+        if [ -z "$ROOT" ]; then ROOT="$GITHUB_WORKSPACE"; fi
+        cd "$ROOT"
+
+        CMD="${{ inputs.command }}"
+        EXTRA="${{ inputs.extra-args }}"
+
+        # PR-scoped commands auto-derive --pr from the event.
+        case "$CMD" in
+          preview|"run preview")
+            if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+              PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH")
+              reeve run preview --pr "$PR_NUMBER" $EXTRA
+            else
+              reeve run preview --local $EXTRA
+            fi
+            ;;
+          apply|"run apply")
+            PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH")
+            reeve run apply --pr "$PR_NUMBER" $EXTRA
+            ;;
+          *)
+            reeve $CMD $EXTRA
+            ;;
+        esac

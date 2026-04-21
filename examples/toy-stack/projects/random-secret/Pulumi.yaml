@@ -1,0 +1,3 @@
+name: random-secret
+runtime: nodejs
+description: toy project that generates a RandomPassword

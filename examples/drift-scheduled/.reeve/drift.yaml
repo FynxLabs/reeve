@@ -1,0 +1,60 @@
+version: 1
+config_type: drift
+
+scope:
+  include_patterns: ["prod/*", "staging/*"]
+  exclude_patterns: ["*/scratch"]
+
+behavior:
+  refresh_before_check: true
+  max_parallel_stacks: 8
+  timeout_per_stack: 15m
+  retry_on_transient_error: 2
+  exit_on:
+    drift_detected: false
+    drift_ongoing: false
+    run_error: true
+  state_bootstrap:
+    mode: require_manual    # flip to "baseline" for first run, then back
+    baseline_max_age: 7d
+
+classification:
+  ignore_properties:
+    - resource_type: "aws:ec2/instance:Instance"
+      properties: ["tags.LastScanned"]
+  treat_as_drift:
+    orphaned_state: true
+    missing_state: true
+
+freshness:
+  enabled: true
+  window: 4h
+  respect_failures: true
+
+schedules:
+  critical:
+    patterns: ["prod/payments", "prod/auth"]
+  prod:
+    patterns: ["prod/*"]
+    exclude_patterns: ["prod/payments", "prod/auth"]
+  slow-movers:
+    patterns: ["dev/*", "experiments/*"]
+
+sinks:
+  - type: slack
+    channel: "#infra-drift"
+    on: [drift_detected, drift_resolved, check_failed]
+    grouping: by_environment
+
+  - type: pagerduty
+    integration_key: ${env:PD_CHANGE_EVENTS_KEY}
+    on: [drift_detected, drift_resolved]
+    severity_map:
+      prod: error
+      staging: warning
+      dev: info
+
+  - type: github_issue
+    on: [drift_detected, drift_resolved]
+    labels: [drift, infra]
+    assignees: ["@org/sre"]

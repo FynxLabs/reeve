@@ -1,0 +1,24 @@
+version: 1
+config_type: engine
+
+engine:
+  type: pulumi
+
+  state:
+    backend: gcs
+    url: gs://mycompany-pulumi-state
+    secrets_provider:
+      type: gcpkms
+      key: projects/mycompany-prod/locations/global/keyRings/reeve/cryptoKeys/secrets
+
+  stacks:
+    - pattern: "projects/*"
+      stacks: [dev, staging, prod]
+
+  change_mapping:
+    ignore_changes:
+      - "**/*.md"
+
+  execution:
+    max_parallel_stacks: 4
+    preview_timeout: 10m

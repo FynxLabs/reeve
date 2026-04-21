@@ -1,0 +1,36 @@
+version: 1
+config_type: shared
+
+bucket:
+  type: s3
+  name: mycompany-reeve
+  region: us-east-1
+
+locking:
+  ttl: 4h
+  queue: fifo
+
+approvals:
+  default:
+    required_approvals: 1
+    approvers: ["@org/infra-reviewers"]
+    codeowners: true
+    dismiss_on_new_commit: true
+  stacks:
+    "*/prod":
+      required_approvals: 2
+      approvers: ["@org/sre", "@org/security"]
+      require_all_groups: true
+    "*/prod/payments":
+      required_approvals: 3
+      approvers: ["@org/sre", "@org/security", "@org/payments-leads"]
+      require_all_groups: true
+
+preconditions:
+  require_up_to_date: true
+  require_checks_passing: true
+  preview_freshness: 2h
+
+apply:
+  command: "/reeve apply"
+  allow_fork_prs: false

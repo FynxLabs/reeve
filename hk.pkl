@@ -1,0 +1,76 @@
+amends "package://github.com/jdx/hk/releases/download/v1.41.0/hk@1.41.0#/Config.pkl"
+
+import "package://github.com/jdx/hk/releases/download/v1.41.0/hk@1.41.0#/Builtins.pkl" as builtins
+
+// Linters — fast, fix-on-pre-commit where safe.
+local linters = new Mapping<String, Step> {
+  ["go-fmt"] = builtins.go_fmt
+  ["go-vet"] = builtins.go_vet
+  ["golangci-lint"] {
+    glob = List("*.go")
+    check = "golangci-lint run"
+    fix = "golangci-lint run --fix"
+    exclusive = true
+  }
+}
+
+// Security gates — fail pre-push if the project has known CVEs or common
+// Go anti-patterns that turn into vulns.
+local security = new Mapping<String, Step> {
+  ["govulncheck"] {
+    check = "govulncheck ./..."
+    exclusive = true
+  }
+  ["gosec"] {
+    // Excluded rules:
+    //   G104 — unhandled errors; errcheck already covers this with our
+    //          Go-convention excludes (deferred Close, fmt.Fprint*).
+    //   G115 — uintptr→int for flock fd; standard Go syscall pattern.
+    //   G204 — subprocess with "tainted" arg. Reeve intentionally runs
+    //          user-configured binaries (pulumi) with user-declared stack
+    //          names. exec.Command uses argv (no shell expansion).
+    //   G304 — file inclusion via variable. Reeve's whole job is reading
+    //          user-configured .reeve/ + bucket paths. Filesystem adapter
+    //          validates against escape-root.
+    //   G703 — path traversal via taint. Same rationale.
+    //   G704 — SSRF via taint on GitHub OIDC endpoint. That URL IS the
+    //          supported federation API; the env var comes from GH Actions.
+    check = "gosec -quiet -fmt=text -exclude=G104,G115,G204,G304,G703,G704 -exclude-dir=openspec -exclude-dir=docs -exclude-dir=examples ./..."
+    exclusive = true
+  }
+}
+
+local tests = new Mapping<String, Step> {
+  ["go-test"] {
+    check = "go test -race ./..."
+    exclusive = true
+  }
+}
+
+hooks {
+  // pre-commit: fast, auto-fix formatting, block on lint errors.
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = linters
+  }
+
+  // pre-push: tests + security. Slower but catches real issues before
+  // they hit CI.
+  ["pre-push"] {
+    steps = (tests) {
+      ["govulncheck"] = security["govulncheck"]
+      ["gosec"] = security["gosec"]
+    }
+  }
+
+  // manual: `hk run check` triggers everything.
+  ["check"] {
+    fix = true
+    steps = (linters) {
+      ["govulncheck"] = security["govulncheck"]
+      ["gosec"] = security["gosec"]
+      ["go-test"] = tests["go-test"]
+    }
+  }
+}

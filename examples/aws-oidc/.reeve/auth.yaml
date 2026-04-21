@@ -1,0 +1,32 @@
+version: 1
+config_type: auth
+
+providers:
+  # Write-capable role for preview + apply.
+  aws-prod:
+    type: aws_oidc
+    role_arn: arn:aws:iam::111111111111:role/reeve-prod
+    session_name: reeve-${context:pr_number}
+    duration: 1h
+    region: us-east-1
+
+  # Read-only role for scheduled drift checks.
+  aws-prod-readonly:
+    type: aws_oidc
+    role_arn: arn:aws:iam::111111111111:role/reeve-drift-readonly
+    duration: 2h
+    region: us-east-1
+
+  # Separate role for reading the Pulumi state bucket — keeps blast
+  # radius on the stack role tight.
+  aws-state:
+    type: aws_oidc
+    role_arn: arn:aws:iam::111111111111:role/reeve-state-read
+    region: us-east-1
+
+bindings:
+  - match: { stack: "**" }
+    providers: [aws-prod]
+
+  - match: { stack: "**", mode: drift }
+    providers: [aws-prod-readonly]

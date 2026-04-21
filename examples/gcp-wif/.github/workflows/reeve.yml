@@ -1,0 +1,39 @@
+name: reeve
+
+on:
+  pull_request:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: reeve-${{ github.event.pull_request.number || github.event.issue.number }}
+
+jobs:
+  preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: thefynx/reeve@v1
+        with:
+          command: preview
+          pulumi-version: "3.150.0"
+
+  apply:
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/reeve apply')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: thefynx/reeve@v1
+        with:
+          command: apply
+          pulumi-version: "3.150.0"

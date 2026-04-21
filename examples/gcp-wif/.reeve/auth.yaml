@@ -1,0 +1,22 @@
+version: 1
+config_type: auth
+
+providers:
+  gcp-prod:
+    type: gcp_wif
+    workload_identity_provider: projects/111/locations/global/workloadIdentityPools/github/providers/reeve
+    service_account: reeve-prod@mycompany-prod.iam.gserviceaccount.com
+    duration: 1h
+
+  gcp-prod-readonly:
+    type: gcp_wif
+    workload_identity_provider: projects/111/locations/global/workloadIdentityPools/github/providers/reeve
+    service_account: reeve-drift-readonly@mycompany-prod.iam.gserviceaccount.com
+    duration: 2h
+
+bindings:
+  - match: { stack: "**" }
+    providers: [gcp-prod]
+
+  - match: { stack: "**", mode: drift }
+    providers: [gcp-prod-readonly]

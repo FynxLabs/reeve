@@ -1,0 +1,63 @@
+{
+  "run_id": "run-200-v1compl",
+  "pr": 0,
+  "commit_sha": "v1complete",
+  "op": "preview",
+  "created_at": "2026-04-21T13:02:59Z",
+  "stacks": [
+    {
+      "Project": "random-name",
+      "Stack": "dev",
+      "Env": "dev",
+      "Counts": {
+        "Add": 0,
+        "Change": 0,
+        "Delete": 0,
+        "Replace": 0
+      },
+      "Status": "error",
+      "BlockedBy": 0,
+      "Error": "exec: \"pulumi\": executable file not found in $PATH",
+      "FullPlan": "",
+      "PlanSummary": "",
+      "DurationMS": 0,
+      "Gates": null
+    },
+    {
+      "Project": "random-name",
+      "Stack": "prod",
+      "Env": "prod",
+      "Counts": {
+        "Add": 0,
+        "Change": 0,
+        "Delete": 0,
+        "Replace": 0
+      },
+      "Status": "error",
+      "BlockedBy": 0,
+      "Error": "exec: \"pulumi\": executable file not found in $PATH",
+      "FullPlan": "",
+      "PlanSummary": "",
+      "DurationMS": 0,
+      "Gates": null
+    },
+    {
+      "Project": "random-secret",
+      "Stack": "dev",
+      "Env": "dev",
+      "Counts": {
+        "Add": 0,
+        "Change": 0,
+        "Delete": 0,
+        "Replace": 0
+      },
+      "Status": "error",
+      "BlockedBy": 0,
+      "Error": "exec: \"pulumi\": executable file not found in $PATH",
+      "FullPlan": "",
+      "PlanSummary": "",
+      "DurationMS": 0,
+      "Gates": null
+    }
+  ]
+}

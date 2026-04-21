@@ -1,0 +1,2 @@
+config:
+  random-secret:length: "16"

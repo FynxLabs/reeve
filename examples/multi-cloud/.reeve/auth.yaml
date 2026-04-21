@@ -1,0 +1,74 @@
+version: 1
+config_type: auth
+
+providers:
+  # ── AWS ──────────────────────────────────────────────────────────
+  aws-prod:
+    type: aws_oidc
+    role_arn: arn:aws:iam::111111111111:role/reeve-prod
+    region: us-east-1
+    duration: 1h
+
+  aws-prod-readonly:
+    type: aws_oidc
+    role_arn: arn:aws:iam::111111111111:role/reeve-drift-readonly
+    region: us-east-1
+
+  # Tighter role for payments — replaces aws-prod on that stack.
+  aws-payments-strict:
+    type: aws_oidc
+    role_arn: arn:aws:iam::222222222222:role/reeve-payments
+    region: us-east-1
+    duration: 30m
+
+  # ── GCP ──────────────────────────────────────────────────────────
+  gcp-prod:
+    type: gcp_wif
+    workload_identity_provider: projects/333/locations/global/workloadIdentityPools/github/providers/reeve
+    service_account: reeve-prod@mycompany-prod.iam.gserviceaccount.com
+    duration: 1h
+
+  gcp-prod-readonly:
+    type: gcp_wif
+    workload_identity_provider: projects/333/locations/global/workloadIdentityPools/github/providers/reeve
+    service_account: reeve-drift-readonly@mycompany-prod.iam.gserviceaccount.com
+
+  # ── Secret manager sourced ───────────────────────────────────────
+  cloudflare-token:
+    type: aws_secrets_manager
+    source: aws-prod
+    secret_id: reeve/cloudflare/api-token
+    region: us-east-1
+    ttl: 1h
+
+  datadog-key:
+    type: aws_ssm_parameter
+    source: aws-prod
+    parameter: /reeve/datadog/api-key
+    region: us-east-1
+
+  # ── GitHub App ───────────────────────────────────────────────────
+  github-app:
+    type: github_app
+    app_id: ${env:GITHUB_APP_ID}
+    installation_id: ${env:GITHUB_APP_INSTALLATION_ID}
+    private_key: ${env:GITHUB_APP_PRIVATE_KEY}
+    permissions: ["contents:read", "issues:write", "pull_requests:write"]
+
+bindings:
+  # Baseline: every stack uses the GitHub App.
+  - match: { stack: "**" }
+    providers: [github-app]
+
+  # Prod stacks: AWS + GCP + external service tokens.
+  - match: { stack: "*/prod" }
+    providers: [aws-prod, gcp-prod, cloudflare-token, datadog-key]
+
+  # Payments stack: override AWS with tighter role (still unions with
+  # gcp-prod + cloudflare-token + datadog-key from the broader binding).
+  - match: { stack: "*/prod/payments" }
+    override: [aws-payments-strict]
+
+  # Drift uses read-only AWS + GCP; no external service tokens needed.
+  - match: { stack: "*/prod", mode: drift }
+    providers: [aws-prod-readonly, gcp-prod-readonly]

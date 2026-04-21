@@ -1,0 +1,25 @@
+version: 1
+config_type: engine
+
+engine:
+  type: pulumi
+  binary:
+    path: pulumi
+
+  stacks:
+    - pattern: "projects/*"
+      stacks: [dev, staging, prod]
+    - project: payments
+      path: projects/payments
+      stacks: [prod]
+    - project: auth
+      path: projects/auth
+      stacks: [prod]
+
+  change_mapping:
+    ignore_changes:
+      - "**/*.md"
+
+  execution:
+    max_parallel_stacks: 8
+    preview_timeout: 15m

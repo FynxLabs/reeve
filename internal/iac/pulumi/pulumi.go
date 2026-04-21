@@ -1,0 +1,236 @@
+package pulumi
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/thefynx/reeve/internal/core/discovery"
+	"github.com/thefynx/reeve/internal/iac"
+)
+
+// Engine is the Pulumi iac.Engine adapter. Shells out to the pulumi CLI.
+type Engine struct {
+	Binary string // path to pulumi binary (default: "pulumi")
+}
+
+// New returns an Engine with defaults.
+func New(binary string) *Engine {
+	if binary == "" {
+		binary = "pulumi"
+	}
+	return &Engine{Binary: binary}
+}
+
+func (e *Engine) Name() string { return "pulumi" }
+
+func (e *Engine) Capabilities() iac.Capabilities {
+	return iac.Capabilities{
+		SupportsSavedPlans:   true,
+		SupportsRefresh:      true,
+		SupportsPolicyNative: true,
+	}
+}
+
+// projectYAML is the minimum we parse from Pulumi.yaml.
+type projectYAML struct {
+	Name string `yaml:"name"`
+}
+
+// EnumerateStacks walks root looking for Pulumi.yaml files. For each,
+// it records (project=<name>, path=<dir>) and enumerates stacks from
+// sibling Pulumi.<stack>.yaml files.
+func (e *Engine) EnumerateStacks(ctx context.Context, root string) ([]discovery.Stack, error) {
+	var out []discovery.Stack
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// Skip common noise dirs.
+			name := d.Name()
+			if name == "node_modules" || name == ".git" || name == "venv" || name == ".venv" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "Pulumi.yaml" && d.Name() != "Pulumi.yml" {
+			return nil
+		}
+		dir := filepath.Dir(path)
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+
+		project, err := readProjectName(path)
+		if err != nil {
+			return err
+		}
+		stackNames, err := stackNamesIn(dir)
+		if err != nil {
+			return err
+		}
+		for _, name := range stackNames {
+			out = append(out, discovery.Stack{
+				Project: project,
+				Path:    rel,
+				Name:    name,
+				Env:     envGuess(name),
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref() < out[j].Ref() })
+	return out, nil
+}
+
+func readProjectName(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var p projectYAML
+	if err := yaml.Unmarshal(data, &p); err != nil {
+		return "", err
+	}
+	if p.Name == "" {
+		return filepath.Base(filepath.Dir(path)), nil
+	}
+	return p.Name, nil
+}
+
+func stackNamesIn(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if !strings.HasPrefix(n, "Pulumi.") {
+			continue
+		}
+		if n == "Pulumi.yaml" || n == "Pulumi.yml" {
+			continue
+		}
+		// "Pulumi.<name>.yaml" or ".yml"
+		trimmed := strings.TrimSuffix(strings.TrimSuffix(n, ".yml"), ".yaml")
+		trimmed = strings.TrimPrefix(trimmed, "Pulumi.")
+		if trimmed == "" {
+			continue
+		}
+		names = append(names, trimmed)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+func envGuess(stackName string) string {
+	// Convention: if the stack name starts with an env prefix like
+	// "prod/" or contains "-prod", use that. Otherwise the stack name is
+	// itself the env. Good enough for Phase 1 rendering.
+	if idx := strings.IndexAny(stackName, "/-"); idx > 0 {
+		return stackName[:idx]
+	}
+	return stackName
+}
+
+// Preview runs `pulumi preview --json` for a single stack. The stack's
+// path is used as cwd. Errors running the CLI are returned; non-zero exit
+// with parseable JSON is treated as "preview failed" (populated Error on
+// the result).
+func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.PreviewOpts) (iac.PreviewResult, error) {
+	cwd := opts.Cwd
+	if cwd == "" {
+		cwd = stack.Path
+	}
+
+	args := []string{"preview", "--stack", stack.Name, "--json", "--non-interactive"}
+	args = append(args, opts.ExtraArgs...)
+
+	timeout := time.Duration(opts.TimeoutSec) * time.Second
+	if timeout == 0 {
+		timeout = 10 * time.Minute
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(runCtx, e.Binary, args...)
+	cmd.Dir = cwd
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), flattenEnv(opts.Env)...)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	out := stdout.Bytes()
+
+	// If stdout has JSON, parse regardless of exit code — Pulumi emits
+	// the plan JSON even on non-fatal errors.
+	if len(bytes.TrimSpace(out)) > 0 && out[0] == '{' {
+		counts, short, diagErr, parseErr := parsePreview(out)
+		if parseErr == nil {
+			res := iac.PreviewResult{
+				Counts:      counts,
+				PlanSummary: short,
+				FullPlan:    stderr.String() + string(out),
+			}
+			if diagErr != "" {
+				res.Error = diagErr
+			} else if runErr != nil {
+				res.Error = runErr.Error()
+			}
+			return res, nil
+		}
+	}
+
+	// No parseable stdout — bubble up stderr as error.
+	msg := strings.TrimSpace(stderr.String())
+	if msg == "" && runErr != nil {
+		msg = runErr.Error()
+	}
+	if msg == "" {
+		msg = "pulumi preview produced no output"
+	}
+	return iac.PreviewResult{
+		Error:    msg,
+		FullPlan: stderr.String() + string(out),
+	}, nil
+}
+
+func flattenEnv(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k, v := range m {
+		out = append(out, fmt.Sprintf("%s=%s", k, v))
+	}
+	return out
+}
+
+// compile-time checks
+var (
+	_ iac.Enumerator = (*Engine)(nil)
+	_ iac.Previewer  = (*Engine)(nil)
+)
+
+// ErrNoPulumi is returned if the Pulumi binary is not on PATH.
+var ErrNoPulumi = errors.New("pulumi binary not found on PATH")

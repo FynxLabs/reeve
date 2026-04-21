@@ -1,0 +1,51 @@
+version: 1
+config_type: shared
+
+bucket:
+  type: s3
+  name: mycompany-reeve
+  region: us-east-1
+
+comments:
+  sort: status_grouped
+  collapse_threshold: 10
+  show_gates: true
+
+locking:
+  ttl: 4h
+  queue: fifo
+  admin_override:
+    allowed: ["@org/sre-leads"]
+    requires_reason: true
+
+approvals:
+  sources:
+    - type: pr_review
+      enabled: true
+  default:
+    required_approvals: 1
+    approvers: ["@org/infra-reviewers"]
+    codeowners: true
+    dismiss_on_new_commit: true
+  stacks:
+    "*/prod":
+      required_approvals: 2
+      approvers: ["@org/sre", "@org/security"]
+      require_all_groups: true
+
+preconditions:
+  require_up_to_date: true
+  require_checks_passing: true
+  preview_freshness: 2h
+  preview_max_commits_behind: 5
+
+freeze_windows:
+  - name: friday-afternoon
+    cron: "0 15 * * 5"
+    duration: 65h
+    stacks: ["*/prod"]
+
+apply:
+  trigger: comment
+  command: "/reeve apply"
+  allow_fork_prs: false

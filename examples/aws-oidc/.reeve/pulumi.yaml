@@ -1,0 +1,36 @@
+version: 1
+config_type: engine
+
+engine:
+  type: pulumi
+  binary:
+    path: pulumi
+
+  state:
+    backend: s3
+    url: s3://mycompany-pulumi-state
+    auth_provider: aws-state
+    secrets_provider:
+      type: awskms
+      key: arn:aws:kms:us-east-1:111111111111:key/abc-123-def
+
+  stacks:
+    - pattern: "projects/*"
+      stacks: [dev, staging, prod]
+
+  filters:
+    exclude:
+      - "projects/sandbox/**"
+
+  change_mapping:
+    ignore_changes:
+      - "**/*.md"
+      - "**/node_modules/**"
+    extra_triggers:
+      - project: api
+        paths: ["shared/types/**"]
+
+  execution:
+    max_parallel_stacks: 4
+    preview_timeout: 10m
+    apply_timeout: 30m

@@ -1,0 +1,10 @@
+{
+  "name": "random-secret",
+  "devDependencies": {
+    "@types/node": "^20"
+  },
+  "dependencies": {
+    "@pulumi/pulumi": "^3.150.0",
+    "@pulumi/random": "^4.16.0"
+  }
+}
