@@ -100,22 +100,22 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: thefynx/reeve@v1
         with:
           command: preview
-          pulumi-version: "3.150.0"
+          pulumi-version: "3.231.0"
   apply:
     if: |
       github.event_name == 'issue_comment' &&
       startsWith(github.event.comment.body, '/reeve apply')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: thefynx/reeve@v1
         with:
           command: apply
-          pulumi-version: "3.150.0"
+          pulumi-version: "3.231.0"
 ```
 
 That's it. Open a PR and reeve will comment with the plan. Approve and

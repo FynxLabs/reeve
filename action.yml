@@ -42,7 +42,7 @@ runs:
   steps:
     - name: Install Pulumi CLI
       if: ${{ inputs.pulumi-version != '' }}
-      uses: pulumi/actions@v5
+      uses: pulumi/actions@v6
       with:
         pulumi-version: ${{ inputs.pulumi-version }}
 

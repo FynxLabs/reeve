@@ -50,11 +50,34 @@ into `openspec/specs/`.
 
 ## Code
 
-- Go 1.23+ (ensure `go version` matches `go.mod`).
-- `go test ./...` green.
-- `go vet ./...` clean.
-- `golangci-lint run` clean — see `.golangci.yml`.
+- Go toolchain matching the `go` directive in `go.mod` — `mise install` handles it.
+- `mise run check` green (fmt + vet + lint + vuln + sec + test).
 - Golden-file tests for anything rendered (PR comments, drift reports,
   Slack blocks).
 - AI-generated code is welcome per OpenSpec convention; note the agent
   and model in the PR description.
+
+## Dev setup
+
+```bash
+mise install      # installs go, golangci-lint, govulncheck, gosec, hk,
+                  # pkl, goreleaser, openspec — plus wires git hooks
+mise run check    # one-shot: fmt + vet + lint + vuln + sec + test
+```
+
+Git hooks installed by `mise install` via the `postinstall` hook in
+`mise.toml` → `hk install --mise`. Hooks defined in `hk.pkl`:
+
+- **pre-commit:** `go fmt`, `go vet`, `golangci-lint --fix`
+- **pre-push:** `go test -race`, `govulncheck`, `gosec`
+
+### First push on a fresh clone
+
+hk's pre-push diffs against `refs/remotes/origin/HEAD`, which doesn't
+exist until the remote has an upstream branch. On a brand-new repo:
+
+```bash
+git push --no-verify                  # bypass hk for the initial push
+git remote set-head origin --auto     # seed origin/HEAD
+git push                              # subsequent pushes run hooks cleanly
+```

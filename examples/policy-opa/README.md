@@ -22,15 +22,15 @@ Install Conftest + Infracost in the workflow:
 
 ```yaml
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v6
   - uses: instrumenta/conftest-action@master
-  - uses: infracost/actions/setup@v3
+  - uses: infracost/actions/setup@v4
     with:
       api-key: ${{ secrets.INFRACOST_API_KEY }}
   - uses: thefynx/reeve@v1
     with:
       command: apply
-      pulumi-version: "3.150.0"
+      pulumi-version: "3.231.0"
 ```
 
 ## How it fires

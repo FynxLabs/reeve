@@ -126,11 +126,11 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: thefynx/reeve@v1
         with:
           command: preview
-          pulumi-version: "3.150.0"
+          pulumi-version: "3.231.0"
 
   apply:
     # Only fire on "/reeve apply" comments on PRs.
@@ -140,13 +140,13 @@ jobs:
       startsWith(github.event.comment.body, '/reeve apply')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: refs/pull/${{ github.event.issue.number }}/head
       - uses: thefynx/reeve@v1
         with:
           command: apply
-          pulumi-version: "3.150.0"
+          pulumi-version: "3.231.0"
 ```
 
 Open a PR. reeve posts a comment within ~30 seconds showing the plan for
@@ -246,7 +246,7 @@ jobs:
   drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: thefynx/reeve@v1
         with:
           command: "drift run"
@@ -259,7 +259,7 @@ Configure schedules + sinks in `.reeve/drift.yaml` — see [drift.md](drift.md).
 
 - **`pulumi: executable file not found`** — the action's `pulumi-version`
   input installs it for you. If you're running reeve in a custom job,
-  install Pulumi separately with `pulumi/actions@v5`.
+  install Pulumi separately with `pulumi/actions@v6`.
 - **Comment keeps duplicating instead of editing in place** — reeve finds
   its comment by the hidden HTML marker `<!-- reeve:pr-comment:v1 -->`. If
   someone manually edited the comment and stripped the marker, reeve will

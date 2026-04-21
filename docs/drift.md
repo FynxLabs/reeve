@@ -174,7 +174,7 @@ jobs:
     if: ${{ github.event.schedule == '17 */4 * * *' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: thefynx/reeve@v1
         with:
           command: "drift run"
@@ -184,7 +184,7 @@ jobs:
     if: ${{ github.event.schedule == '0 3 * * *' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: thefynx/reeve@v1
         with:
           command: "drift run"

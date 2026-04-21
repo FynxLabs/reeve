@@ -74,7 +74,6 @@ Out of scope:
 - **Vulnerability scanning on every PR:**
   - `govulncheck` — Go standard library + module CVE database.
   - `gosec` — static Go security analyzer (SARIF → GitHub code scanning).
-  - Trivy — filesystem + dependency scan (SARIF → code scanning).
   - CodeQL — `security-extended` and `security-and-quality` query packs.
   - `actions/dependency-review-action` — block PRs that introduce HIGH+
     CVEs in dependencies.

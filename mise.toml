@@ -1,5 +1,5 @@
 [tools]
-go = "1.26"
+go = "latest"
 goreleaser = "latest"
 golangci-lint = "latest"
 hk = "latest"
@@ -10,8 +10,10 @@ pkl = "latest"
 
 [env]
 HK_MISE = "1"
-# CGO stays at its default (enabled) so `go test -race` works locally.
-# Release binaries force CGO_ENABLED=0 in .goreleaser.yaml for static linking.
+# Explicit: hk hooks don't always inherit the system C compiler path,
+# so `go test -race` needs CGO_ENABLED=1 here.
+# Release binaries override to 0 via .goreleaser.yaml.
+CGO_ENABLED = "1"
 
 [hooks]
 postinstall = """
