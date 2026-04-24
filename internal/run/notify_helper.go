@@ -2,7 +2,9 @@ package run
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -13,6 +15,24 @@ import (
 	"github.com/thefynx/reeve/internal/notifications"
 	"github.com/thefynx/reeve/internal/slack"
 )
+
+// PulumiLogin runs `pulumi login <backendURL>` if a backend URL is configured.
+func PulumiLogin(ctx context.Context, cfg *schemas.Engine) error {
+	if cfg == nil || cfg.Engine.State.URL == "" {
+		return nil
+	}
+	binary := "pulumi"
+	if cfg.Engine.Binary.Path != "" {
+		binary = cfg.Engine.Binary.Path
+	}
+	cmd := exec.CommandContext(ctx, binary, "login", cfg.Engine.State.URL)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pulumi login %s: %w", cfg.Engine.State.URL, err)
+	}
+	return nil
+}
 
 // BuildSlackBackend constructs a SlackBackend if configured. Returns nil
 // when disabled or missing token. Tokens of the form ${env:NAME} expand

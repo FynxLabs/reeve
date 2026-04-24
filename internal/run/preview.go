@@ -77,6 +77,11 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	outcome := "success"
 	defer func() { endRun(outcome) }()
 
+	if err := PulumiLogin(ctx, in.Config); err != nil {
+		outcome = "failed"
+		return nil, err
+	}
+
 	enum, err := in.Engine.EnumerateStacks(ctx, in.RepoRoot)
 	if err != nil {
 		outcome = "failed"

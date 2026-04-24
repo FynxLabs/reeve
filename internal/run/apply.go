@@ -104,6 +104,10 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	PostAnnotation(ctx, in.Annotations, annotations.EventApplyStarted,
 		"", "", "", "", "", in.PRNumber, in.CommitSHA)
 
+	if err := PulumiLogin(ctx, in.Config); err != nil {
+		return nil, err
+	}
+
 	// 1. Resolve affected stacks (same pipeline as preview).
 	enum, err := in.Engine.EnumerateStacks(ctx, in.RepoRoot)
 	if err != nil {

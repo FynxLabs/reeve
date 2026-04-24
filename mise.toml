@@ -1,3 +1,6 @@
+[settings]
+experimental = true
+
 [tools]
 go = "latest"
 goreleaser = "latest"
