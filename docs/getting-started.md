@@ -135,7 +135,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: _reeve/go.mod
-      - run: go build -o /usr/local/bin/reeve ./cmd/reeve
+      - run: go build -trimpath -ldflags='-s -w' -o /usr/local/bin/reeve ./cmd/reeve
         working-directory: _reeve
       - uses: pulumi/actions@v6
         with:
@@ -144,6 +144,60 @@ jobs:
         working-directory: _src
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+  ready:
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/reeve ready')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: FynxLabs/reeve
+          path: _reeve
+      - uses: actions/checkout@v6
+        with:
+          path: _src
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: _reeve/go.mod
+      - run: go build -trimpath -ldflags='-s -w' -o /usr/local/bin/reeve ./cmd/reeve
+        working-directory: _reeve
+      - run: reeve run ready --pr ${{ github.event.issue.number }}
+        working-directory: _src
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+  apply:
+    if: |
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/reeve apply')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: FynxLabs/reeve
+          path: _reeve
+      - uses: actions/checkout@v6
+        with:
+          path: _src
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: _reeve/go.mod
+      - run: go build -trimpath -ldflags='-s -w' -o /usr/local/bin/reeve ./cmd/reeve
+        working-directory: _reeve
+      - uses: pulumi/actions@v6
+        with:
+          pulumi-version: "3.231.0"
+      - run: reeve run apply --pr ${{ github.event.issue.number }}
+        working-directory: _src
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 ```
 
 A published Composite Action / release binary will replace the

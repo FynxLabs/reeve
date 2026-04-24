@@ -84,9 +84,15 @@ engine:
       stacks: [dev, staging, prod]
 ```
 
-Then invoke via `go run` in a GitHub Actions job (or `./bin/reeve` after
-building). The composite Action at `action.yml` in this repo is intended
-for use once a release is cut — it is not published to the Marketplace.
+Then invoke `./bin/reeve` in a GitHub Actions job after building from source.
+
+### PR commands
+
+| Comment in PR      | What it does                                            |
+| ------------------ | ------------------------------------------------------- |
+| _(push / PR open)_ | `reeve run preview` runs automatically                  |
+| `/reeve ready`     | Marks PR ready for apply, updates Slack message         |
+| `/reeve apply`     | Applies all affected stacks (subject to approval gates) |
 
 Walk-through from here: [docs/getting-started.md](docs/getting-started.md).
 
