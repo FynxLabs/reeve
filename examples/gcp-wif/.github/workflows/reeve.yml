@@ -15,25 +15,11 @@ concurrency:
   group: reeve-${{ github.event.pull_request.number || github.event.issue.number }}
 
 jobs:
-  preview:
-    if: github.event_name == 'pull_request'
+  reeve:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: FynxLabs/reeve@main
         with:
-          command: preview
-          pulumi-version: "3.231.0"
-
-  apply:
-    if: |
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/reeve apply')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: FynxLabs/reeve@main
-        with:
-          command: apply
-          pulumi-version: "3.231.0"
+          pulumi-version: latest
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}

@@ -13,10 +13,10 @@ branding:
 inputs:
   command:
     description: >-
-      reeve subcommand: "preview", "apply", "lint", "stacks", "drift run",
-      "locks list", etc. Multi-word commands are passed verbatim.
-    required: true
-    default: preview
+      reeve subcommand: "preview", "ready", "apply", "lint", "stacks", "drift run",
+      "locks list", etc. Omit to auto-detect from the GitHub event context.
+    required: false
+    default: ""
   ref:
     description: Git ref of FynxLabs/reeve to build from. Defaults to `main`.
     required: false
@@ -86,6 +86,26 @@ runs:
         CMD="${{ inputs.command }}"
         EXTRA="${{ inputs.extra-args }}"
 
+        # Auto-detect command from event context when not explicitly set
+        if [[ -z "$CMD" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            CMD="preview"
+          elif [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
+            COMMENT_BODY=$(jq -r .comment.body < "$GITHUB_EVENT_PATH")
+            if [[ "$COMMENT_BODY" == /reeve\ apply* ]]; then
+              CMD="apply"
+            elif [[ "$COMMENT_BODY" == /reeve\ ready* ]]; then
+              CMD="ready"
+            else
+              echo "Not a reeve command, skipping."
+              exit 0
+            fi
+          else
+            echo "Not a reeve event ($GITHUB_EVENT_NAME), skipping."
+            exit 0
+          fi
+        fi
+
         case "$CMD" in
           preview|"run preview")
             if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
@@ -94,6 +114,10 @@ runs:
             else
               reeve run preview --local $EXTRA
             fi
+            ;;
+          ready|"run ready")
+            PR_NUMBER=$(jq -r .issue.number < "$GITHUB_EVENT_PATH")
+            reeve run ready --pr "$PR_NUMBER" $EXTRA
             ;;
           apply|"run apply")
             PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH" 2>/dev/null \
