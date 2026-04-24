@@ -37,6 +37,14 @@ inputs:
     description: Slack bot OAuth token.
     required: false
     default: ""
+  gcp-workload-identity-provider:
+    description: GCP Workload Identity Provider resource name. Required for GCS bucket auth.
+    required: false
+    default: ""
+  gcp-service-account:
+    description: GCP service account email to impersonate via WIF.
+    required: false
+    default: ""
   extra-args:
     description: Additional args passed verbatim to the reeve subcommand.
     required: false
@@ -65,6 +73,13 @@ runs:
         go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/reeve-bin/reeve" ./cmd/reeve
         echo "$RUNNER_TEMP/reeve-bin" >> "$GITHUB_PATH"
       working-directory: _reeve
+
+    - name: Authenticate to GCP
+      if: ${{ inputs.gcp-workload-identity-provider != '' }}
+      uses: google-github-actions/auth@v3
+      with:
+        workload_identity_provider: ${{ inputs.gcp-workload-identity-provider }}
+        service_account: ${{ inputs.gcp-service-account }}
 
     - name: Install Pulumi CLI
       if: ${{ inputs.pulumi-version != '' }}
