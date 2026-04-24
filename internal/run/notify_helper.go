@@ -28,6 +28,7 @@ func BuildSlackBackend(cfg *schemas.Notifications, store blob.Store) *notificati
 	return &notifications.SlackBackend{
 		Client:    slack.New(token),
 		Channel:   cfg.Slack.Channel,
+		Icons:     cfg.Slack.Icons,
 		BlobStore: store,
 	}
 }
@@ -74,22 +75,76 @@ func expandEnvRef(s string) string {
 	return s
 }
 
-// NotifySlackPreview is a small wrapper callers invoke at the end of a
-// preview run. ctx bounded by caller; errors bubble up but should not
-// fail the overall run (notifications run last by design).
-func NotifySlackPreview(ctx context.Context, backend *notifications.SlackBackend, filter *schemas.Notifications, pr int, sha, runURL string, stacks []summary.StackSummary) error {
-	if backend == nil {
-		return nil
+func slackTrigger(cfg *schemas.Notifications) schemas.SlackTrigger {
+	if cfg == nil || cfg.Slack == nil || cfg.Slack.Trigger == "" {
+		return schemas.SlackTriggerApply
 	}
-	filtered := FilterStacksForSlack(filter, stacks)
-	return backend.NotifyPreview(ctx, pr, sha, runURL, "preview", filtered)
+	return cfg.Slack.Trigger
 }
 
-// NotifySlackApply wraps the apply-phase Slack update.
-func NotifySlackApply(ctx context.Context, backend *notifications.SlackBackend, filter *schemas.Notifications, pr int, sha, runURL string, stacks []summary.StackSummary, blocked bool) error {
+// NotifySlackPlanReady is called at the end of a preview run.
+// Creates a Slack message only when trigger == "plan".
+func NotifySlackPlanReady(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, requiredApprovers []string, stacks []summary.StackSummary) error {
 	if backend == nil {
 		return nil
 	}
-	filtered := FilterStacksForSlack(filter, stacks)
-	return backend.NotifyApply(ctx, pr, sha, runURL, filtered, blocked)
+	return backend.NotifyPlanReady(ctx, notifications.NotifyInput{
+		PR:                pr,
+		CommitSHA:         sha,
+		RunURL:            runURL,
+		PRTitle:           prTitle,
+		PRAuthor:          prAuthor,
+		RequiredApprovers: requiredApprovers,
+		Trigger:           slackTrigger(cfg),
+		Stacks:            FilterStacksForSlack(cfg, stacks),
+	})
+}
+
+// NotifySlackReady is called when /reeve ready is run.
+func NotifySlackReady(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, requiredApprovers []string, stacks []summary.StackSummary) error {
+	if backend == nil {
+		return nil
+	}
+	return backend.NotifyReady(ctx, notifications.NotifyInput{
+		PR:                pr,
+		CommitSHA:         sha,
+		RunURL:            runURL,
+		PRTitle:           prTitle,
+		PRAuthor:          prAuthor,
+		RequiredApprovers: requiredApprovers,
+		Trigger:           slackTrigger(cfg),
+		Stacks:            FilterStacksForSlack(cfg, stacks),
+	})
+}
+
+// NotifySlackApplying is called immediately before the apply loop starts.
+func NotifySlackApplying(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary) error {
+	if backend == nil {
+		return nil
+	}
+	return backend.NotifyApplying(ctx, notifications.NotifyInput{
+		PR:        pr,
+		CommitSHA: sha,
+		RunURL:    runURL,
+		PRTitle:   prTitle,
+		PRAuthor:  prAuthor,
+		Trigger:   slackTrigger(cfg),
+		Stacks:    FilterStacksForSlack(cfg, stacks),
+	})
+}
+
+// NotifySlackApplied is called after the apply loop completes.
+func NotifySlackApplied(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary, blocked bool) error {
+	if backend == nil {
+		return nil
+	}
+	return backend.NotifyApplied(ctx, notifications.NotifyInput{
+		PR:        pr,
+		CommitSHA: sha,
+		RunURL:    runURL,
+		PRTitle:   prTitle,
+		PRAuthor:  prAuthor,
+		Trigger:   slackTrigger(cfg),
+		Stacks:    FilterStacksForSlack(cfg, stacks),
+	}, blocked)
 }

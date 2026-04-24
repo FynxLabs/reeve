@@ -133,8 +133,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	// Slack runs last in the pipeline so upstream failures are captured.
 	if in.PRNumber > 0 && in.Notifications != nil {
 		slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
-		if err := NotifySlackPreview(ctx, slackBackend, in.Notifications, in.PRNumber, in.CommitSHA, in.CIRunURL, summaries); err != nil {
-			// Don't fail the run on notification errors — log and continue.
+		if err := NotifySlackPlanReady(ctx, slackBackend, in.Notifications,
+			in.PRNumber, in.CommitSHA, in.CIRunURL, "", "", nil, summaries); err != nil {
 			fmt.Printf("slack notify: %v\n", err)
 		}
 	}

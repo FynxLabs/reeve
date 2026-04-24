@@ -156,6 +156,21 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 
 	now := time.Now()
 
+	// Slack: notify applying before the loop (creates message on apply trigger path).
+	if in.PRNumber > 0 && in.Notifications != nil {
+		slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
+		preSummaries := make([]summary.StackSummary, 0, len(target))
+		for _, s := range target {
+			preSummaries = append(preSummaries, summary.StackSummary{
+				Project: s.Project, Stack: s.Name, Env: s.Env,
+			})
+		}
+		if err := NotifySlackApplying(ctx, slackBackend, in.Notifications,
+			in.PRNumber, in.CommitSHA, in.CIRunURL, "", pr.Author, preSummaries); err != nil {
+			fmt.Printf("slack notify applying: %v\n", err)
+		}
+	}
+
 	// 3. Per-stack: acquire lock → eval gates → apply or block.
 	summaries := make([]summary.StackSummary, 0, len(target))
 	anyBlocked := false
@@ -323,7 +338,8 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// 7. Slack notification (runs last, captures everything above).
 	if in.PRNumber > 0 && in.Notifications != nil {
 		backend := BuildSlackBackend(in.Notifications, in.Blob)
-		if err := NotifySlackApply(ctx, backend, in.Notifications, in.PRNumber, in.CommitSHA, in.CIRunURL, summaries, anyBlocked); err != nil {
+		if err := NotifySlackApplied(ctx, backend, in.Notifications,
+			in.PRNumber, in.CommitSHA, in.CIRunURL, "", pr.Author, summaries, anyBlocked); err != nil {
 			fmt.Printf("slack notify: %v\n", err)
 		}
 	}

@@ -1,6 +1,5 @@
-// Package notifications is PR-scoped human notifications. Phase 5 ships
-// Slack; Mattermost / Teams / webhook are later. Runs last in the
-// pipeline so upstream failures are captured accurately.
+// Package notifications is PR-scoped human notifications. Slack only in v1.
+// Runs last in the pipeline so upstream failures are captured accurately.
 package notifications
 
 import (
@@ -8,18 +7,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/thefynx/reeve/internal/blob"
+	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/summary"
 	"github.com/thefynx/reeve/internal/slack"
 )
 
+// attachment sidebar colors.
+const (
+	colorPending  = "#f2c744" // plan ready / pending approval
+	colorApproved = "#0066cc" // approved, ready to apply
+	colorApplying = "#6f42c1" // applying in progress
+	colorSuccess  = "#28a745" // applied successfully
+	colorFailed   = "#dc3545" // failed or blocked hard
+	colorBlocked  = "#f2c744" // soft block (missing approval, lock)
+)
+
 // SlackBackend handles the PR-scoped Slack message lifecycle.
 type SlackBackend struct {
-	Client  *slack.Client
-	Channel string
-	// BlobStore persists the message TS per-PR so subsequent runs
-	// upsert instead of duplicating.
+	Client    *slack.Client
+	Channel   string
+	Icons     *schemas.SlackIcons
 	BlobStore blob.Store
 }
 
@@ -30,54 +40,358 @@ type State struct {
 	ThreadTS string `json:"thread_ts,omitempty"`
 }
 
-// NotifyPreview publishes or updates the preview status message.
-func (b *SlackBackend) NotifyPreview(ctx context.Context, pr int, commitSHA, runURL, op string, stacks []summary.StackSummary) error {
-	if b == nil || b.Client == nil || b.Channel == "" {
-		return nil
-	}
-	state, _ := b.loadState(ctx, pr)
-	main := buildMainBlocks(pr, commitSHA, runURL, op, stacks)
-	text := fmt.Sprintf("reeve %s for PR #%d (%d stacks)", op, pr, len(stacks))
-	res, err := b.Client.Upsert(ctx, b.Channel, state.MainTS, text, main)
-	if err != nil {
-		return err
-	}
-	state.Channel = b.Channel
-	state.MainTS = res.TS
-	// Thread: one reply per stack with short summary (first run only —
-	// subsequent runs leave the thread untouched to avoid spam).
-	if state.ThreadTS == "" && len(stacks) > 0 {
-		threadText := fmt.Sprintf("Per-stack summaries for PR #%d", pr)
-		threadRes, err := b.Client.PostThread(ctx, b.Channel, res.TS, threadText, buildThreadBlocks(stacks))
-		if err == nil {
-			state.ThreadTS = threadRes.TS
-		}
-	}
-	return b.saveState(ctx, pr, state)
-}
+// Event phases -- drive both the main message update and thread timeline.
+type event string
 
-// NotifyApply updates the existing main message with apply outcome.
-func (b *SlackBackend) NotifyApply(ctx context.Context, pr int, commitSHA, runURL string, stacks []summary.StackSummary, blocked bool) error {
+const (
+	eventPlanReady  event = "plan_ready"
+	eventReady      event = "ready"
+	eventApproved   event = "approved"
+	eventApplying   event = "applying"
+	eventApplied    event = "applied"
+	eventFailed     event = "failed"
+	eventBlocked    event = "blocked"
+)
+
+// NotifyPlanReady sends or updates the Slack message when a plan finishes.
+// Only creates a new message if trigger == "plan".
+func (b *SlackBackend) NotifyPlanReady(ctx context.Context, in NotifyInput) error {
 	if b == nil || b.Client == nil {
 		return nil
 	}
-	state, _ := b.loadState(ctx, pr)
-	op := "applied"
-	if blocked {
-		op = "apply blocked"
+	state, _ := b.loadState(ctx, in.PR)
+	// Only create on plan trigger; if message exists from a prior event, always update.
+	if state.MainTS == "" && in.Trigger != schemas.SlackTriggerPlan {
+		return nil
 	}
-	if hasErrors(stacks) {
-		op = "apply failed"
+	return b.sendOrUpdate(ctx, in, state, eventPlanReady, colorPending)
+}
+
+// NotifyReady sends or updates the Slack message when /reeve ready is run.
+// Only creates a new message if trigger == "ready" or "plan".
+func (b *SlackBackend) NotifyReady(ctx context.Context, in NotifyInput) error {
+	if b == nil || b.Client == nil {
+		return nil
 	}
-	main := buildMainBlocks(pr, commitSHA, runURL, op, stacks)
-	text := fmt.Sprintf("reeve %s for PR #%d", op, pr)
-	res, err := b.Client.Upsert(ctx, b.Channel, state.MainTS, text, main)
+	state, _ := b.loadState(ctx, in.PR)
+	if state.MainTS == "" && in.Trigger == schemas.SlackTriggerApply {
+		return nil
+	}
+	return b.sendOrUpdate(ctx, in, state, eventReady, colorPending)
+}
+
+// NotifyApplying updates the message to "applying" state. Never creates.
+func (b *SlackBackend) NotifyApplying(ctx context.Context, in NotifyInput) error {
+	if b == nil || b.Client == nil {
+		return nil
+	}
+	state, _ := b.loadState(ctx, in.PR)
+	if state.MainTS == "" {
+		// First message on apply trigger path.
+		return b.sendOrUpdate(ctx, in, state, eventApplying, colorApplying)
+	}
+	return b.sendOrUpdate(ctx, in, state, eventApplying, colorApplying)
+}
+
+// NotifyApplied updates the message with final apply result. Never creates on error.
+func (b *SlackBackend) NotifyApplied(ctx context.Context, in NotifyInput, blocked bool) error {
+	if b == nil || b.Client == nil {
+		return nil
+	}
+	state, _ := b.loadState(ctx, in.PR)
+	hasErrors := anyErrors(in.Stacks)
+
+	// Error: only update if message exists.
+	if hasErrors && state.MainTS == "" {
+		return nil
+	}
+
+	ev := eventApplied
+	color := colorSuccess
+	switch {
+	case hasErrors:
+		ev = eventFailed
+		color = colorFailed
+	case blocked:
+		ev = eventBlocked
+		color = colorBlocked
+	}
+	return b.sendOrUpdate(ctx, in, state, ev, color)
+}
+
+// NotifyInput bundles everything the backend needs for any notification call.
+type NotifyInput struct {
+	PR             int
+	CommitSHA      string
+	RunURL         string
+	PRTitle        string
+	PRAuthor       string
+	RequiredApprovers []string // from resolved approval rules
+	Trigger        schemas.SlackTrigger
+	Stacks         []summary.StackSummary
+}
+
+func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *State, ev event, color string) error {
+	blocks := b.buildMainBlocks(in, ev)
+	text := mainFallbackText(in.PR, ev)
+
+	var res *slack.PostResult
+	var err error
+	if state.MainTS == "" {
+		res, err = b.Client.Post(ctx, slack.Message{
+			Channel:     b.Channel,
+			Text:        text,
+			Attachments: []slack.Attachment{{Color: color, Blocks: blocks}},
+		})
+	} else {
+		res, err = b.Client.Update(ctx, slack.Message{
+			Channel:     b.Channel,
+			TS:          state.MainTS,
+			Text:        text,
+			Attachments: []slack.Attachment{{Color: color, Blocks: blocks}},
+		})
+	}
 	if err != nil {
 		return err
 	}
 	state.Channel = b.Channel
 	state.MainTS = res.TS
-	return b.saveState(ctx, pr, state)
+
+	// Thread: first message initialises it; subsequent events append a timeline entry.
+	if state.ThreadTS == "" {
+		stackBlocks := b.buildStackThreadBlocks(in.Stacks)
+		if len(stackBlocks) > 0 {
+			tr, terr := b.Client.PostThread(ctx, b.Channel, res.TS, fmt.Sprintf("Stack changes for PR #%d", in.PR), stackBlocks)
+			if terr == nil {
+				state.ThreadTS = tr.TS
+			}
+		}
+	}
+	// Always append a timeline entry to the thread.
+	if state.ThreadTS != "" {
+		timelineText := timelineEntry(ev, in.CommitSHA)
+		_, _ = b.Client.PostThread(ctx, b.Channel, state.MainTS, timelineText, nil)
+	}
+
+	return b.saveState(ctx, in.PR, state)
+}
+
+// buildMainBlocks produces the attachment blocks for the main message.
+func (b *SlackBackend) buildMainBlocks(in NotifyInput, ev event) []slack.Block {
+	engineIcon := b.icon("engine", ":building_construction:")
+	runnerIcon := b.icon("runner", ":runner:")
+	authorIcon := b.icon("author", ":bust_in_silhouette:")
+	approverIcon := b.icon("approver", ":approved_stamp:")
+
+	// Header
+	blocks := []slack.Block{
+		slack.Header(fmt.Sprintf("%s IAC Changes", engineIcon)),
+		slack.Divider(),
+	}
+
+	// Status + Author row
+	blocks = append(blocks, slack.Fields(
+		slack.Field(fmt.Sprintf("%s *Status:*", statusEmoji(ev)), eventTitle(ev)),
+		slack.Field(fmt.Sprintf("%s *Author:*", authorIcon), in.PRAuthor),
+	))
+
+	blocks = append(blocks, slack.Divider())
+
+	// PR link
+	prLink := fmt.Sprintf("<https://github.com/credova/github-meta/pull/%d|#%d", in.PR, in.PR)
+	if in.PRTitle != "" {
+		prLink += " — " + in.PRTitle
+	}
+	prLink += ">"
+	blocks = append(blocks, slack.Section(fmt.Sprintf(":writing_hand: *PR:* %s", prLink)))
+
+	// Required approvers when pending
+	if (ev == eventPlanReady || ev == eventReady) && len(in.RequiredApprovers) > 0 {
+		blocks = append(blocks, slack.Section(
+			fmt.Sprintf("%s *Needs approval from:* %s", approverIcon, strings.Join(in.RequiredApprovers, ", ")),
+		))
+	}
+
+	// Stack list (changed stacks only)
+	stackLines := stackSummaryLines(in.Stacks)
+	if stackLines != "" {
+		blocks = append(blocks, slack.Divider())
+		blocks = append(blocks, slack.Section(stackLines))
+	}
+
+	// Footer: view run button, apply hint only when approved/pending
+	blocks = append(blocks, slack.Divider())
+	footerText := ""
+	if ev == eventApproved {
+		footerText = "Run `/reeve apply` in the PR to apply."
+	} else if ev == eventPlanReady || ev == eventReady {
+		footerText = "Waiting for approval."
+	} else if ev == eventApplying {
+		footerText = ":hourglass_flowing_sand: Apply in progress..."
+	} else if ev == eventApplied {
+		footerText = ":white_check_mark: Applied successfully."
+	} else if ev == eventFailed {
+		footerText = ":x: Apply failed. Check the run for details."
+	} else if ev == eventBlocked {
+		footerText = ":lock: Apply blocked — preconditions not met."
+	}
+
+	if in.RunURL != "" {
+		blocks = append(blocks, slack.SectionWithButton(
+			footerText,
+			fmt.Sprintf("%s View Run", runnerIcon),
+			in.RunURL,
+			"view_run",
+		))
+	} else if footerText != "" {
+		blocks = append(blocks, slack.Section(footerText))
+	}
+
+	return blocks
+}
+
+func statusEmoji(ev event) string {
+	switch ev {
+	case eventPlanReady, eventReady:
+		return ":large_orange_circle:"
+	case eventApproved:
+		return ":large_blue_circle:"
+	case eventApplying:
+		return ":hourglass_flowing_sand:"
+	case eventApplied:
+		return ":large_green_circle:"
+	case eventFailed:
+		return ":red_circle:"
+	case eventBlocked:
+		return ":large_yellow_circle:"
+	}
+	return ":white_circle:"
+}
+
+func stackSummaryLines(stacks []summary.StackSummary) string {
+	var sb strings.Builder
+	for _, s := range stacks {
+		if s.Counts.Total() == 0 && s.Status != summary.StatusError {
+			continue
+		}
+		fmt.Fprintf(&sb, "%s `%s` — +%d ~%d -%d ±%d\n",
+			stackIcon(s.Status), s.Stack,
+			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
+	}
+	// Ellipsis hint if all stacks were no-ops (shouldn't normally trigger the block).
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// buildStackThreadBlocks builds the initial thread message listing stacks with changes.
+func (b *SlackBackend) buildStackThreadBlocks(stacks []summary.StackSummary) []slack.Block {
+	var changed []summary.StackSummary
+	for _, s := range stacks {
+		if s.Counts.Total() > 0 || s.Status == summary.StatusError {
+			changed = append(changed, s)
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	for _, s := range changed {
+		fmt.Fprintf(&sb, "%s `%s` — +%d ~%d -%d ±%d\n",
+			stackIcon(s.Status), s.Stack,
+			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
+		if s.PlanSummary != "" {
+			fmt.Fprintf(&sb, "  _%s_\n", truncate(s.PlanSummary, 120))
+		}
+	}
+	return []slack.Block{slack.Section(strings.TrimRight(sb.String(), "\n"))}
+}
+
+func (b *SlackBackend) icon(kind, defaultEmoji string) string {
+	if b.Icons == nil {
+		return defaultEmoji
+	}
+	switch kind {
+	case "engine":
+		if b.Icons.Engine != "" {
+			return b.Icons.Engine
+		}
+	case "runner":
+		if b.Icons.Runner != "" {
+			return b.Icons.Runner
+		}
+	case "author":
+		if b.Icons.Author != "" {
+			return b.Icons.Author
+		}
+	case "approver":
+		if b.Icons.Approver != "" {
+			return b.Icons.Approver
+		}
+	}
+	return defaultEmoji
+}
+
+func eventTitle(ev event) string {
+	switch ev {
+	case eventPlanReady:
+		return "Plan Ready — Pending Approval"
+	case eventReady:
+		return "Ready for Apply"
+	case eventApproved:
+		return "Approved — Ready to Apply"
+	case eventApplying:
+		return "Applying..."
+	case eventApplied:
+		return "Applied :white_check_mark:"
+	case eventFailed:
+		return "Failed :x:"
+	case eventBlocked:
+		return "Blocked :lock:"
+	}
+	return "Update"
+}
+
+func mainFallbackText(pr int, ev event) string {
+	return fmt.Sprintf("github-meta infrastructure %s — PR #%d", ev, pr)
+}
+
+
+func timelineEntry(ev event, sha string) string {
+	ts := time.Now().UTC().Format("15:04 UTC")
+	commit := ""
+	if sha != "" {
+		commit = fmt.Sprintf(" · `%s`", shortSHA(sha))
+	}
+	switch ev {
+	case eventPlanReady:
+		return fmt.Sprintf(":clipboard: *Plan ready* · %s%s", ts, commit)
+	case eventReady:
+		return fmt.Sprintf(":white_check_mark: *Marked ready* · %s%s", ts, commit)
+	case eventApproved:
+		return fmt.Sprintf(":approved_stamp: *Approved* · %s%s", ts, commit)
+	case eventApplying:
+		return fmt.Sprintf(":hourglass_flowing_sand: *Applying* · %s%s", ts, commit)
+	case eventApplied:
+		return fmt.Sprintf(":white_check_mark: *Applied* · %s%s", ts, commit)
+	case eventFailed:
+		return fmt.Sprintf(":x: *Failed* · %s%s", ts, commit)
+	case eventBlocked:
+		return fmt.Sprintf(":lock: *Blocked* · %s%s", ts, commit)
+	}
+	return fmt.Sprintf("· %s%s", ts, commit)
+}
+
+func stackIcon(s summary.Status) string {
+	switch s {
+	case summary.StatusReady:
+		return ":white_check_mark:"
+	case summary.StatusBlocked:
+		return ":lock:"
+	case summary.StatusError:
+		return ":x:"
+	case summary.StatusNoOp:
+		return ":dot:"
+	}
+	return ":grey_question:"
 }
 
 func (b *SlackBackend) loadState(ctx context.Context, pr int) (*State, error) {
@@ -104,52 +418,6 @@ func (b *SlackBackend) saveState(ctx context.Context, pr int, s *State) error {
 	return err
 }
 
-func buildMainBlocks(pr int, sha, runURL, op string, stacks []summary.StackSummary) []slack.Block {
-	add, change, del, repl := totals(stacks)
-	status := overallIcon(stacks)
-	header := fmt.Sprintf("%s reeve · %s · PR #%d", status, op, pr)
-
-	summaryLine := fmt.Sprintf("*%d stack(s)* · +%d ~%d -%d ±%d · commit `%s`",
-		len(stacks), add, change, del, repl, short(sha))
-
-	blocks := []slack.Block{
-		slack.Header(header),
-		slack.Section(summaryLine),
-		slack.Divider(),
-		slack.Section(stacksTable(stacks)),
-	}
-	if runURL != "" {
-		blocks = append(blocks, slack.LinkButton("View run", runURL))
-	}
-	return blocks
-}
-
-func buildThreadBlocks(stacks []summary.StackSummary) []slack.Block {
-	var bs []slack.Block
-	for _, s := range stacks {
-		body := fmt.Sprintf("*%s* · %s\n+%d ~%d -%d ±%d",
-			s.Ref(), statusShort(s.Status), s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
-		if s.Error != "" {
-			body += "\n_error:_ " + truncate(s.Error, 200)
-		}
-		bs = append(bs, slack.Section(body))
-	}
-	return bs
-}
-
-func stacksTable(stacks []summary.StackSummary) string {
-	if len(stacks) == 0 {
-		return "_No stacks affected._"
-	}
-	var b strings.Builder
-	for _, s := range stacks {
-		fmt.Fprintf(&b, "• `%s` %s — +%d ~%d -%d ±%d\n",
-			s.Ref(), statusShort(s.Status),
-			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
-	}
-	return b.String()
-}
-
 func totals(stacks []summary.StackSummary) (int, int, int, int) {
 	var a, c, d, r int
 	for _, s := range stacks {
@@ -161,47 +429,7 @@ func totals(stacks []summary.StackSummary) (int, int, int, int) {
 	return a, c, d, r
 }
 
-func overallIcon(stacks []summary.StackSummary) string {
-	errored, blocked, changed := false, false, false
-	for _, s := range stacks {
-		switch s.Status {
-		case summary.StatusError:
-			errored = true
-		case summary.StatusBlocked:
-			blocked = true
-		case summary.StatusReady:
-			if s.Counts.Total() > 0 {
-				changed = true
-			}
-		}
-	}
-	switch {
-	case errored:
-		return "🔴"
-	case blocked:
-		return "🟡"
-	case changed:
-		return "🟢"
-	default:
-		return "⚪"
-	}
-}
-
-func statusShort(st summary.Status) string {
-	switch st {
-	case summary.StatusReady:
-		return "✅"
-	case summary.StatusBlocked:
-		return "🔒"
-	case summary.StatusError:
-		return "🔴"
-	case summary.StatusNoOp:
-		return "·"
-	}
-	return "?"
-}
-
-func hasErrors(stacks []summary.StackSummary) bool {
+func anyErrors(stacks []summary.StackSummary) bool {
 	for _, s := range stacks {
 		if s.Status == summary.StatusError {
 			return true
@@ -210,7 +438,7 @@ func hasErrors(stacks []summary.StackSummary) bool {
 	return false
 }
 
-func short(s string) string {
+func shortSHA(s string) string {
 	if len(s) > 7 {
 		return s[:7]
 	}

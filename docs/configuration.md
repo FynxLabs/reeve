@@ -232,15 +232,60 @@ slack:
   enabled: true
   channel: "#infra-deploys"
   auth_token: ${env:SLACK_BOT_TOKEN}
+
+  # trigger controls when the initial Slack message is created.
+  # Subsequent events always update the existing message in place.
+  #
+  #   apply  (default) — message created only when /reeve apply is invoked
+  #   plan             — message created when a plan finishes (status: pending approval)
+  #   ready            — message created only when /reeve ready is run
+  trigger: plan
+
+  # icons overrides the default emoji used in the message layout.
+  # All fields are optional. Useful when your Slack workspace has custom emoji
+  # (e.g. :pulumi:, :github:) that aren't available by default.
+  icons:
+    engine: ":building_construction:"   # repo/project header icon
+    runner: ":runner:"                  # CI runner / view-run button
+    author: ":bust_in_silhouette:"      # PR author field
+    commit: ":package:"                 # commit SHA field
+    approver: ":approved_stamp:"        # required approvers field
+
   rules:
     - environments: [prod, staging]  # only notify these envs
     - stacks: ["prod/payments", "prod/auth"]
 ```
 
-- Slack runs **last** in the pipeline so upstream failures are captured
-  accurately.
-- One message per PR, edited in place across runs.
-- Thread replies carry per-stack counts. No plan bodies are sent to Slack.
+### Message lifecycle
+
+reeve sends one message per PR and edits it in place as the run progresses.
+The sidebar color and status field update at each stage:
+
+| Stage | Trigger | Color |
+| --- | --- | --- |
+| Plan ready | `trigger: plan` — plan finishes | 🟡 yellow |
+| Ready | `trigger: ready` — `/reeve ready` run | 🟡 yellow |
+| Applying | Apply invoked | 🟣 purple |
+| Applied | Apply completes | 🟢 green |
+| Failed | Apply errors | 🔴 red |
+| Blocked | Preconditions not met | 🟡 yellow |
+
+**Error rule:** if no message exists yet and apply fails, no message is created.
+Errors only update an existing message.
+
+**`/reeve apply` hint** only appears when status is `approved`. Pending-approval
+states show "Waiting for approval." instead.
+
+### Thread timeline
+
+The first message opens a Slack thread. The thread contains:
+
+1. Initial reply listing stacks with changes (add/change/delete counts).
+   Stacks with no changes are omitted.
+2. A timestamped timeline entry appended for every subsequent event
+   (planned, approved, applying, applied, failed).
+
+No plan output is sent to Slack. Full output is in the GitHub Actions run log.
 
 Token expansion: `${env:NAME}` pulls from the process environment.
 

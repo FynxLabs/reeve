@@ -29,13 +29,20 @@ func New(token string) *Client {
 	}
 }
 
+// Attachment wraps a colored sidebar attachment containing Block Kit blocks.
+type Attachment struct {
+	Color  string  `json:"color,omitempty"`
+	Blocks []Block `json:"blocks,omitempty"`
+}
+
 // Message is the minimal post/update payload.
 type Message struct {
-	Channel  string  `json:"channel"`
-	Text     string  `json:"text,omitempty"`   // fallback for notifications
-	Blocks   []Block `json:"blocks,omitempty"` // Block Kit
-	TS       string  `json:"ts,omitempty"`     // set on update
-	ThreadTS string  `json:"thread_ts,omitempty"`
+	Channel     string       `json:"channel"`
+	Text        string       `json:"text,omitempty"`        // fallback for notifications
+	Blocks      []Block      `json:"blocks,omitempty"`      // top-level Block Kit (no color bar)
+	Attachments []Attachment `json:"attachments,omitempty"` // colored sidebar attachments
+	TS          string       `json:"ts,omitempty"`          // set on update
+	ThreadTS    string       `json:"thread_ts,omitempty"`
 }
 
 // Block is opaque — users construct Block Kit JSON and stash it here.

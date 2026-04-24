@@ -18,6 +18,40 @@ func Section(markdown string) Block {
 	})
 }
 
+// Field returns a single mrkdwn field block (used inside Fields).
+func Field(label, value string) Block {
+	return must(map[string]any{
+		"type": "mrkdwn",
+		"text": label + "\n" + value,
+	})
+}
+
+// Fields returns a section block containing up to 10 two-column fields.
+func Fields(fields ...Block) Block {
+	raw := make([]json.RawMessage, len(fields))
+	for i, f := range fields {
+		raw[i] = json.RawMessage(f)
+	}
+	return must(map[string]any{
+		"type":   "section",
+		"fields": raw,
+	})
+}
+
+// SectionWithButton returns a section with markdown text and an inline link button accessory.
+func SectionWithButton(text, buttonLabel, url, actionID string) Block {
+	return must(map[string]any{
+		"type": "section",
+		"text": map[string]any{"type": "mrkdwn", "text": text},
+		"accessory": map[string]any{
+			"type":      "button",
+			"text":      map[string]any{"type": "plain_text", "text": buttonLabel, "emoji": true},
+			"url":       url,
+			"action_id": actionID,
+		},
+	})
+}
+
 // Divider returns a divider block.
 func Divider() Block { return must(map[string]any{"type": "divider"}) }
 
