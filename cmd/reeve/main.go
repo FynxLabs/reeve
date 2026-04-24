@@ -12,8 +12,8 @@ import (
 	"github.com/thefynx/reeve/internal/auth/factory"
 	blobfactory "github.com/thefynx/reeve/internal/blob/factory"
 	"github.com/thefynx/reeve/internal/config"
-	"github.com/thefynx/reeve/internal/run"
 	reeveotel "github.com/thefynx/reeve/internal/observability/otel"
+	"github.com/thefynx/reeve/internal/run"
 	vgithub "github.com/thefynx/reeve/internal/vcs/github"
 )
 
@@ -27,8 +27,8 @@ func rootCmd() *cobra.Command {
 	var root string
 
 	cmd := &cobra.Command{
-		Use:   "reeve",
-		Short: "PR-native GitOps orchestrator for Pulumi",
+		Use:          "reeve",
+		Short:        "PR-native GitOps orchestrator for Pulumi",
 		SilenceUsage: true,
 	}
 
