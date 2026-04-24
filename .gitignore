@@ -104,7 +104,7 @@ fabric.properties
 # .idea/misc.xml
 # *.ipr
 
-reeve
+/reeve
 
 .local/
 
