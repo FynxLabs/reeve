@@ -94,6 +94,7 @@ func NotifySlackPlanReady(ctx context.Context, backend *notifications.SlackBacke
 		RunURL:            runURL,
 		PRTitle:           prTitle,
 		PRAuthor:          prAuthor,
+		RepoFull:          os.Getenv("GITHUB_REPOSITORY"),
 		RequiredApprovers: requiredApprovers,
 		Trigger:           slackTrigger(cfg),
 		Stacks:            FilterStacksForSlack(cfg, stacks),
@@ -111,9 +112,27 @@ func NotifySlackReady(ctx context.Context, backend *notifications.SlackBackend, 
 		RunURL:            runURL,
 		PRTitle:           prTitle,
 		PRAuthor:          prAuthor,
+		RepoFull:          os.Getenv("GITHUB_REPOSITORY"),
 		RequiredApprovers: requiredApprovers,
 		Trigger:           slackTrigger(cfg),
 		Stacks:            FilterStacksForSlack(cfg, stacks),
+	})
+}
+
+// NotifySlackApproved is called after preconditions pass, before apply starts.
+func NotifySlackApproved(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary) error {
+	if backend == nil {
+		return nil
+	}
+	return backend.NotifyApproved(ctx, notifications.NotifyInput{
+		PR:       pr,
+		CommitSHA: sha,
+		RunURL:   runURL,
+		PRTitle:  prTitle,
+		PRAuthor: prAuthor,
+		RepoFull: os.Getenv("GITHUB_REPOSITORY"),
+		Trigger:  slackTrigger(cfg),
+		Stacks:   FilterStacksForSlack(cfg, stacks),
 	})
 }
 
@@ -123,13 +142,14 @@ func NotifySlackApplying(ctx context.Context, backend *notifications.SlackBacken
 		return nil
 	}
 	return backend.NotifyApplying(ctx, notifications.NotifyInput{
-		PR:        pr,
+		PR:       pr,
 		CommitSHA: sha,
-		RunURL:    runURL,
-		PRTitle:   prTitle,
-		PRAuthor:  prAuthor,
-		Trigger:   slackTrigger(cfg),
-		Stacks:    FilterStacksForSlack(cfg, stacks),
+		RunURL:   runURL,
+		PRTitle:  prTitle,
+		PRAuthor: prAuthor,
+		RepoFull: os.Getenv("GITHUB_REPOSITORY"),
+		Trigger:  slackTrigger(cfg),
+		Stacks:   FilterStacksForSlack(cfg, stacks),
 	})
 }
 
@@ -139,12 +159,13 @@ func NotifySlackApplied(ctx context.Context, backend *notifications.SlackBackend
 		return nil
 	}
 	return backend.NotifyApplied(ctx, notifications.NotifyInput{
-		PR:        pr,
+		PR:       pr,
 		CommitSHA: sha,
-		RunURL:    runURL,
-		PRTitle:   prTitle,
-		PRAuthor:  prAuthor,
-		Trigger:   slackTrigger(cfg),
-		Stacks:    FilterStacksForSlack(cfg, stacks),
+		RunURL:   runURL,
+		PRTitle:  prTitle,
+		PRAuthor: prAuthor,
+		RepoFull: os.Getenv("GITHUB_REPOSITORY"),
+		Trigger:  slackTrigger(cfg),
+		Stacks:   FilterStacksForSlack(cfg, stacks),
 	}, blocked)
 }

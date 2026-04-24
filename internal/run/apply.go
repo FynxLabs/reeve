@@ -165,6 +165,10 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 				Project: s.Project, Stack: s.Name, Env: s.Env,
 			})
 		}
+		if err := NotifySlackApproved(ctx, slackBackend, in.Notifications,
+			in.PRNumber, in.CommitSHA, in.CIRunURL, "", pr.Author, preSummaries); err != nil {
+			fmt.Printf("slack notify approved: %v\n", err)
+		}
 		if err := NotifySlackApplying(ctx, slackBackend, in.Notifications,
 			in.PRNumber, in.CommitSHA, in.CIRunURL, "", pr.Author, preSummaries); err != nil {
 			fmt.Printf("slack notify applying: %v\n", err)

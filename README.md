@@ -84,7 +84,19 @@ engine:
       stacks: [dev, staging, prod]
 ```
 
-Then invoke `./bin/reeve` in a GitHub Actions job after building from source.
+Add one workflow file and one `uses:` step — the action handles everything else:
+
+```yaml
+jobs:
+  reeve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FynxLabs/reeve@main
+        with:
+          pulumi-version: latest
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+```
 
 ### PR commands
 

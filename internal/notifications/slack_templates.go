@@ -44,13 +44,13 @@ type State struct {
 type event string
 
 const (
-	eventPlanReady  event = "plan_ready"
-	eventReady      event = "ready"
-	eventApproved   event = "approved"
-	eventApplying   event = "applying"
-	eventApplied    event = "applied"
-	eventFailed     event = "failed"
-	eventBlocked    event = "blocked"
+	eventPlanReady event = "plan_ready"
+	eventReady     event = "ready"
+	eventApproved  event = "approved"
+	eventApplying  event = "applying"
+	eventApplied   event = "applied"
+	eventFailed    event = "failed"
+	eventBlocked   event = "blocked"
 )
 
 // NotifyPlanReady sends or updates the Slack message when a plan finishes.
@@ -78,6 +78,18 @@ func (b *SlackBackend) NotifyReady(ctx context.Context, in NotifyInput) error {
 		return nil
 	}
 	return b.sendOrUpdate(ctx, in, state, eventReady, colorPending)
+}
+
+// NotifyApproved updates the message to approved state (preconditions passed, apply imminent).
+func (b *SlackBackend) NotifyApproved(ctx context.Context, in NotifyInput) error {
+	if b == nil || b.Client == nil {
+		return nil
+	}
+	state, _ := b.loadState(ctx, in.PR)
+	if state.MainTS == "" {
+		return nil
+	}
+	return b.sendOrUpdate(ctx, in, state, eventApproved, colorApproved)
 }
 
 // NotifyApplying updates the message to "applying" state. Never creates.
@@ -121,19 +133,20 @@ func (b *SlackBackend) NotifyApplied(ctx context.Context, in NotifyInput, blocke
 
 // NotifyInput bundles everything the backend needs for any notification call.
 type NotifyInput struct {
-	PR             int
-	CommitSHA      string
-	RunURL         string
-	PRTitle        string
-	PRAuthor       string
-	RequiredApprovers []string // from resolved approval rules
-	Trigger        schemas.SlackTrigger
-	Stacks         []summary.StackSummary
+	PR                int
+	CommitSHA         string
+	RunURL            string
+	PRTitle           string
+	PRAuthor          string
+	RepoFull          string // "owner/repo" from GITHUB_REPOSITORY
+	RequiredApprovers []string
+	Trigger           schemas.SlackTrigger
+	Stacks            []summary.StackSummary
 }
 
 func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *State, ev event, color string) error {
 	blocks := b.buildMainBlocks(in, ev)
-	text := mainFallbackText(in.PR, ev)
+	text := mainFallbackText(in.RepoFull, in.PR, ev)
 
 	var res *slack.PostResult
 	var err error
@@ -184,8 +197,11 @@ func (b *SlackBackend) buildMainBlocks(in NotifyInput, ev event) []slack.Block {
 	approverIcon := b.icon("approver", ":approved_stamp:")
 
 	// Header
+	a, c, d, r := totals(in.Stacks)
+	totalStr := fmt.Sprintf("+%d ~%d -%d ±%d across %d stack(s)", a, c, d, r, len(in.Stacks))
 	blocks := []slack.Block{
 		slack.Header(fmt.Sprintf("%s IAC Changes", engineIcon)),
+		slack.Section(fmt.Sprintf("%s *%s*", runnerIcon, totalStr)),
 		slack.Divider(),
 	}
 
@@ -198,9 +214,9 @@ func (b *SlackBackend) buildMainBlocks(in NotifyInput, ev event) []slack.Block {
 	blocks = append(blocks, slack.Divider())
 
 	// PR link
-	prLink := fmt.Sprintf("<https://github.com/credova/github-meta/pull/%d|#%d", in.PR, in.PR)
+	prLink := fmt.Sprintf("<https://github.com/%s/pull/%d|#%d", in.RepoFull, in.PR, in.PR)
 	if in.PRTitle != "" {
-		prLink += " — " + in.PRTitle
+		prLink += " - " + in.PRTitle
 	}
 	prLink += ">"
 	blocks = append(blocks, slack.Section(fmt.Sprintf(":writing_hand: *PR:* %s", prLink)))
@@ -221,19 +237,20 @@ func (b *SlackBackend) buildMainBlocks(in NotifyInput, ev event) []slack.Block {
 
 	// Footer: view run button, apply hint only when approved/pending
 	blocks = append(blocks, slack.Divider())
-	footerText := ""
-	if ev == eventApproved {
+	var footerText string
+	switch ev {
+	case eventApproved:
 		footerText = "Run `/reeve apply` in the PR to apply."
-	} else if ev == eventPlanReady || ev == eventReady {
+	case eventPlanReady, eventReady:
 		footerText = "Waiting for approval."
-	} else if ev == eventApplying {
+	case eventApplying:
 		footerText = ":hourglass_flowing_sand: Apply in progress..."
-	} else if ev == eventApplied {
+	case eventApplied:
 		footerText = ":white_check_mark: Applied successfully."
-	} else if ev == eventFailed {
+	case eventFailed:
 		footerText = ":x: Apply failed. Check the run for details."
-	} else if ev == eventBlocked {
-		footerText = ":lock: Apply blocked — preconditions not met."
+	case eventBlocked:
+		footerText = ":lock: Apply blocked - preconditions not met."
 	}
 
 	if in.RunURL != "" {
@@ -274,7 +291,7 @@ func stackSummaryLines(stacks []summary.StackSummary) string {
 		if s.Counts.Total() == 0 && s.Status != summary.StatusError {
 			continue
 		}
-		fmt.Fprintf(&sb, "%s `%s` — +%d ~%d -%d ±%d\n",
+		fmt.Fprintf(&sb, "%s `%s` -+%d ~%d -%d ±%d\n",
 			stackIcon(s.Status), s.Stack,
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
 	}
@@ -295,7 +312,7 @@ func (b *SlackBackend) buildStackThreadBlocks(stacks []summary.StackSummary) []s
 	}
 	var sb strings.Builder
 	for _, s := range changed {
-		fmt.Fprintf(&sb, "%s `%s` — +%d ~%d -%d ±%d\n",
+		fmt.Fprintf(&sb, "%s `%s` -+%d ~%d -%d ±%d\n",
 			stackIcon(s.Status), s.Stack,
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
 		if s.PlanSummary != "" {
@@ -333,11 +350,11 @@ func (b *SlackBackend) icon(kind, defaultEmoji string) string {
 func eventTitle(ev event) string {
 	switch ev {
 	case eventPlanReady:
-		return "Plan Ready — Pending Approval"
+		return "Plan Ready -Pending Approval"
 	case eventReady:
 		return "Ready for Apply"
 	case eventApproved:
-		return "Approved — Ready to Apply"
+		return "Approved -Ready to Apply"
 	case eventApplying:
 		return "Applying..."
 	case eventApplied:
@@ -350,10 +367,9 @@ func eventTitle(ev event) string {
 	return "Update"
 }
 
-func mainFallbackText(pr int, ev event) string {
-	return fmt.Sprintf("github-meta infrastructure %s — PR #%d", ev, pr)
+func mainFallbackText(repoFull string, pr int, ev event) string {
+	return fmt.Sprintf("%s %s - PR #%d", repoFull, ev, pr)
 }
-
 
 func timelineEntry(ev event, sha string) string {
 	ts := time.Now().UTC().Format("15:04 UTC")

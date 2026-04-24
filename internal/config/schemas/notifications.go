@@ -37,9 +37,9 @@ type SlackIcons struct {
 
 // SlackConfig wires the Slack notification backend.
 type SlackConfig struct {
-	Enabled   bool              `yaml:"enabled"`
-	Channel   string            `yaml:"channel"`
-	AuthToken string            `yaml:"auth_token"` // "${env:SLACK_BOT_TOKEN}"
+	Enabled   bool   `yaml:"enabled"`
+	Channel   string `yaml:"channel"`
+	AuthToken string `yaml:"auth_token"` // "${env:SLACK_BOT_TOKEN}"
 	// Trigger controls when the initial Slack message is created.
 	// Subsequent events always update the existing message in place.
 	// Default: "apply"

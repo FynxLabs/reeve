@@ -117,92 +117,30 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: write          # for /reeve apply via issue_comment
-  id-token: write        # only needed for OIDC federation
+  issues: write
+  id-token: write
+
+concurrency:
+  group: reeve-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
 
 jobs:
-  preview:
-    if: github.event_name == 'pull_request'
+  reeve:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+      - uses: FynxLabs/reeve@main
         with:
-          repository: FynxLabs/reeve
-          path: _reeve
-      - uses: actions/checkout@v6
-        with:
-          path: _src
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: _reeve/go.mod
-      - run: go build -trimpath -ldflags='-s -w' -o /usr/local/bin/reeve ./cmd/reeve
-        working-directory: _reeve
-      - uses: pulumi/actions@v6
-        with:
-          pulumi-version: "3.231.0"
-      - run: reeve run preview --pr ${{ github.event.pull_request.number }}
-        working-directory: _src
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
-  ready:
-    if: |
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/reeve ready')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: FynxLabs/reeve
-          path: _reeve
-      - uses: actions/checkout@v6
-        with:
-          path: _src
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: _reeve/go.mod
-      - run: go build -trimpath -ldflags='-s -w' -o /usr/local/bin/reeve ./cmd/reeve
-        working-directory: _reeve
-      - run: reeve run ready --pr ${{ github.event.issue.number }}
-        working-directory: _src
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
-  apply:
-    if: |
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/reeve apply')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: FynxLabs/reeve
-          path: _reeve
-      - uses: actions/checkout@v6
-        with:
-          path: _src
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: _reeve/go.mod
-      - run: go build -trimpath -ldflags='-s -w' -o /usr/local/bin/reeve ./cmd/reeve
-        working-directory: _reeve
-      - uses: pulumi/actions@v6
-        with:
-          pulumi-version: "3.231.0"
-      - run: reeve run apply --pr ${{ github.event.issue.number }}
-        working-directory: _src
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          pulumi-version: latest
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
 ```
 
-A published Composite Action / release binary will replace the
-build-from-source pattern once reeve cuts its first release. For now
-the workflow above is what a real install looks like.
+That's it. The action auto-detects the command from the event:
+
+- `pull_request` event → `reeve run preview`
+- `issue_comment` with `/reeve ready` → `reeve run ready`
+- `issue_comment` with `/reeve apply` → `reeve run apply`
+- Any other comment → silent no-op
 
 Open a PR. reeve posts a comment within ~30 seconds showing the plan for
 every stack touched by the changed files.
