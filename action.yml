@@ -18,9 +18,9 @@ inputs:
     required: false
     default: ""
   ref:
-    description: Git ref of FynxLabs/reeve to build from. Defaults to `main`.
+    description: Git ref of FynxLabs/reeve to build from. Defaults to `master`.
     required: false
-    default: main
+    default: master
   root:
     description: Path to the consumer repo root (where .reeve/ lives). Defaults to $GITHUB_WORKSPACE.
     required: false

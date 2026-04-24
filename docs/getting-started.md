@@ -129,10 +129,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: FynxLabs/reeve@main
+      - uses: FynxLabs/reeve@master
         with:
           pulumi-version: latest
-          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          # slack-token: ${{ secrets.SLACK_BOT_TOKEN }}   # optional: enables Slack notifications
 ```
 
 That's it. The action auto-detects the command from the event:
