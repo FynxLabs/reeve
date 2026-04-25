@@ -20,8 +20,10 @@
 
 <details><summary>Summary (2 add, 1 change, 0 delete, 0 replace)</summary>
 
+```diff
 +aws:s3:Bucket logs-2026
 ~aws:iam:Role app-role
+```
 
 </details>
 
