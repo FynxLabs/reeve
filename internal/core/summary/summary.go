@@ -33,8 +33,9 @@ type StackSummary struct {
 	Status      Status
 	BlockedBy   int         // PR number, 0 if none
 	Error       string      // non-empty if Status == StatusError
-	FullPlan    string      // raw engine preview output (redacted)
-	PlanSummary string      // human-readable short summary
+	FullPlan    string      // raw JSON preview output (redacted)
+	PlanSummary string      // human-readable short summary (+/-/~/± per resource)
+	PlanDiff    string      // pulumi preview --diff output (redacted)
 	DurationMS  int64       // apply duration (preview may be 0)
 	Gates       []GateTrace // rendered as "🔐 apply gates" section
 }

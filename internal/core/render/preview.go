@@ -101,9 +101,17 @@ func writeSections(b *strings.Builder, in PreviewInput) {
 			fmt.Fprintf(b, "  **Error:** %s\n\n", s.Error)
 		}
 		if s.PlanSummary != "" {
-			fmt.Fprintf(b, "<details><summary>Summary (%d add, %d change, %d delete, %d replace)</summary>\n\n%s\n\n</details>\n\n",
+			fmt.Fprintf(b, "<details><summary>Summary (%d add, %d change, %d delete, %d replace)</summary>\n\n```diff\n%s\n```\n\n</details>\n\n",
 				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 				s.PlanSummary)
+		}
+		if s.PlanDiff != "" {
+			b.WriteString("<details><summary>Diff</summary>\n\n```diff\n")
+			b.WriteString(s.PlanDiff)
+			if !strings.HasSuffix(s.PlanDiff, "\n") {
+				b.WriteString("\n")
+			}
+			b.WriteString("```\n\n</details>\n\n")
 		}
 		if s.FullPlan != "" {
 			b.WriteString("<details><summary>Full plan output</summary>\n\n```\n")

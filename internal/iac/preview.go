@@ -23,8 +23,9 @@ type PreviewOpts struct {
 // PreviewResult is what the engine returns per stack.
 type PreviewResult struct {
 	Counts      summary.Counts
-	PlanSummary string // human short summary
-	FullPlan    string // raw preview output (stdout), redacted upstream
+	PlanSummary string // human short summary (+/-/~/± per resource)
+	PlanDiff    string // pulumi preview --diff output
+	FullPlan    string // raw JSON preview output, redacted upstream
 	Error       string // non-empty if preview failed for this stack
 }
 

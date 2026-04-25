@@ -193,6 +193,7 @@ func runPreviewOne(ctx context.Context, in PreviewInput, s discovery.Stack) summ
 	}
 	ss.Counts = res.Counts
 	ss.PlanSummary = redactor.Redact(res.PlanSummary)
+	ss.PlanDiff = redactor.Redact(res.PlanDiff)
 	ss.FullPlan = redactor.Redact(res.FullPlan)
 	in.OTEL.RecordStackChanges(ctx, s.Project, s.Name, res.Counts.Add, res.Counts.Change, res.Counts.Delete, res.Counts.Replace)
 	if res.Error != "" {

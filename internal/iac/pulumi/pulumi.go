@@ -193,6 +193,7 @@ func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.Pr
 			res := iac.PreviewResult{
 				Counts:      counts,
 				PlanSummary: short,
+				PlanDiff:    e.previewDiff(ctx, stack, opts),
 				FullPlan:    stderr.String() + string(out),
 			}
 			if diagErr != "" {
@@ -216,6 +217,57 @@ func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.Pr
 		Error:    msg,
 		FullPlan: stderr.String() + string(out),
 	}, nil
+}
+
+// previewDiff runs `pulumi preview --diff` and returns the human-readable
+// colorizable diff output. Errors are non-fatal — caller uses empty string.
+func (e *Engine) previewDiff(ctx context.Context, stack discovery.Stack, opts iac.PreviewOpts) string {
+	cwd := opts.Cwd
+	if cwd == "" {
+		cwd = stack.Path
+	}
+	args := []string{"preview", "--stack", stack.Name, "--diff", "--non-interactive"}
+
+	timeout := time.Duration(opts.TimeoutSec) * time.Second
+	if timeout == 0 {
+		timeout = 10 * time.Minute
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(runCtx, e.Binary, args...)
+	cmd.Dir = cwd
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), flattenEnv(opts.Env)...)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	_ = cmd.Run()
+	out := strings.TrimSpace(stderr.String() + stdout.String())
+	return formatDiff(out)
+}
+
+// formatDiff moves +/-/~ from after indentation to line start so GitHub's
+// diff code fence colors them. Replaces ~ with ! for changed lines.
+func formatDiff(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+		if len(trimmed) == 0 {
+			continue
+		}
+		indent := line[:len(line)-len(trimmed)]
+		switch trimmed[0] {
+		case '+':
+			lines[i] = "+" + indent + trimmed[1:]
+		case '-':
+			lines[i] = "-" + indent + trimmed[1:]
+		case '~':
+			lines[i] = "!" + indent + trimmed[1:]
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func flattenEnv(m map[string]string) []string {
