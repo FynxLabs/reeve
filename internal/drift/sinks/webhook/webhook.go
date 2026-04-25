@@ -19,7 +19,7 @@ type Sink struct {
 	URL     string
 	Headers map[string]string
 	Events  []sinks.Event
-	Format  string // "raw" (default) — future: "incident_io" | "opsgenie" | ...
+	Format  string // "raw" (default) - future: "incident_io" | "opsgenie" | ...
 	Client  *http.Client
 }
 

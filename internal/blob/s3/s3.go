@@ -1,6 +1,6 @@
 // Package s3 is the S3 / R2 blob adapter. Atomic writes via If-Match on
 // ETag (or If-None-Match:* for absence). Works with any S3-compatible
-// service — pass an EndpointResolverV2 for MinIO / R2 / Wasabi.
+// service - pass an EndpointResolverV2 for MinIO / R2 / Wasabi.
 //
 // Auth: reuses the AWS SDK default credential chain. For federated creds
 // (Phase 4 auth providers), the caller pre-populates env vars or an

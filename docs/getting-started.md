@@ -10,7 +10,7 @@ see [configuration.md](configuration.md) and [auth.md](auth.md).
 ## Prerequisites
 
 - A GitHub repo with a Pulumi project. The [`examples/toy-stack/`](../examples/toy-stack/)
-  in this repo is a working one — fork and start from there if you want.
+  in this repo is a working one - fork and start from there if you want.
 - GitHub Actions enabled.
 - Optional: a running Pulumi backend. The toy stack uses the `random`
   provider so no cloud credentials are needed.
@@ -34,7 +34,7 @@ Put `./bin/reeve` on your `$PATH` or invoke it directly.
 
 At the repo root, create two files.
 
-**`.reeve/shared.yaml`** — bucket, approvals, preconditions:
+**`.reeve/shared.yaml`** - bucket, approvals, preconditions:
 
 ```yaml
 version: 1
@@ -64,7 +64,7 @@ apply:
   allow_fork_prs: false          # deny-by-default; flip with care
 ```
 
-**`.reeve/pulumi.yaml`** — engine + stack declarations:
+**`.reeve/pulumi.yaml`** - engine + stack declarations:
 
 ```yaml
 version: 1
@@ -167,7 +167,7 @@ recipes.
 ## 6. Add federated auth for the engine
 
 When you move from the toy stack to real infrastructure, you need short-lived
-cloud credentials for `pulumi apply` to run. See [auth.md](auth.md) —
+cloud credentials for `pulumi apply` to run. See [auth.md](auth.md) -
 the three-minute version:
 
 **`.reeve/auth.yaml`**:
@@ -255,29 +255,29 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 ```
 
-Configure schedules + sinks in `.reeve/drift.yaml` — see [drift.md](drift.md).
+Configure schedules + sinks in `.reeve/drift.yaml` - see [drift.md](drift.md).
 
 ## Troubleshooting
 
-- **`pulumi: executable file not found`** — install Pulumi via
+- **`pulumi: executable file not found`** - install Pulumi via
   `pulumi/actions@v6` before running reeve in the same job.
-- **Comment keeps duplicating instead of editing in place** — reeve finds
+- **Comment keeps duplicating instead of editing in place** - reeve finds
   its comment by the hidden HTML marker `<!-- reeve:pr-comment:v1 -->`. If
   someone manually edited the comment and stripped the marker, reeve will
   post a new one.
-- **`apply` says "fork PR — apply denied"** — expected. Fork PRs get
+- **`apply` says "fork PR - apply denied"** - expected. Fork PRs get
   dry-run-only credentials by default. Opt in with
   `shared.yaml: apply.allow_fork_prs: true` if you've thought about the
   supply-chain risk.
-- **OIDC token exchange fails locally** — `aws_oidc`/`gcp_wif`/
+- **OIDC token exchange fails locally** - `aws_oidc`/`gcp_wif`/
   `azure_federated` only work inside GitHub Actions (they need the
   `ACTIONS_ID_TOKEN_REQUEST_URL` env var). Use `aws_profile` / `aws_sso` /
   `gcloud_adc` for local development.
 
 ## Next steps
 
-- [configuration.md](configuration.md) — full schema for every `.reeve/*.yaml` file
-- [auth.md](auth.md) — every provider type, plus GitHub App setup
-- [drift.md](drift.md) — schedules, event lifecycle, sink catalog
-- [policy-hooks.md](policy-hooks.md) — wiring OPA / Conftest / CrossGuard
-- [self-hosting.md](self-hosting.md) — bucket provisioning, scope, distribution
+- [configuration.md](configuration.md) - full schema for every `.reeve/*.yaml` file
+- [auth.md](auth.md) - every provider type, plus GitHub App setup
+- [drift.md](drift.md) - schedules, event lifecycle, sink catalog
+- [policy-hooks.md](policy-hooks.md) - wiring OPA / Conftest / CrossGuard
+- [self-hosting.md](self-hosting.md) - bucket provisioning, scope, distribution

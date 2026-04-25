@@ -36,7 +36,7 @@ func HooksFromEngine(e *schemas.Engine) []policy.Hook {
 
 // RunPolicyForStack executes all hooks for one stack. Writes the plan
 // JSON to a temp file first and supplies its path via {{plan_json}}.
-// Returns (passed, results) — passed is true iff all block hooks passed.
+// Returns (passed, results) - passed is true iff all block hooks passed.
 func RunPolicyForStack(ctx context.Context, hooks []policy.Hook, s discovery.Stack, ss summary.StackSummary, r *redact.Redactor) (bool, []policy.Result, error) {
 	if len(hooks) == 0 {
 		return true, nil, nil

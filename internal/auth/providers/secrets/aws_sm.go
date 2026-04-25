@@ -133,7 +133,7 @@ func extractJSONField(raw, field string) (string, bool) {
 	if !strings.HasPrefix(raw, "{") {
 		return "", false
 	}
-	// Best-effort substring match for "field": "value" — JSON parsing
+	// Best-effort substring match for "field": "value" - JSON parsing
 	// would pull in another dep; a targeted scan is fine.
 	needle := `"` + field + `"`
 	idx := strings.Index(raw, needle)
@@ -162,7 +162,7 @@ var _ auth.Provider = &awsSMShim{}
 var _ auth.Provider = &awsSSMShim{}
 var _ auth.Provider = &githubSecretShim{}
 
-// Shims so adapters satisfy the Provider interface via a thin wrapper —
+// Shims so adapters satisfy the Provider interface via a thin wrapper -
 // keeps Name()/Type() collision with embedded fields at bay.
 type awsSMShim struct{ *AWSSecretsManager }
 

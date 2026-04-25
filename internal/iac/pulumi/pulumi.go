@@ -185,7 +185,7 @@ func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.Pr
 	runErr := cmd.Run()
 	out := stdout.Bytes()
 
-	// If stdout has JSON, parse regardless of exit code — Pulumi emits
+	// If stdout has JSON, parse regardless of exit code - Pulumi emits
 	// the plan JSON even on non-fatal errors.
 	if len(bytes.TrimSpace(out)) > 0 && out[0] == '{' {
 		counts, short, diagErr, parseErr := parsePreview(out)
@@ -205,7 +205,7 @@ func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.Pr
 		}
 	}
 
-	// No parseable stdout — bubble up stderr as error.
+	// No parseable stdout - bubble up stderr as error.
 	msg := strings.TrimSpace(stderr.String())
 	if msg == "" && runErr != nil {
 		msg = runErr.Error()
@@ -220,7 +220,7 @@ func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.Pr
 }
 
 // previewDiff runs `pulumi preview --diff` and returns the human-readable
-// colorizable diff output. Errors are non-fatal — caller uses empty string.
+// colorizable diff output. Errors are non-fatal - caller uses empty string.
 func (e *Engine) previewDiff(ctx context.Context, stack discovery.Stack, opts iac.PreviewOpts) string {
 	cwd := opts.Cwd
 	if cwd == "" {

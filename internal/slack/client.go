@@ -45,7 +45,7 @@ type Message struct {
 	ThreadTS    string       `json:"thread_ts,omitempty"`
 }
 
-// Block is opaque — users construct Block Kit JSON and stash it here.
+// Block is opaque - users construct Block Kit JSON and stash it here.
 type Block = json.RawMessage
 
 // PostResult returns the TS of the posted message so the caller can

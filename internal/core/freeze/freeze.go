@@ -62,7 +62,7 @@ func mostRecentFire(expr string, now time.Time) (time.Time, error) {
 	// Robfig cron's Next takes "from t, return next occurrence after t".
 	// We want the last occurrence at-or-before now. Strategy: scan Next()
 	// starting from `now - window size * 2` until we overshoot now.
-	start := now.Add(-14 * 24 * time.Hour) // two weeks window — sufficient for typical freezes
+	start := now.Add(-14 * 24 * time.Hour) // two weeks window - sufficient for typical freezes
 	last := time.Time{}
 	cur := start
 	for i := 0; i < 10_000; i++ {

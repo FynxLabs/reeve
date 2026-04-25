@@ -1,5 +1,5 @@
 // Package preconditions evaluates apply gates in order. Pure function over
-// plain data — run/apply.go populates Inputs, this package emits a Result
+// plain data - run/apply.go populates Inputs, this package emits a Result
 // the renderer can display. See openspec/specs/core/preconditions.
 package preconditions
 
@@ -35,7 +35,7 @@ const (
 
 // GateOrder is the authoritative ordering (fail-fast semantics).
 var GateOrder = []GateID{
-	GateFork, // fork-PR gate first — denies regardless of other state
+	GateFork, // fork-PR gate first - denies regardless of other state
 	GateUpToDate,
 	GateChecksGreen,
 	GatePreviewOK,
@@ -60,7 +60,7 @@ type Config struct {
 	PreviewFreshness        time.Duration // 0 disables the gate
 	PreviewMaxCommitsBehind int
 	// FailOnForkPRs: if true, apply is denied on fork PRs with no opt-in.
-	// Opt-in is a per-repo setting outside this package's scope — run/apply.go
+	// Opt-in is a per-repo setting outside this package's scope - run/apply.go
 	// passes the already-resolved answer via Inputs.ForkOptInAllowed.
 	FailOnForkPRs bool
 }
@@ -105,7 +105,7 @@ type Result struct {
 }
 
 // Evaluate runs gates in GateOrder. Fail-fast stops the trace at the first
-// Fail outcome — earlier passes still appear.
+// Fail outcome - earlier passes still appear.
 func Evaluate(cfg Config, in Inputs) Result {
 	res := Result{StackRef: in.StackRef}
 	for _, g := range GateOrder {
@@ -123,7 +123,7 @@ func evalGate(g GateID, cfg Config, in Inputs) GateResult {
 	switch g {
 	case GateFork:
 		if in.PRIsFork && !in.ForkOptInAllowed {
-			return fail(g, "fork PR — apply denied by default; see docs/auth-fork-prs.md to opt in")
+			return fail(g, "fork PR - apply denied by default; see docs/auth-fork-prs.md to opt in")
 		}
 		if !in.PRIsFork {
 			return GateResult{Gate: g, Outcome: OutcomeSkipped, Reason: "not a fork PR"}

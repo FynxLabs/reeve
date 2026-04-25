@@ -83,7 +83,7 @@ description = "Static security analyzer for Go (gosec)"
 
 [tasks.check]
 depends = ["fmt", "vet", "lint", "vuln", "sec", "test"]
-description = "Format, vet, lint, vuln-scan, sec-scan, and test — run before pushing"
+description = "Format, vet, lint, vuln-scan, sec-scan, and test - run before pushing"
 
 [tasks.hooks]
 run = "hk run check"

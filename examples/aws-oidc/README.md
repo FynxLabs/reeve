@@ -1,14 +1,14 @@
 # aws-oidc
 
 Single-cloud AWS using GitHub Actions OIDC federation. No long-lived AWS
-credentials anywhere — reeve acquires 1-hour STS tokens per stack.
+credentials anywhere - reeve acquires 1-hour STS tokens per stack.
 
 ## What this example has
 
-- `.reeve/shared.yaml` — S3 bucket, 2-of-2 approvals for prod, 4h lock TTL
-- `.reeve/auth.yaml` — one `aws_oidc` provider for prod + drift-readonly
-- `.reeve/pulumi.yaml` — two projects, dev/staging/prod per project
-- `.github/workflows/reeve.yml` — preview + apply on comment
+- `.reeve/shared.yaml` - S3 bucket, 2-of-2 approvals for prod, 4h lock TTL
+- `.reeve/auth.yaml` - one `aws_oidc` provider for prod + drift-readonly
+- `.reeve/pulumi.yaml` - two projects, dev/staging/prod per project
+- `.github/workflows/reeve.yml` - preview + apply on comment
 
 ## One-time cloud setup
 

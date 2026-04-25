@@ -348,7 +348,7 @@ outer:
 }
 
 // extractURNs pulls Pulumi URNs from a plan output for fingerprinting.
-// Best-effort — pattern matches `"urn":"urn:pulumi:...::...::...::name"`.
+// Best-effort - pattern matches `"urn":"urn:pulumi:...::...::...::name"`.
 func extractURNs(plan string) []string {
 	var urns []string
 	for _, marker := range []string{`"urn":"urn:`, `"urn": "urn:`} {

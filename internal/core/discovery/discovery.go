@@ -16,7 +16,7 @@ type Stack struct {
 	Env     string // derived from Name or explicitly declared; used in rendering
 }
 
-// Ref returns "project/name" — the canonical identifier used in rules,
+// Ref returns "project/name" - the canonical identifier used in rules,
 // comments, and bucket keys.
 func (s Stack) Ref() string { return s.Project + "/" + s.Name }
 

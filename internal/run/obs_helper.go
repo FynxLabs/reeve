@@ -10,7 +10,7 @@ import (
 )
 
 // BuildOTEL returns an OTEL provider if observability.yaml has
-// otel.enabled=true. Nil is safe — all provider helpers are nil-tolerant.
+// otel.enabled=true. Nil is safe - all provider helpers are nil-tolerant.
 func BuildOTEL(ctx context.Context, cfg *schemas.Observability) (*reeveotel.Provider, error) {
 	if cfg == nil || !cfg.OTEL.Enabled {
 		return nil, nil

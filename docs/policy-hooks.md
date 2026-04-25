@@ -15,7 +15,7 @@ Before apply runs for a stack, reeve:
    substitution for `{{plan_json}}`, `{{stack_name}}`, `{{project}}`,
    `{{env}}`.
 3. Treats exit code `0` as pass; non-zero behavior depends on `on_fail`.
-4. Aggregates results into the `GatePolicy` precondition — any
+4. Aggregates results into the `GatePolicy` precondition - any
    `on_fail: block` hook failing blocks apply.
 5. Surfaces each hook's redacted stdout in the PR comment's "Policy"
    section.
@@ -57,25 +57,25 @@ engine:
 
 | Field | Required | Default | Notes |
 |---|---|---|---|
-| `name` | yes | — | Identifies the hook in the PR comment and OTEL metrics |
-| `command` | yes | — | `argv`-style list, first element is the binary |
+| `name` | yes | - | Identifies the hook in the PR comment and OTEL metrics |
+| `command` | yes | - | `argv`-style list, first element is the binary |
 | `on_fail` | no | `block` | `block` blocks apply; `warn` shows in comment only |
 | `required` | no | `true` | `false` silently skips if `command[0]` isn't on PATH |
 
 ### Template placeholders
 
-- `{{plan_json}}` — absolute path to a JSON file reeve wrote for this
+- `{{plan_json}}` - absolute path to a JSON file reeve wrote for this
   stack
-- `{{stack_name}}` — e.g. `prod`
-- `{{project}}` — e.g. `api`
-- `{{env}}` — derived from the stack name (e.g. `prod` from `prod-us-east`)
+- `{{stack_name}}` - e.g. `prod`
+- `{{project}}` - e.g. `api`
+- `{{env}}` - derived from the stack name (e.g. `prod` from `prod-us-east`)
 
 ### Exit-code semantics
 
 | Exit code | `on_fail: block` | `on_fail: warn` |
 |---|---|---|
 | `0` | pass (silent) | pass (silent) |
-| non-zero | **fail** — apply blocked, stdout in PR comment | **warn** — stdout in PR comment, apply proceeds |
+| non-zero | **fail** - apply blocked, stdout in PR comment | **warn** - stdout in PR comment, apply proceeds |
 | command missing + `required: false` | skipped silently | skipped silently |
 | command missing + `required: true` | **fail** with clear error | **fail** with clear error |
 
@@ -183,7 +183,7 @@ With `policies/prod/`, `policies/staging/`, etc.
 ### Cross-engine shared policies
 
 Policy hooks live in engine config, so with multiple engines you'd
-duplicate the block. That's fine — same OPA policies template into two
+duplicate the block. That's fine - same OPA policies template into two
 files. If duplication grows, write a YAML anchor:
 
 ```yaml
@@ -212,10 +212,10 @@ before appearing anywhere user-visible. This scrubs:
   (reeve registers every env-var value with the redactor at acquire
   time)
 - Default credential patterns (AWS access keys, GitHub tokens, Slack
-  tokens — see `internal/run/redact_helper.go`)
+  tokens - see `internal/run/redact_helper.go`)
 
 If your policy engine prints secrets, reeve will mask them. But **don't
-rely on redaction as a security boundary** — scope policy engines so
+rely on redaction as a security boundary** - scope policy engines so
 they don't have access to secrets in the first place.
 
 ## In the PR comment
@@ -252,7 +252,7 @@ template into multiple engine configs via YAML anchors.
 ### Hook fires but `{{plan_json}}` is empty / missing
 
 The plan JSON is populated with a summary object containing project,
-stack, env, counts, and a short resource summary — not the raw engine
+stack, env, counts, and a short resource summary - not the raw engine
 plan. Policies that need the full resource body should currently read
 the engine's own artifacts (Pulumi checkpoint, Terraform plan file)
 rather than the reeve-written plan.
@@ -266,7 +266,7 @@ make/script wrapper that decides).
 
 ### Policy stdout truncated at 2000 chars
 
-Intentional — prevents a noisy hook from blowing up the PR comment.
+Intentional - prevents a noisy hook from blowing up the PR comment.
 Write to a file and link to it if you need more:
 
 ```yaml

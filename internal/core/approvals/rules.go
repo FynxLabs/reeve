@@ -142,7 +142,7 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 			continue
 		}
 		if rules.Freshness > 0 && !a.SubmittedAt.IsZero() {
-			// Freshness check deferred — caller passes only fresh approvals in
+			// Freshness check deferred - caller passes only fresh approvals in
 			// practice. Keep the trace for visibility.
 			_ = a.SubmittedAt
 		}

@@ -70,7 +70,7 @@ type SuppressionYAML struct {
 	Reason string `yaml:"reason"`
 }
 
-// DriftSinkYAML is intentionally polymorphic — Type chooses the adapter.
+// DriftSinkYAML is intentionally polymorphic - Type chooses the adapter.
 type DriftSinkYAML struct {
 	Type           string            `yaml:"type"`
 	Name           string            `yaml:"name,omitempty"`

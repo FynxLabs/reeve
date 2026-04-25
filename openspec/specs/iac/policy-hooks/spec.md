@@ -29,16 +29,16 @@ policy_hooks:
 
 ## Placeholders
 
-- `{{plan_json}}` — path to the plan JSON reeve wrote.
-- `{{stack_name}}`, `{{project}}`, `{{env}}` — current stack context.
+- `{{plan_json}}` - path to the plan JSON reeve wrote.
+- `{{stack_name}}`, `{{project}}`, `{{env}}` - current stack context.
 
 ## Exit code semantics
 
-- `0` — pass.
-- non-zero + `on_fail: block` — apply gate fails; stdout surfaces in PR
+- `0` - pass.
+- non-zero + `on_fail: block` - apply gate fails; stdout surfaces in PR
   comment.
-- non-zero + `on_fail: warn` — warning in PR comment; apply proceeds.
-- `required: false` + command not present — skip silently.
+- non-zero + `on_fail: warn` - warning in PR comment; apply proceeds.
+- `required: false` + command not present - skip silently.
 
 ## Stdout safety
 

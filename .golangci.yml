@@ -1,5 +1,5 @@
 # golangci-lint config. The load-bearing rule is depguard: internal/core/*
-# must stay pure — only stdlib and sibling core packages allowed.
+# must stay pure - only stdlib and sibling core packages allowed.
 #
 # Run: golangci-lint run
 
@@ -11,12 +11,12 @@ run:
 linters:
   default: none
   enable:
-    - depguard
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
+  - depguard
+  - errcheck
+  - govet
+  - ineffassign
+  - staticcheck
+  - unused
 
   settings:
     errcheck:
@@ -24,14 +24,14 @@ linters:
       # are fire-and-forget. Only flag return values that carry real business
       # errors.
       exclude-functions:
-        - (io.Closer).Close
-        - (*os.File).Close
-        - fmt.Fprint
-        - fmt.Fprintf
-        - fmt.Fprintln
-        - os.Remove
-        - os.RemoveAll
-        - (github.com/spf13/pflag.Value).Set
+      - (io.Closer).Close
+      - (*os.File).Close
+      - fmt.Fprint
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - os.Remove
+      - os.RemoveAll
+      - (github.com/spf13/pflag.Value).Set
 
     depguard:
       rules:
@@ -40,33 +40,33 @@ linters:
           # other internal/core/* siblings. No external SDKs, no adapters.
           list-mode: lax
           files:
-            - "**/internal/core/**/*.go"
+          - "**/internal/core/**/*.go"
           allow:
-            - $gostd
-            - github.com/thefynx/reeve/internal/core
+          - $gostd
+          - github.com/thefynx/reeve/internal/core
           deny:
-            - pkg: github.com/aws
-              desc: "internal/core must be pure — move adapter code out of core/"
-            - pkg: cloud.google.com
-              desc: "internal/core must be pure — move adapter code out of core/"
-            - pkg: github.com/Azure
-              desc: "internal/core must be pure — move adapter code out of core/"
-            - pkg: github.com/google/go-github
-              desc: "internal/core must be pure — move adapter code out of core/"
-            - pkg: github.com/hashicorp
-              desc: "internal/core must be pure — move adapter code out of core/"
-            - pkg: github.com/slack-go
-              desc: "internal/core must be pure — move adapter code out of core/"
-            - pkg: github.com/spf13/cobra
-              desc: "internal/core must be pure — CLI wiring belongs in cmd/"
-            - pkg: github.com/spf13/viper
-              desc: "internal/core must be pure — config loading belongs in internal/config"
-            - pkg: go.opentelemetry.io
-              desc: "internal/core must be pure — telemetry belongs in internal/observability"
-            - pkg: github.com/pulumi
-              desc: "internal/core must be pure — engine code belongs in internal/iac/pulumi"
+          - pkg: github.com/aws
+            desc: "internal/core must be pure - move adapter code out of core/"
+          - pkg: cloud.google.com
+            desc: "internal/core must be pure - move adapter code out of core/"
+          - pkg: github.com/Azure
+            desc: "internal/core must be pure - move adapter code out of core/"
+          - pkg: github.com/google/go-github
+            desc: "internal/core must be pure - move adapter code out of core/"
+          - pkg: github.com/hashicorp
+            desc: "internal/core must be pure - move adapter code out of core/"
+          - pkg: github.com/slack-go
+            desc: "internal/core must be pure - move adapter code out of core/"
+          - pkg: github.com/spf13/cobra
+            desc: "internal/core must be pure - CLI wiring belongs in cmd/"
+          - pkg: github.com/spf13/viper
+            desc: "internal/core must be pure - config loading belongs in internal/config"
+          - pkg: go.opentelemetry.io
+            desc: "internal/core must be pure - telemetry belongs in internal/observability"
+          - pkg: github.com/pulumi
+            desc: "internal/core must be pure - engine code belongs in internal/iac/pulumi"
 
 formatters:
   enable:
-    - gofmt
-    - goimports
+  - gofmt
+  - goimports

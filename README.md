@@ -1,12 +1,12 @@
 # reeve
 
 **PR-native, self-hosted GitOps orchestrator for Pulumi.** No control plane,
-no vendor backend, no telemetry, no account — you own everything.
+no vendor backend, no telemetry, no account - you own everything.
 
 > Named after the medieval reeve: an official empowered to enforce rules and
 > manage an estate on behalf of those who own it. A tool whose entire job is
 > to enforce approval policy, manage locks, and act on infrastructure on
-> behalf of the team — while owning none of it.
+> behalf of the team - while owning none of it.
 
 ---
 
@@ -16,14 +16,14 @@ no vendor backend, no telemetry, no account — you own everything.
 
 1. Runs `pulumi preview` for every stack touched by the changed files.
 2. Posts a single PR comment with per-stack change counts and a collapsible
-   plan — edited in place on every push.
+   plan - edited in place on every push.
 3. Gates `/reeve apply` behind approvals, CODEOWNERS, required checks,
    up-to-date base, preview freshness, policy hooks, per-stack FIFO locks,
    and freeze windows.
 4. Writes locks, run artifacts, and audit entries to **your** bucket (S3 /
    GCS / Azure Blob / R2 / local filesystem).
 5. Acquires **short-lived federated credentials** (AWS OIDC, GCP WIF, Azure
-   federated, GitHub App) per stack — reeve never stores long-lived secrets.
+   federated, GitHub App) per stack - reeve never stores long-lived secrets.
 6. Detects drift on a schedule, classifies events (new / ongoing / resolved),
    and routes to Slack, PagerDuty, webhook, GitHub issues.
 7. Emits OpenTelemetry traces and metrics to **your** collector.
@@ -84,7 +84,7 @@ engine:
       stacks: [dev, staging, prod]
 ```
 
-Add one workflow file and one `uses:` step — the action handles everything else:
+Add one workflow file and one `uses:` step - the action handles everything else:
 
 ```yaml
 jobs:
@@ -130,13 +130,13 @@ mise run release-check # goreleaser config validation
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md) — zero-to-PR-comment in 10 minutes
-- [Configuration reference](docs/configuration.md) — every config_type
-- [Auth providers](docs/auth.md) — OIDC/WIF/federated/secret managers
-- [Drift detection](docs/drift.md) — schedules, sinks, bootstrap modes
-- [Policy hooks](docs/policy-hooks.md) — OPA, Conftest, CrossGuard, custom
-- [Self-hosting](docs/self-hosting.md) — bucket choice, GH App, scope
-- [Spec](openspec/specs/) — authoritative per-capability behavior
+- [Getting started](docs/getting-started.md) - zero-to-PR-comment in 10 minutes
+- [Configuration reference](docs/configuration.md) - every config_type
+- [Auth providers](docs/auth.md) - OIDC/WIF/federated/secret managers
+- [Drift detection](docs/drift.md) - schedules, sinks, bootstrap modes
+- [Policy hooks](docs/policy-hooks.md) - OPA, Conftest, CrossGuard, custom
+- [Self-hosting](docs/self-hosting.md) - bucket choice, GH App, scope
+- [Spec](openspec/specs/) - authoritative per-capability behavior
 
 ## Architecture at a glance
 
@@ -170,7 +170,7 @@ flowchart TB
   class PulumiCLI,GitHubAPI,Bucket,SlackAPI,OTELCollector,CloudIAM ext;
 ```
 
-Every arrow leaves the `reeve` binary's trust boundary — the user owns
+Every arrow leaves the `reeve` binary's trust boundary - the user owns
 everything it talks to.
 
 ## Contributing

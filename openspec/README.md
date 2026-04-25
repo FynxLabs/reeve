@@ -4,10 +4,10 @@ Spec-driven development for reeve, per [openspec.dev](https://openspec.dev/).
 
 ## Layout
 
-- `specs/` — source of truth per capability. Edit freely; reviewed like code.
-- `changes/` — active proposals under discussion, one folder per change.
-- `changes/archive/YYYY-MM-DD-<name>/` — archived on merge, dated.
-- `config.yaml` — project config.
+- `specs/` - source of truth per capability. Edit freely; reviewed like code.
+- `changes/` - active proposals under discussion, one folder per change.
+- `changes/archive/YYYY-MM-DD-<name>/` - archived on merge, dated.
+- `config.yaml` - project config.
 
 ## Workflow
 

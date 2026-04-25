@@ -19,11 +19,11 @@ per plan appendix). Revisit only if a user files a concrete need.
 
 ## Pipeline
 
-1. **Declare** — literal project entries and `pattern:` globs from engine config.
-2. **Include** — if any include rules exist, only matching entries pass.
-3. **Exclude** — drop matching entries.
-4. **Resolve** — engine verifies each remaining stack exists.
-5. **Map to changes** — stack is "affected" if changed files intersect its
+1. **Declare** - literal project entries and `pattern:` globs from engine config.
+2. **Include** - if any include rules exist, only matching entries pass.
+3. **Exclude** - drop matching entries.
+4. **Resolve** - engine verifies each remaining stack exists.
+5. **Map to changes** - stack is "affected" if changed files intersect its
    paths or declared dependencies.
 
 ## `reeve stacks discover`

@@ -83,7 +83,7 @@ func TestConditionalWriteRetryOnRace(t *testing.T) {
 	s := newStore(t, now)
 
 	// First attempt: two calls in sequence, each read/write independently.
-	// Interleave them: both read free lock, both write — second should
+	// Interleave them: both read free lock, both write - second should
 	// get a precondition failure and retry.
 	// Simulate by just calling TryAcquire twice; the second will observe
 	// the first's write via re-read.

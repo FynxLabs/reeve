@@ -17,12 +17,12 @@ In scope:
 - The `reeve` binary and every package under `internal/` and `cmd/`.
 - The `action.yml` GitHub Action.
 - Release tooling (goreleaser config, signing).
-- Auth provider adapters (`internal/auth/providers/*`) — especially
+- Auth provider adapters (`internal/auth/providers/*`) - especially
   anything involving credential exchange, token handling, or privilege
   escalation.
-- Redaction pipeline (`internal/core/redact`) — a bypass that leaks
+- Redaction pipeline (`internal/core/redact`) - a bypass that leaks
   secrets through stdout, audit logs, or telemetry is in scope.
-- Lock state machine (`internal/core/locks` + `internal/blob/locks`) —
+- Lock state machine (`internal/core/locks` + `internal/blob/locks`) -
   concurrent-write bugs that let two PRs hold the same lock are in scope.
 
 Out of scope:
@@ -50,7 +50,7 @@ Out of scope:
   an explicit, documented risk.
 - **All user-visible output runs through `internal/core/redact`.**
   Credential literals are registered with the redactor at acquire time
-  — leaks through engine stdout are scrubbed.
+  - leaks through engine stdout are scrubbed.
 - **Audit log is write-once.** Entries are created with
   `If-None-Match` preconditions. Overwrites are rejected.
 
@@ -60,12 +60,12 @@ Out of scope:
   wires sigstore/cosign keyless signing for when the first release is
   cut. Pre-release, reeve is built from source only.
 - **Vulnerability scanning on every PR:**
-  - `govulncheck` — Go's reachability-aware vuln scanner against the
+  - `govulncheck` - Go's reachability-aware vuln scanner against the
     official Go vulnerability database.
-  - `gosec` — static Go security analyzer.
-  - `actions/dependency-review-action` — blocks PRs that introduce HIGH+
+  - `gosec` - static Go security analyzer.
+  - `actions/dependency-review-action` - blocks PRs that introduce HIGH+
     CVEs in dependencies.
-- **Renovate auto-updates** — weekly PRs for module bumps + GitHub
+- **Renovate auto-updates** - weekly PRs for module bumps + GitHub
   Action digest pinning. Vulnerability alerts get a `security` label and
   bypass the schedule.
 - **No external network calls at test time.** Core tests use an

@@ -31,7 +31,7 @@ type migrationFn func(*yaml.Node) error
 // NewMigrator returns a Migrator with the built-in migrations registered.
 func NewMigrator() *Migrator {
 	m := &Migrator{registry: map[migrationKey]migrationFn{}}
-	// Example placeholder — wired when v2 lands.
+	// Example placeholder - wired when v2 lands.
 	// m.registry[migrationKey{"shared", 1}] = migrateSharedV1ToV2
 	return m
 }

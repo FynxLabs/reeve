@@ -12,7 +12,7 @@ type ghOverlap struct {
 	client ghOverlapClient
 }
 
-// ghOverlapClient is the narrow interface we need from the VCS adapter —
+// ghOverlapClient is the narrow interface we need from the VCS adapter -
 // defined here so internal/drift doesn't take a hard dep on internal/vcs/github.
 type ghOverlapClient interface {
 	ListOpenPRsTouchingPaths(ctx context.Context, paths []string) ([]approvals.PR, error)
@@ -36,7 +36,7 @@ func (g *ghOverlap) FindOverlappingPRs(ctx context.Context, paths []string) ([]O
 			Number:   p.Number,
 			Author:   p.Author,
 			HeadSHA:  p.HeadSHA,
-			OpenedAt: opened, // VCS PR doesn't carry OpenedAt in core.PR yet — wire in Phase 7.x
+			OpenedAt: opened, // VCS PR doesn't carry OpenedAt in core.PR yet - wire in Phase 7.x
 			Paths:    p.Changed,
 		})
 	}

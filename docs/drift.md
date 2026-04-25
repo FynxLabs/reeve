@@ -1,6 +1,6 @@
 # Drift detection
 
-Drift is a **third run mode** alongside preview and apply — same discovery
+Drift is a **third run mode** alongside preview and apply - same discovery
 pipeline, same auth bindings (with optional drift-specific overrides),
 same bucket. Different trigger (scheduled), different urgency model
 (alerts, not reviews).
@@ -16,12 +16,12 @@ state file:
 
 | Event | Meaning |
 |---|---|
-| `drift_detected` | New drift — not previously drifted (or fingerprint changed) |
+| `drift_detected` | New drift - not previously drifted (or fingerprint changed) |
 | `drift_ongoing` | Still drifted since the last run. **Silent by default.** |
 | `drift_resolved` | Was drifted, now clean |
 | `check_failed` | Run-level error (auth, network, engine crash) |
 
-**`drift_ongoing` is silent on purpose** — without the event lifecycle,
+**`drift_ongoing` is silent on purpose** - without the event lifecycle,
 alerting either spams every run or fires once and goes stale. The
 runner still updates state and emits OTEL metrics; only the sink
 dispatch is suppressed.
@@ -64,7 +64,7 @@ behavior:
   # plan-parse error, or policy failure.
 
   exit_on:
-    drift_detected: false          # don't fail CI on drift — alert instead
+    drift_detected: false          # don't fail CI on drift - alert instead
     drift_ongoing: false
     run_error: true                # do fail CI on run-level errors
 
@@ -130,7 +130,7 @@ was manually cleared), reeve needs to decide whether drift counts as
 
 | Mode | Behavior |
 |---|---|
-| `baseline` | First run is silent — records state, emits no event. |
+| `baseline` | First run is silent - records state, emits no event. |
 | `alert_all` | First run fires `drift_detected` for every drifted stack. |
 | `require_manual` | Refuse to run until `reeve drift bootstrap` is explicitly run. |
 
@@ -265,7 +265,7 @@ These are listed in reports but never trigger events.
 ### Slack
 
 One message per run per channel, no state tracking. Use a dedicated
-channel (`#infra-drift`) — mixing drift with regular alerts gets noisy.
+channel (`#infra-drift`) - mixing drift with regular alerts gets noisy.
 
 ```yaml
 - type: slack
@@ -277,7 +277,7 @@ channel (`#infra-drift`) — mixing drift with regular alerts gets noisy.
 ### Webhook
 
 Generic HTTP POST with JSON body. In v1, the `raw` format is the only
-shape — no named presets.
+shape - no named presets.
 
 ```yaml
 - type: webhook
@@ -305,7 +305,7 @@ Payload shape:
 ```
 
 Named presets for `incident_io` / `rootly` / `opsgenie` are deliberately
-**not** built in. Template the payload in your webhook receiver instead —
+**not** built in. Template the payload in your webhook receiver instead -
 that's where the transformation logic belongs.
 
 ### PagerDuty
@@ -353,11 +353,11 @@ Dash0). See [configuration.md](configuration.md#observabilityyaml).
 
 Every run writes three artifacts to the bucket:
 
-- `drift/runs/<run-id>/manifest.json` — run metadata
-- `drift/runs/<run-id>/results/<project>-<stack>.json` — per-stack
-- `drift/runs/<run-id>/report.md` — rendered markdown report
+- `drift/runs/<run-id>/manifest.json` - run metadata
+- `drift/runs/<run-id>/results/<project>-<stack>.json` - per-stack
+- `drift/runs/<run-id>/report.md` - rendered markdown report
 
-The report is also written to `$GITHUB_STEP_SUMMARY` on every CI run —
+The report is also written to `$GITHUB_STEP_SUMMARY` on every CI run -
 free visibility in the Actions UI.
 
 ```bash
@@ -392,7 +392,7 @@ includes them too:
 ]
 ```
 
-Long-lived IaC PRs over drifted stacks are compounding risk — the plan
+Long-lived IaC PRs over drifted stacks are compounding risk - the plan
 reviewers approved a week ago no longer matches reality. Incident
 tooling can use `overlapping_prs` to escalate.
 
@@ -404,7 +404,7 @@ The state file's fingerprint is changing every run. That usually means
 an upstream system mutates a property each check (last-scanned timestamp,
 managed tag). Use `classification.ignore_properties` to exclude those.
 
-### `drift_ongoing` never emits — is it broken?
+### `drift_ongoing` never emits - is it broken?
 
 Working as designed. Query it via OTEL (`reeve.drift.ongoing_duration`
 gauge) or `reeve drift status`. Most alerting on "ongoing drift" is

@@ -10,7 +10,7 @@
 | worker/prod | prod | 0 | 3 | 0 | 1 | ✅ ready |
 | noop/dev | dev | 0 | 0 | 0 | 0 | · no-op |
 
-⚠️ Replacements detected — review carefully.
+⚠️ Replacements detected - review carefully.
 
 ---
 

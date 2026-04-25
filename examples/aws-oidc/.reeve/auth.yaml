@@ -17,7 +17,7 @@ providers:
     duration: 2h
     region: us-east-1
 
-  # Separate role for reading the Pulumi state bucket — keeps blast
+  # Separate role for reading the Pulumi state bucket - keeps blast
   # radius on the stack role tight.
   aws-state:
     type: aws_oidc
@@ -25,8 +25,8 @@ providers:
     region: us-east-1
 
 bindings:
-  - match: { stack: "**" }
-    providers: [aws-prod]
+- match: { stack: "**" }
+  providers: [ aws-prod ]
 
-  - match: { stack: "**", mode: drift }
-    providers: [aws-prod-readonly]
+- match: { stack: "**", mode: drift }
+  providers: [ aws-prod-readonly ]

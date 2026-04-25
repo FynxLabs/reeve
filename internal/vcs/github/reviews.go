@@ -47,7 +47,7 @@ func (*Client) Name() string { return "pr_review" }
 // PR #X" queries. Uses GitHub Search API: "is:pr is:open repo:owner/repo".
 func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) ([]approvals.PR, error) {
 	// Simple implementation: list all open PRs, then per-PR ListFiles
-	// intersect with paths. For repos with many open PRs this is slow —
+	// intersect with paths. For repos with many open PRs this is slow -
 	// Phase 7/8 can optimize with the GraphQL API if needed.
 	var prs []*gh.PullRequest
 	opt := &gh.PullRequestListOptions{State: "open", ListOptions: gh.ListOptions{PerPage: 100}}

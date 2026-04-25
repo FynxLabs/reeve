@@ -3,7 +3,7 @@
 ## Principle
 
 Opt-in. Off by default. reeve emits telemetry only when
-`observability.yaml` exists. reeve never hosts or sees telemetry data —
+`observability.yaml` exists. reeve never hosts or sees telemetry data -
 it goes to whatever endpoint the user configured.
 
 ## Signal model
@@ -55,7 +55,7 @@ What **never** goes in telemetry:
 - Approver identity beyond counts.
 - Any value Pulumi marked `[secret]`.
 
-Enforced via the `internal/core/redact` pipeline — same pass that gates
+Enforced via the `internal/core/redact` pipeline - same pass that gates
 PR comments and audit logs.
 
 ## Configuration

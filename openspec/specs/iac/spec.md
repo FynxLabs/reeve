@@ -4,8 +4,8 @@
 
 Every adapter implements:
 
-- `Name() string` — display only. Core **never branches** on this.
-- `Capabilities() Capabilities` — for capability detection.
+- `Name() string` - display only. Core **never branches** on this.
+- `Capabilities() Capabilities` - for capability detection.
 - `EnumerateStacks(ctx, root) → []Stack`
 - `ValidateStack(ctx, stack) → error`
 - `Preview(ctx, stack, opts) → Plan`

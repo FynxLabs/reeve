@@ -49,7 +49,7 @@ reeve never calls anything reeve-operated. There is nothing reeve-operated.
 ## Bucket provisioning
 
 The bucket holds locks, run artifacts, audit entries, drift state, and
-Slack message IDs. Typical lifetime cost is a few MB/month — this is
+Slack message IDs. Typical lifetime cost is a few MB/month - this is
 metadata, not plan bodies.
 
 ### AWS S3
@@ -132,7 +132,7 @@ bucket:
   type: s3
   name: mycompany-reeve
   region: us-east-1
-  prefix: reeve/         # optional — useful if you share a bucket
+  prefix: reeve/         # optional - useful if you share a bucket
 ```
 
 ### GCS
@@ -197,7 +197,7 @@ bucket:
   name: ./.reeve-state
 ```
 
-Good for `plan-run` and local smoke tests. **Not for CI** — Actions
+Good for `plan-run` and local smoke tests. **Not for CI** - Actions
 runners start empty, so locks don't persist across runs.
 
 ---
@@ -218,10 +218,10 @@ permissions:
 
 reeve expects these events:
 
-- `pull_request` (`opened`, `synchronize`, `reopened`) — fires `preview`
-- `issue_comment` (`created`, body starts with `/reeve apply`) — fires `apply`
-- `schedule` — fires `drift run`
-- `workflow_dispatch` — manual re-runs
+- `pull_request` (`opened`, `synchronize`, `reopened`) - fires `preview`
+- `issue_comment` (`created`, body starts with `/reeve apply`) - fires `apply`
+- `schedule` - fires `drift run`
+- `workflow_dispatch` - manual re-runs
 
 ### GitHub App (optional but recommended for multi-repo)
 
@@ -264,7 +264,7 @@ overriding the workflow's default token.
 ## Distribution
 
 reeve has not cut a release. The only supported distribution today is
-**build from source in CI** — clone `FynxLabs/reeve`, run
+**build from source in CI** - clone `FynxLabs/reeve`, run
 `go build ./cmd/reeve`, invoke the resulting binary.
 
 `.goreleaser.yaml`, the Homebrew formula block, the GHCR image pipeline,
@@ -302,7 +302,7 @@ Only files whose `config_type` has a migration land are touched.
 Every CI run writes a run manifest to `runs/pr-<n>/<run-id>/manifest.json`.
 Tail them with whatever bucket-event tooling you have (S3 EventBridge,
 GCS Pub/Sub). An absence of run manifests on expected PRs means the
-workflow itself didn't fire — check Actions.
+workflow itself didn't fire - check Actions.
 
 ### Drift backlog growing?
 
@@ -321,7 +321,7 @@ reeve locks list                    # shows holder + queue depth
 reeve locks explain <project/stack> # detail for one stack
 ```
 
-Long queue depths on a stack indicate apply contention — usually a
+Long queue depths on a stack indicate apply contention - usually a
 symptom of too-coarse stack granularity or PRs that take too long to
 merge after `/reeve apply`.
 
@@ -371,7 +371,7 @@ in your workflow if you need to cut the supply chain further.
 
 **Why no control plane?** Because every "just a small control plane for
 X" decision compounds into exactly what reeve is trying to avoid
-becoming. Nothing hosted, ever — including a "free tier API".
+becoming. Nothing hosted, ever - including a "free tier API".
 
 **What if I want telemetry for usage analytics?** You can add it
 yourself in a fork. The upstream code does not contain the feature,

@@ -52,7 +52,7 @@ func ReportMarkdown(out *RunOutput) string {
 		}
 		if anyOverlap {
 			b.WriteString("### ⚠️ Drifted stacks with open PRs\n\n")
-			b.WriteString("Long-lived IaC PRs over drifted infrastructure are compounding risk — ")
+			b.WriteString("Long-lived IaC PRs over drifted infrastructure are compounding risk - ")
 			b.WriteString("the plan reviewers approved may no longer match reality.\n\n")
 			for _, it := range drifted {
 				if len(it.OverlappingPRs) == 0 {
@@ -115,7 +115,7 @@ func filterItemsByOutcome(items []Item, want Outcome) []Item {
 
 func renderOverlapCell(prs []OverlappingPR) string {
 	if len(prs) == 0 {
-		return "—"
+		return "-"
 	}
 	parts := make([]string, 0, len(prs))
 	for _, p := range prs {

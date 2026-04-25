@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Cost gate — warns when monthly delta exceeds an env-specific cap.
+# Cost gate - warns when monthly delta exceeds an env-specific cap.
 #
 # Usage: cost-gate.sh <plan.json> <env>
 #
 # Exits 0 on pass, 2 on threshold exceeded (we use 2 rather than 1 so
-# misconfigured invocations — exit 1 from the shell itself — are
+# misconfigured invocations - exit 1 from the shell itself - are
 # distinguishable from policy violations).
 set -euo pipefail
 

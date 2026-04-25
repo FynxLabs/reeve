@@ -1,7 +1,7 @@
 version: 1
 config_type: shared
 
-# Drift runs share the main bucket — same locks/state namespace.
+# Drift runs share the main bucket - same locks/state namespace.
 bucket:
   type: s3
   name: mycompany-reeve
@@ -14,7 +14,7 @@ locking:
 approvals:
   default:
     required_approvals: 1
-    approvers: ["@org/infra-reviewers"]
+    approvers: [ "@org/infra-reviewers" ]
 
 preconditions:
   require_up_to_date: true

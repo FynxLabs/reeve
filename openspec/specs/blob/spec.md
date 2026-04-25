@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Locks, run artifacts, drift state, audit logs. The user owns the bucket —
+Locks, run artifacts, drift state, audit logs. The user owns the bucket -
 reeve never sees the data after delivery.
 
 ## Adapters (v1)
@@ -40,7 +40,7 @@ for all core components.
 
 All adapters must implement atomic conditional writes (If-Match on ETag,
 GCS generation preconditions, filesystem flock+rename). `ErrPreconditionFailed`
-signals "someone else got there first" — lock state machine re-reads.
+signals "someone else got there first" - lock state machine re-reads.
 
 ## Retention
 

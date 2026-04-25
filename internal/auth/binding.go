@@ -123,7 +123,7 @@ func sortBindings(bs []Binding) {
 	}
 }
 
-// moreSpecific reports whether a is more specific than b — if so, swap
+// moreSpecific reports whether a is more specific than b - if so, swap
 // pushes a rightward, landing after b.
 func moreSpecific(a, b Binding) bool {
 	if (a.Mode == "") != (b.Mode == "") {

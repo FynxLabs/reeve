@@ -75,7 +75,7 @@ func (e *Engine) Apply(ctx context.Context, stack discovery.Stack, opts iac.Appl
 func parseApply(out []byte) (summary.Counts, string) {
 	var counts summary.Counts
 
-	// Try JSON event stream first — one JSON object per line.
+	// Try JSON event stream first - one JSON object per line.
 	scanner := byteLineScanner(out)
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())

@@ -25,7 +25,7 @@ type Client struct {
 }
 
 // New returns a Client. If token is empty, an unauthenticated client is
-// returned — useful only for public-repo reads in tests.
+// returned - useful only for public-repo reads in tests.
 func New(ctx context.Context, token, owner, repo string) (*Client, error) {
 	if owner == "" || repo == "" {
 		return nil, errors.New("github: owner and repo required")

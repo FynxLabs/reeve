@@ -8,7 +8,7 @@ type Counts struct {
 	Replace int
 }
 
-// Total is the sum across all fields — handy for "no-op" detection
+// Total is the sum across all fields - handy for "no-op" detection
 // (Total() == 0).
 func (c Counts) Total() int { return c.Add + c.Change + c.Delete + c.Replace }
 

@@ -67,7 +67,7 @@ type PreviewOutput struct {
 
 // Preview runs preview for every stack affected by the PR's changed files
 // (or every declared stack if Local is true), writes artifacts to Blob,
-// renders a PR comment, and — if Comments is non-nil — upserts it.
+// renders a PR comment, and - if Comments is non-nil - upserts it.
 func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	start := time.Now()
 	runID := fmt.Sprintf("run-%d-%s", in.RunNumber, shortSHA(in.CommitSHA))
@@ -162,7 +162,7 @@ func runPreviewOne(ctx context.Context, in PreviewInput, s discovery.Stack) summ
 			Status: summary.StatusError, Error: redactor.Redact(authErr.Error()),
 		}
 	}
-	// Register every credential literal with the redactor — if any leaks
+	// Register every credential literal with the redactor - if any leaks
 	// into stdout, it gets scrubbed.
 	for _, v := range authEnv {
 		redactor.AddSecret(v)

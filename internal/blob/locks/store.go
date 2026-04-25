@@ -202,7 +202,7 @@ func (s *Store) mutate(
 		if !errors.Is(putErr, blob.ErrPreconditionFailed) {
 			return corelocks.Lock{}, false, putErr
 		}
-		// Lost the race — retry.
+		// Lost the race - retry.
 	}
 	return corelocks.Lock{}, false, fmt.Errorf("lock %s/%s: exceeded %d retries", project, stack, s.MaxRetries)
 }

@@ -131,7 +131,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 
 	checksGreen, failingChecks, err := in.VCS.ChecksGreen(ctx, in.CommitSHA, []string{"reeve"})
 	if err != nil {
-		// Not fatal — record as failing and continue; gate evaluator will block.
+		// Not fatal - record as failing and continue; gate evaluator will block.
 		checksGreen = false
 	}
 	_ = failingChecks
@@ -227,14 +227,14 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		}
 		if len(policyResults) > 0 {
 			// Attach policy rendering into the PR comment via FullPlan
-			// suffix — renderer will collapse it with other output.
+			// suffix - renderer will collapse it with other output.
 			ss.FullPlan = ss.FullPlan + policyRender(policyResults)
 		}
 
 		// Look up the prior preview manifest from blob for this SHA + stack.
 		prev, lookupErr := FindPreviewForStack(ctx, in.Blob, in.PRNumber, in.CommitSHA, s.Ref())
 		if lookupErr != nil {
-			// Not fatal — treat as "no preview" so the gate fails cleanly.
+			// Not fatal - treat as "no preview" so the gate fails cleanly.
 			prev = PreviewStatus{}
 		}
 
@@ -272,7 +272,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			continue
 		}
 
-		// Gates green — acquire auth creds and run apply.
+		// Gates green - acquire auth creds and run apply.
 		authEnv, aerr := ResolveAuthEnv(ctx, in.AuthConfig, in.AuthRegistry, s.Ref(), auth.ModeApply)
 		if aerr != nil {
 			ss.Status = summary.StatusError

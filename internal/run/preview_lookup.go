@@ -99,7 +99,7 @@ func FindPreviewForStack(ctx context.Context, store blob.Store, prNumber int, co
 		}
 		return st, nil
 	}
-	// Manifest exists for this SHA but doesn't cover this stack — treat as
+	// Manifest exists for this SHA but doesn't cover this stack - treat as
 	// "no fresh preview for this stack".
 	return PreviewStatus{Found: false}, nil
 }

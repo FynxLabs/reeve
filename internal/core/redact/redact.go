@@ -14,12 +14,12 @@ type Redactor struct {
 	rules       []*regexp.Regexp
 	replacement string
 	// Known string values to replace (exact-match). Populated by
-	// AddSecret — used when callers know the secret value (e.g. from
+	// AddSecret - used when callers know the secret value (e.g. from
 	// Pulumi's --show-secrets=false or from an auth credential).
 	secrets map[string]struct{}
 }
 
-// New returns a Redactor with no rules — everything passes through.
+// New returns a Redactor with no rules - everything passes through.
 func New() *Redactor { return &Redactor{replacement: "[redacted]", secrets: map[string]struct{}{}} }
 
 // WithReplacement changes the replacement string. Default "[redacted]".
@@ -29,7 +29,7 @@ func (r *Redactor) WithReplacement(s string) *Redactor {
 }
 
 // AddRule compiles a regex and adds it. Invalid regexes are skipped with
-// no error — use CompileRules for validation.
+// no error - use CompileRules for validation.
 func (r *Redactor) AddRule(pattern string) *Redactor {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
@@ -63,7 +63,7 @@ func NewFromRules(rules []*regexp.Regexp) *Redactor {
 // them so stdout leaks don't expose them.
 func (r *Redactor) AddSecret(s string) {
 	if len(s) < 4 {
-		return // too short to safely redact — false positives would eat everything
+		return // too short to safely redact - false positives would eat everything
 	}
 	r.secrets[s] = struct{}{}
 }
@@ -82,13 +82,13 @@ func (r *Redactor) Redact(s string) string {
 	for _, re := range r.rules {
 		out = re.ReplaceAllString(out, r.replacement)
 	}
-	// Pulumi [secret] markers — handled idempotently.
+	// Pulumi [secret] markers - handled idempotently.
 	out = pulumiSecretMarker.ReplaceAllString(out, r.replacement)
 	return out
 }
 
 // Redactables passes any struct through Redact field-by-field.
-// For now we only need Redact(string) — callers handle nested structs.
+// For now we only need Redact(string) - callers handle nested structs.
 
 // pulumiSecretMarker catches the standard Pulumi marker for secret values
 // that escape into engine output: `[secret]` or `<secret>`.

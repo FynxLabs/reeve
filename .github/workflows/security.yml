@@ -2,27 +2,28 @@ name: security
 
 on:
   push:
-    branches: [main, master]
+    branches: [ main, master ]
   pull_request:
   schedule:
-    # Weekly re-scan so CVEs that land after a dormant branch is merged
-    # still surface.
-    - cron: "0 6 * * 1"
+  # Weekly re-scan so CVEs that land after a dormant branch is merged
+  # still surface.
+  - cron: "0 6 * * 1"
   workflow_dispatch:
+
 
 permissions:
   contents: read
 
 jobs:
-  # Dependency review runs on PRs only — blocks PRs that introduce HIGH+
+  # Dependency review runs on PRs only - blocks PRs that introduce HIGH+
   # CVEs in dependencies before they hit main.
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
-          comment-summary-in-pr: on-failure
+    - uses: actions/checkout@v6
+    - uses: actions/dependency-review-action@v4
+      with:
+        fail-on-severity: high
+        comment-summary-in-pr: on-failure

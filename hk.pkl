@@ -2,7 +2,7 @@ amends "package://github.com/jdx/hk/releases/download/v1.43.0/hk@1.43.0#/Config.
 
 import "package://github.com/jdx/hk/releases/download/v1.43.0/hk@1.43.0#/Builtins.pkl" as builtins
 
-// Linters — fast, fix-on-pre-commit where safe.
+// Linters - fast, fix-on-pre-commit where safe.
 local linters = new Mapping<String, Step> {
   ["go-fmt"] = builtins.go_fmt
   ["go-vet"] = builtins.go_vet
@@ -14,7 +14,7 @@ local linters = new Mapping<String, Step> {
   }
 }
 
-// Security gates — fail pre-push if the project has known CVEs or common
+// Security gates - fail pre-push if the project has known CVEs or common
 // Go anti-patterns that turn into vulns.
 local security = new Mapping<String, Step> {
   ["govulncheck"] {
@@ -23,17 +23,17 @@ local security = new Mapping<String, Step> {
   }
   ["gosec"] {
     // Excluded rules:
-    //   G104 — unhandled errors; errcheck already covers this with our
+    //   G104 - unhandled errors; errcheck already covers this with our
     //          Go-convention excludes (deferred Close, fmt.Fprint*).
-    //   G115 — uintptr→int for flock fd; standard Go syscall pattern.
-    //   G204 — subprocess with "tainted" arg. Reeve intentionally runs
+    //   G115 - uintptr→int for flock fd; standard Go syscall pattern.
+    //   G204 - subprocess with "tainted" arg. Reeve intentionally runs
     //          user-configured binaries (pulumi) with user-declared stack
     //          names. exec.Command uses argv (no shell expansion).
-    //   G304 — file inclusion via variable. Reeve's whole job is reading
+    //   G304 - file inclusion via variable. Reeve's whole job is reading
     //          user-configured .reeve/ + bucket paths. Filesystem adapter
     //          validates against escape-root.
-    //   G703 — path traversal via taint. Same rationale.
-    //   G704 — SSRF via taint on GitHub OIDC endpoint. That URL IS the
+    //   G703 - path traversal via taint. Same rationale.
+    //   G704 - SSRF via taint on GitHub OIDC endpoint. That URL IS the
     //          supported federation API; the env var comes from GH Actions.
     check = "gosec -quiet -fmt=text -exclude=G104,G115,G204,G304,G703,G704 -exclude-dir=openspec -exclude-dir=docs -exclude-dir=examples ./..."
     exclusive = true

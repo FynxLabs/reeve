@@ -1,6 +1,6 @@
 // Package otel wires OpenTelemetry traces + metrics. Opt-in: callers
 // only construct a Provider if observability.yaml has otel.enabled=true.
-// Zero-cost when disabled — all helpers accept a nil provider.
+// Zero-cost when disabled - all helpers accept a nil provider.
 package otel
 
 import (

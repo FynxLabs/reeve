@@ -34,7 +34,7 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 		}
 		var rstderr bytes.Buffer
 		refresh.Stderr = &rstderr
-		// Ignore refresh errors — treat as run-level failure in the caller
+		// Ignore refresh errors - treat as run-level failure in the caller
 		// by returning the error. Successful refresh is silent.
 		if err := refresh.Run(); err != nil {
 			return iac.PreviewResult{
@@ -44,7 +44,7 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 		}
 	}
 
-	// `preview --expect-no-changes` exits non-zero if drift exists — we
+	// `preview --expect-no-changes` exits non-zero if drift exists - we
 	// parse counts and let the caller classify.
 	args := []string{"preview", "--stack", stack.Name, "--json", "--non-interactive", "--expect-no-changes"}
 	args = append(args, opts.ExtraArgs...)
@@ -65,7 +65,7 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	_ = cmd.Run() // non-zero is OK — indicates drift
+	_ = cmd.Run() // non-zero is OK - indicates drift
 	out := stdout.Bytes()
 
 	if len(bytes.TrimSpace(out)) > 0 && out[0] == '{' {

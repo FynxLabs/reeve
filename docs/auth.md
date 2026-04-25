@@ -67,10 +67,10 @@ bindings:
 
 Used to detect conflicts:
 
-- `aws` — `aws_oidc`, `aws_profile`, `aws_sso`
-- `gcp` — `gcp_wif`, `gcloud_adc`
-- `azure` — `azure_federated`
-- `github-identity` — `github_app`
+- `aws` - `aws_oidc`, `aws_profile`, `aws_sso`
+- `gcp` - `gcp_wif`, `gcloud_adc`
+- `azure` - `azure_federated`
+- `github-identity` - `github_app`
 - Secret managers and Vault do not conflict (multiple allowed).
 
 ---
@@ -282,7 +282,7 @@ providers:
 
 ### Azure Key Vault
 
-Uses `DefaultAzureCredential` — the pod / process needs a federated or
+Uses `DefaultAzureCredential` - the pod / process needs a federated or
 managed-identity token in scope.
 
 ```yaml
@@ -318,7 +318,7 @@ In the workflow:
 ## Local development
 
 `aws_profile`, `aws_sso`, and `gcloud_adc` **refuse to run when `CI=true`**.
-This is a hard refusal with no CLI override — if you need long-lived keys
+This is a hard refusal with no CLI override - if you need long-lived keys
 in CI, you've stepped off the zero-trust path and should reach for
 `env_passthrough` (which is loudly flagged).
 
@@ -338,7 +338,7 @@ through OIDC.
 
 ---
 
-## `env_passthrough` — the flagged escape hatch
+## `env_passthrough` - the flagged escape hatch
 
 When federation genuinely isn't an option (airgapped CI, legacy provider
 without OIDC, etc.), reeve supports mapping arbitrary host env vars into

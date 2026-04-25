@@ -113,7 +113,7 @@ type EngineBody struct {
 }
 
 // EngineState describes the engine's own state backend. reeve does not
-// manage state — it configures the engine (e.g. `pulumi login`) before
+// manage state - it configures the engine (e.g. `pulumi login`) before
 // each run.
 type EngineState struct {
 	Backend         string                 `yaml:"backend"` // s3 | gcs | azblob | pulumi_cloud | file
@@ -125,7 +125,7 @@ type EngineState struct {
 
 // EngineSecretsProvider is the engine's secret-encryption backend (Pulumi's
 // awskms / gcpkms / passphrase / etc.). Separate from auth.yaml runtime
-// creds — this encrypts Pulumi stack state at rest.
+// creds - this encrypts Pulumi stack state at rest.
 type EngineSecretsProvider struct {
 	Type       string `yaml:"type"` // awskms | gcpkms | azurekeyvault | hashivault | passphrase
 	Key        string `yaml:"key,omitempty"`

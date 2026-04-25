@@ -95,7 +95,7 @@ func (p *EnvPassthrough) Acquire(ctx context.Context) (*auth.Credential, error) 
 	if !p.IUnderstand {
 		return nil, fmt.Errorf("env_passthrough %q requires i_understand_this_is_dangerous: true", p.ProviderName)
 	}
-	fmt.Fprintf(os.Stderr, "⚠️  env_passthrough provider %q in use — long-lived credentials bypass reeve's zero-trust model\n", p.ProviderName)
+	fmt.Fprintf(os.Stderr, "⚠️  env_passthrough provider %q in use - long-lived credentials bypass reeve's zero-trust model\n", p.ProviderName)
 	env := map[string]string{}
 	for engineKey, hostKey := range p.EnvVars {
 		env[engineKey] = os.Getenv(hostKey)

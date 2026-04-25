@@ -2,7 +2,7 @@
 
 ## Third run mode
 
-Drift is a run mode alongside preview and apply — not a separate subsystem.
+Drift is a run mode alongside preview and apply - not a separate subsystem.
 Reuses stack discovery, auth bindings, engine abstraction, bucket storage,
 observability.
 
@@ -32,10 +32,10 @@ reeve drift suppress clear <stack>
    Refresh before check is default-on for drift.
 6. Classify each stack: `no_drift | drift_detected | error | skipped_fresh`.
 7. Compare against `drift/state/{project}/{stack}.json` to emit events:
-   - `drift_detected` — first time drift appears.
-   - `drift_ongoing` — persistent drift (usually silent, queryable).
-   - `drift_resolved` — previously drifted stack is clean.
-   - `check_failed` — run-level error.
+   - `drift_detected` - first time drift appears.
+   - `drift_ongoing` - persistent drift (usually silent, queryable).
+   - `drift_resolved` - previously drifted stack is clean.
+   - `check_failed` - run-level error.
 8. Write artifacts under `drift/runs/{run-id}/`; update state files.
 9. Sinks filter events per their `on:` rules, transform to their payload,
    deliver.
@@ -44,9 +44,9 @@ reeve drift suppress clear <stack>
 ## State bootstrap
 
 `state_bootstrap.mode` options:
-- `baseline` — first run is silent, establishes baseline.
-- `alert_all` — first run emits `drift_detected` for every drifted stack.
-- `require_manual` — refuse to run without `reeve drift bootstrap` command.
+- `baseline` - first run is silent, establishes baseline.
+- `alert_all` - first run emits `drift_detected` for every drifted stack.
+- `require_manual` - refuse to run without `reeve drift bootstrap` command.
 
 **Default for `prod/*` scopes is `require_manual`**, not `baseline`, to close
 the "attacker deletes state file → baseline resets → alerts suppressed" gap.
@@ -86,8 +86,8 @@ Not retried: engine crashes, plan-parse errors, policy failures.
 ## OTEL metrics
 
 Drift-specific (stack-label cardinality gated per observability spec):
-- `reeve.drift.detections.total{stack, env, outcome}` — counter
-- `reeve.drift.duration{stack, env}` — histogram
-- `reeve.drift.stacks_in_drift{env}` — gauge
-- `reeve.drift.ongoing_duration{stack}` — gauge
-- `reeve.drift.runs.total{outcome}` — counter
+- `reeve.drift.detections.total{stack, env, outcome}` - counter
+- `reeve.drift.duration{stack, env}` - histogram
+- `reeve.drift.stacks_in_drift{env}` - gauge
+- `reeve.drift.ongoing_duration{stack}` - gauge
+- `reeve.drift.runs.total{outcome}` - counter

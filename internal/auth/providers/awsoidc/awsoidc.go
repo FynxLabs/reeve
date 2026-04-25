@@ -95,7 +95,7 @@ func (p *Provider) Acquire(ctx context.Context) (*auth.Credential, error) {
 }
 
 // fetchGitHubOIDC calls the GH Actions token service. Outside of Actions
-// this fails with a clear error — users can then switch to a non-OIDC
+// this fails with a clear error - users can then switch to a non-OIDC
 // provider for local dev.
 func fetchGitHubOIDC(ctx context.Context, audience string) (string, error) {
 	url := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")

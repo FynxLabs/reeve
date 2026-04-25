@@ -55,7 +55,7 @@ func ValidateLint(cfg *schemas.Auth, stackRefs []string) error {
 			if !decl.IUnderstandThisIsDangerous {
 				return fmt.Errorf("provider %q (env_passthrough): requires i_understand_this_is_dangerous: true", name)
 			}
-			fmt.Fprintf(os.Stderr, "⚠️  provider %q is env_passthrough — long-lived credentials bypass zero-trust\n", name)
+			fmt.Fprintf(os.Stderr, "⚠️  provider %q is env_passthrough - long-lived credentials bypass zero-trust\n", name)
 		}
 		if decl.Duration != "" {
 			if d, err := time.ParseDuration(decl.Duration); err == nil && d > 4*time.Hour {

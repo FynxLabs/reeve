@@ -1,5 +1,5 @@
 // Package slack is the drift Slack sink. Dashboard-style: one message
-// per run per channel (not per event — groups by channel).
+// per run per channel (not per event - groups by channel).
 package slack
 
 import (
@@ -13,7 +13,7 @@ import (
 )
 
 // Sink delivers drift events as Slack messages. Phase 8: one threaded
-// message per item (no state tracking — drift runs are usually daily
+// message per item (no state tracking - drift runs are usually daily
 // and idempotency on the bucket side covers re-runs).
 type Sink struct {
 	Name_    string
@@ -38,7 +38,7 @@ func (s *Sink) Deliver(ctx context.Context, p sinks.Payload) error {
 
 func buildMessage(p sinks.Payload) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "*%s* — %s (+%d ~%d -%d ±%d)\n",
+	fmt.Fprintf(&b, "*%s* - %s (+%d ~%d -%d ±%d)\n",
 		p.Item.Ref(), labelEvent(p.Event),
 		p.Item.Counts.Counts.Add, p.Item.Counts.Counts.Change,
 		p.Item.Counts.Counts.Delete, p.Item.Counts.Counts.Replace,

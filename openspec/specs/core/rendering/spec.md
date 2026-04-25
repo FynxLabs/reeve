@@ -5,7 +5,7 @@
 Identified by hidden HTML marker (`<!-- reeve:pr-comment:v1 -->`). VCS
 adapter's `UpsertComment` handles find-or-create via marker match. If the
 VCS adapter reports `CommentCapabilities.SupportsEdit == false`, append
-fallback kicks in — out of scope until a non-GitHub adapter ships.
+fallback kicks in - out of scope until a non-GitHub adapter ships.
 
 ## Layout
 
@@ -15,7 +15,7 @@ followed by total counts, duration, and a link to the CI run.
 Table summarizing all affected stacks with columns:
 `Stack | Env | Add | Change | Delete | Replace | Status`.
 
-Per-stack sections below the table — status-grouped sort order (blocked,
+Per-stack sections below the table - status-grouped sort order (blocked,
 ready, no-op last), each with collapsed `<details>` for Summary and Full
 plan output. No-op stacks collapse to a single table line with no section.
 
@@ -25,7 +25,7 @@ to top.
 ## Safety rails
 
 - Secrets marked by Pulumi `[secret]` are redacted before render.
-- All rendered output funnels through `internal/core/redact` — no output
+- All rendered output funnels through `internal/core/redact` - no output
   path bypasses redaction.
 - Replacement counts > 0 trigger a prominent warning block.
 

@@ -32,7 +32,7 @@ const (
 	EventDriftOngoing  Event = "drift_ongoing"
 	EventDriftResolved Event = "drift_resolved"
 	EventCheckFailed   Event = "check_failed"
-	EventNone          Event = "" // silent — no sink delivery
+	EventNone          Event = "" // silent - no sink delivery
 )
 
 // State is the per-stack persisted state at drift/state/{project}/{stack}.json.
@@ -100,7 +100,7 @@ func Classify(prev State, cur Result) (Event, State) {
 			next.OngoingSince = cur.CheckedAt
 		}
 		if cur.Fingerprint != prev.Fingerprint {
-			// Drift shape changed — treat as a fresh detection.
+			// Drift shape changed - treat as a fresh detection.
 			return EventDriftDetected, next
 		}
 		return EventDriftOngoing, next

@@ -12,7 +12,7 @@ deny[msg] {
   msg := sprintf("prod stack %s/%s deploys to disallowed region %s", [input.project, input.stack, region])
 }
 
-# Placeholder extractor — in practice this reads the engine's full plan
+# Placeholder extractor - in practice this reads the engine's full plan
 # artifact instead of the summary string. The reeve-generated plan JSON
 # is intentionally a summary, not the raw engine plan.
 region_from_summary(summary) = region {

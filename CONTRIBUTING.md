@@ -45,11 +45,11 @@ into `openspec/specs/`.
 6. **CLI / config parity.** Every runtime behavior has both a flag and a
    setting.
 7. **Local-first testing.** Filesystem blob + injectable clock + fake VCS
-   client — every CI behavior reproducible on a laptop in seconds.
+   client - every CI behavior reproducible on a laptop in seconds.
 
 ## Code
 
-- Go toolchain matching the `go` directive in `go.mod` — `mise install` handles it.
+- Go toolchain matching the `go` directive in `go.mod` - `mise install` handles it.
 - `mise run check` green (fmt + vet + lint + vuln + sec + test).
 - Golden-file tests for anything rendered (PR comments, drift reports,
   Slack blocks).
@@ -60,7 +60,7 @@ into `openspec/specs/`.
 
 ```bash
 mise install      # installs go, golangci-lint, govulncheck, gosec, hk,
-                  # pkl, goreleaser, openspec — plus wires git hooks
+                  # pkl, goreleaser, openspec - plus wires git hooks
 mise run check    # one-shot: fmt + vet + lint + vuln + sec + test
 ```
 

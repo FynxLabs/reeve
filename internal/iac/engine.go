@@ -17,6 +17,6 @@ type Capabilities struct {
 // Concrete methods (EnumerateStacks, Preview, Apply, Refresh) are defined
 // at use-sites; this type is the capability/identity anchor.
 type Engine interface {
-	Name() string // display only — never branch on this
+	Name() string // display only - never branch on this
 	Capabilities() Capabilities
 }

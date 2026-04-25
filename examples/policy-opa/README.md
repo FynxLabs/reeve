@@ -38,11 +38,11 @@ steps:
 On every apply, per stack:
 
 1. reeve writes the plan summary JSON to a temp file.
-2. `opa-require-tags` runs Conftest against `require_tags.rego` — blocks
+2. `opa-require-tags` runs Conftest against `require_tags.rego` - blocks
    on failure.
-3. `opa-restrict-regions` runs Conftest against `restrict_regions.rego` —
+3. `opa-restrict-regions` runs Conftest against `restrict_regions.rego` -
    blocks on failure.
-4. `cost-gate` runs `scripts/cost-gate.sh` — warns on failure (doesn't
+4. `cost-gate` runs `scripts/cost-gate.sh` - warns on failure (doesn't
    block, just surfaces the overrun in the PR comment).
 
 If any `on_fail: block` hook fails, the `GatePolicy` precondition

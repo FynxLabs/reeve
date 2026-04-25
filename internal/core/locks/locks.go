@@ -1,4 +1,4 @@
-// Package locks is the pure lock state machine. No I/O — the storage
+// Package locks is the pure lock state machine. No I/O - the storage
 // interface (blob.Store with If-Match writes) is injected. See
 // openspec/specs/core/locking.
 package locks
@@ -97,7 +97,7 @@ func TryAcquire(l Lock, applicant Holder, ttl time.Duration, now time.Time) (Loc
 		return l, true, nil
 	}
 
-	// Already held by someone else — enqueue.
+	// Already held by someone else - enqueue.
 	for _, q := range l.Queue {
 		if q.PR == applicant.PR {
 			return l, false, ErrAlreadyQueued

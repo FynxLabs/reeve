@@ -12,7 +12,7 @@ import (
 const original = `version: 1
 config_type: engine
 
-# Pulumi engine — default for the monorepo.
+# Pulumi engine - default for the monorepo.
 engine:
   type: pulumi
   binary:
@@ -22,7 +22,7 @@ engine:
     - project: oldthing
       path: projects/oldthing
       stacks: [dev]
-  # Exclude rules — keep this comment.
+  # Exclude rules - keep this comment.
   filters:
     exclude:
       - "projects/sandbox/**"
@@ -49,8 +49,8 @@ func TestWriteClusteredStacks_PreservesComments(t *testing.T) {
 
 	// Sibling comments preserved.
 	for _, want := range []string{
-		"# Pulumi engine — default for the monorepo.",
-		"# Exclude rules — keep this comment.",
+		"# Pulumi engine - default for the monorepo.",
+		"# Exclude rules - keep this comment.",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected preserved comment %q, got:\n%s", want, got)

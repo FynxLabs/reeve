@@ -33,10 +33,10 @@ allowed, each with unique `engine.type`).
 
 ## Validation
 
-- Strict unmarshal — unknown keys are errors.
+- Strict unmarshal - unknown keys are errors.
 - Schema validation per `config_type` against Go structs in
   `internal/config/schemas/`.
-- `version` is per-file — breaking changes to any schema bump only that
+- `version` is per-file - breaking changes to any schema bump only that
   file's version. Migration handled by `reeve migrate-config` (Phase 10).
 
 ## User config

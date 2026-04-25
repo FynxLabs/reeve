@@ -92,7 +92,7 @@ freeze_windows:
 apply:
   trigger: comment                 # comment (default) | merge
   command: "/reeve apply"
-  allow_fork_prs: false            # deny-by-default — review risk before flipping
+  allow_fork_prs: false            # deny-by-default - review risk before flipping
 ```
 
 ### Approval rule merging
@@ -129,7 +129,7 @@ engine:
     path: pulumi
     version: "3.150.0"             # optional pin
 
-  # State backend — reeve configures the engine before each run using
+  # State backend - reeve configures the engine before each run using
   # short-lived creds. reeve does NOT manage state itself.
   state:
     backend: s3
@@ -139,7 +139,7 @@ engine:
       type: awskms
       key: arn:aws:kms:us-east-1:111:key/abc-123-def
 
-  # Stack declarations. Runtime behavior is always explicit — either a
+  # Stack declarations. Runtime behavior is always explicit - either a
   # literal or a declared pattern must match.
   stacks:
     - project: api                 # literal
@@ -176,13 +176,13 @@ engine:
 
 ### Discovery pipeline
 
-1. **Declare** — literal `{project, path, stacks}` entries and `pattern:`
+1. **Declare** - literal `{project, path, stacks}` entries and `pattern:`
    globs from this file.
-2. **Include** — engine enumerates on disk via `Pulumi.yaml` +
+2. **Include** - engine enumerates on disk via `Pulumi.yaml` +
    `Pulumi.<stack>.yaml` files.
-3. **Exclude** — `filters.exclude` drops entries.
-4. **Resolve** — engine validates each remaining stack.
-5. **Map to changes** — on a PR, only stacks whose paths (or
+3. **Exclude** - `filters.exclude` drops entries.
+4. **Resolve** - engine validates each remaining stack.
+5. **Map to changes** - on a PR, only stacks whose paths (or
    `extra_triggers`) intersect changed files are "affected".
 
 Inspect it:
@@ -236,9 +236,9 @@ slack:
   # trigger controls when the initial Slack message is created.
   # Subsequent events always update the existing message in place.
   #
-  #   apply  (default) — message created only when /reeve apply is invoked
-  #   plan             — message created when a plan finishes (status: pending approval)
-  #   ready            — message created only when /reeve ready is run
+  #   apply  (default) - message created only when /reeve apply is invoked
+  #   plan             - message created when a plan finishes (status: pending approval)
+  #   ready            - message created only when /reeve ready is run
   trigger: plan
 
   # icons overrides the default emoji used in the message layout.
@@ -263,8 +263,8 @@ The sidebar color and status field update at each stage:
 
 | Stage | Trigger | Color |
 | --- | --- | --- |
-| Plan ready | `trigger: plan` — plan finishes | 🟡 yellow |
-| Ready | `trigger: ready` — `/reeve ready` run | 🟡 yellow |
+| Plan ready | `trigger: plan` - plan finishes | 🟡 yellow |
+| Ready | `trigger: ready` - `/reeve ready` run | 🟡 yellow |
 | Applying | Apply invoked | 🟣 purple |
 | Applied | Apply completes | 🟢 green |
 | Failed | Apply errors | 🔴 red |
@@ -326,7 +326,7 @@ annotations:
 
 - Fully opt-in. Without `observability.yaml`, reeve emits no telemetry.
 - `stack_cardinality: hash` emits a stable 64-bit fingerprint of
-  `{project}/{stack}` as the OTEL label — prevents cardinality blow-up on
+  `{project}/{stack}` as the OTEL label - prevents cardinality blow-up on
   big monorepos. Use `allow` for small deployments, `drop` to omit the
   stack label entirely.
 
@@ -378,7 +378,7 @@ sinks:
 Location: `~/.config/reeve/user.yaml`. Never committed to a repo.
 
 Reserved for local-only preferences that don't belong in team config.
-v1 scope is minimal — most local overrides happen via CLI flags or env
+v1 scope is minimal - most local overrides happen via CLI flags or env
 vars. The schema exists as a forward-compatible slot.
 
 ```yaml
@@ -399,7 +399,7 @@ The following fields accept `${env:NAME}` references:
 - `drift.yaml`: sink credentials
 
 `${env:X}` expands at runtime via `os.Getenv("X")`. Missing env vars expand
-to empty strings (not an error) — so token references safely degrade when
+to empty strings (not an error) - so token references safely degrade when
 a feature is optional.
 
 ## Lint
@@ -426,5 +426,5 @@ reeve migrate-config --dry-run   # preview
 reeve migrate-config             # writes; keeps *.bak backups
 ```
 
-Per-file version bumps — migrations don't have to be in lockstep across
+Per-file version bumps - migrations don't have to be in lockstep across
 config types.

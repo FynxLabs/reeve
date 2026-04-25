@@ -2,7 +2,7 @@
 
 ## Granularity
 
-Per-stack. Acquired at apply, not preview — previews are parallel-safe.
+Per-stack. Acquired at apply, not preview - previews are parallel-safe.
 
 ## Storage
 
@@ -23,7 +23,7 @@ holder PR.
 
 Default TTL: 4h. Configurable per `shared.yaml` `locking.ttl`.
 
-**Reaper is opportunistic** — there is no daemon. Every `reeve` invocation
+**Reaper is opportunistic** - there is no daemon. Every `reeve` invocation
 scans `locks/` for expired TTLs before acquiring. Quiet repos may run an
 optional scheduled GH Actions workflow (`reeve locks reap`) to sweep.
 No control plane.

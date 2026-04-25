@@ -15,7 +15,7 @@ import (
 // The VCS adapter uses it to find-or-create on UpsertComment.
 const Marker = "<!-- reeve:pr-comment:v1 -->"
 
-// PreviewInput is what the preview renderer consumes. Pure data — no
+// PreviewInput is what the preview renderer consumes. Pure data - no
 // imports beyond summary and stdlib.
 type PreviewInput struct {
 	Op          string // "preview" or "apply"
@@ -82,7 +82,7 @@ func writeTable(b *strings.Builder, in PreviewInput) {
 	}
 	b.WriteString("\n")
 	if anyReplace {
-		b.WriteString("⚠️ Replacements detected — review carefully.\n\n")
+		b.WriteString("⚠️ Replacements detected - review carefully.\n\n")
 	}
 }
 
@@ -190,7 +190,7 @@ func statusCell(s summary.StackSummary) string {
 
 func envOrDash(env string) string {
 	if env == "" {
-		return "—"
+		return "-"
 	}
 	return env
 }
