@@ -291,7 +291,7 @@ func stackSummaryLines(stacks []summary.StackSummary) string {
 		if s.Counts.Total() == 0 && s.Status != summary.StatusError {
 			continue
 		}
-		fmt.Fprintf(&sb, "%s `%s` -+%d ~%d -%d ±%d\n",
+		fmt.Fprintf(&sb, "%s `%s` +%d ~%d -%d ±%d\n",
 			stackIcon(s.Status), s.Stack,
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
 	}
@@ -312,7 +312,7 @@ func (b *SlackBackend) buildStackThreadBlocks(stacks []summary.StackSummary) []s
 	}
 	var sb strings.Builder
 	for _, s := range changed {
-		fmt.Fprintf(&sb, "%s `%s` -+%d ~%d -%d ±%d\n",
+		fmt.Fprintf(&sb, "%s `%s` +%d ~%d -%d ±%d\n",
 			stackIcon(s.Status), s.Stack,
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
 		if s.PlanSummary != "" {

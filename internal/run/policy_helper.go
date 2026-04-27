@@ -41,11 +41,11 @@ func RunPolicyForStack(ctx context.Context, hooks []policy.Hook, s discovery.Sta
 	if len(hooks) == 0 {
 		return true, nil, nil
 	}
-	planPath, err := writePlanJSON(ss)
+	planPath, planDir, err := writePlanJSON(ss)
 	if err != nil {
 		return false, nil, err
 	}
-	defer os.Remove(planPath)
+	defer os.RemoveAll(planDir)
 
 	tc := policy.Context{
 		PlanJSONPath: planPath,
@@ -73,7 +73,7 @@ func RunPolicyForStack(ctx context.Context, hooks []policy.Hook, s discovery.Sta
 //
 // When FullPlan is non-JSON (e.g. an error string), `.plan` is emitted
 // as a string so consumers can still pattern-match against it.
-func writePlanJSON(ss summary.StackSummary) (string, error) {
+func writePlanJSON(ss summary.StackSummary) (path, dir string, err error) {
 	var planField any
 	trimmed := strings.TrimSpace(ss.FullPlan)
 	if trimmed != "" && (trimmed[0] == '{' || trimmed[0] == '[') {
@@ -99,17 +99,18 @@ func writePlanJSON(ss summary.StackSummary) (string, error) {
 		"plan_summary": ss.PlanSummary,
 		"plan":         planField,
 	}
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
+	data, merr := json.MarshalIndent(payload, "", "  ")
+	if merr != nil {
+		return "", "", merr
 	}
-	dir, err := os.MkdirTemp("", "reeve-plan-")
-	if err != nil {
-		return "", err
+	dir, merr = os.MkdirTemp("", "reeve-plan-")
+	if merr != nil {
+		return "", "", merr
 	}
 	p := filepath.Join(dir, fmt.Sprintf("%s-%s.json", ss.Project, ss.Stack))
-	if err := os.WriteFile(p, data, 0o600); err != nil {
-		return "", err
+	if merr = os.WriteFile(p, data, 0o600); merr != nil {
+		_ = os.RemoveAll(dir)
+		return "", "", merr
 	}
-	return p, nil
+	return p, dir, nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	gh "github.com/google/go-github/v66/github"
 
@@ -100,7 +99,7 @@ func (c *Client) listFilesStrings(ctx context.Context, pr int) ([]string, error)
 
 func anyPrefixIn(file string, paths []string) bool {
 	for _, p := range paths {
-		if strings.HasPrefix(file, p+"/") {
+		if file == p || strings.HasPrefix(file, p+"/") {
 			return true
 		}
 	}
@@ -120,26 +119,30 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreNames []stri
 		ignore[n] = true
 	}
 	// Check-runs (the modern shape).
-	runs, _, err := c.gh.Checks.ListCheckRunsForRef(ctx, c.owner, c.repo, sha, &gh.ListCheckRunsOptions{
-		ListOptions: gh.ListOptions{PerPage: 100},
-	})
-	if err != nil {
-		return false, nil, err
-	}
 	var failing []string
-	for _, r := range runs.CheckRuns {
-		if ignore[r.GetName()] {
-			continue
+	checkOpt := &gh.ListCheckRunsOptions{ListOptions: gh.ListOptions{PerPage: 100}}
+	for {
+		runs, resp, err := c.gh.Checks.ListCheckRunsForRef(ctx, c.owner, c.repo, sha, checkOpt)
+		if err != nil {
+			return false, nil, err
 		}
-		switch r.GetConclusion() {
-		case "success", "skipped", "neutral":
-			continue
-		case "":
-			// Still running → not green yet.
-			failing = append(failing, r.GetName()+":pending")
-		default:
-			failing = append(failing, r.GetName()+":"+r.GetConclusion())
+		for _, r := range runs.CheckRuns {
+			if ignore[r.GetName()] {
+				continue
+			}
+			switch r.GetConclusion() {
+			case "success", "skipped", "neutral":
+				continue
+			case "":
+				failing = append(failing, r.GetName()+":pending")
+			default:
+				failing = append(failing, r.GetName()+":"+r.GetConclusion())
+			}
 		}
+		if resp.NextPage == 0 {
+			break
+		}
+		checkOpt.Page = resp.NextPage
 	}
 	// Combined statuses (legacy).
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
@@ -212,6 +215,3 @@ func (c *Client) ListTeamMembers(ctx context.Context, slug string) ([]string, er
 	}
 	return out, nil
 }
-
-// Time helper in case the SubmittedAt zero value escapes into the wild.
-var _ = time.Time{}

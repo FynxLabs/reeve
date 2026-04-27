@@ -135,8 +135,7 @@ runs:
             reeve run ready --pr "$PR_NUMBER" $EXTRA
             ;;
           apply|"run apply")
-            PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH" 2>/dev/null \
-              || jq -r .issue.number < "$GITHUB_EVENT_PATH")
+            PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
             reeve run apply --pr "$PR_NUMBER" $EXTRA
             ;;
           *)
