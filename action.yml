@@ -104,13 +104,20 @@ runs:
         # Auto-detect command from event context when not explicitly set
         if [[ -z "$CMD" ]]; then
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
-            CMD="preview"
+            ACTION=$(jq -r .action < "$GITHUB_EVENT_PATH")
+            if [[ "$ACTION" == "ready_for_review" ]]; then
+              CMD="ready"
+            else
+              CMD="preview"
+            fi
           elif [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
             COMMENT_BODY=$(jq -r .comment.body < "$GITHUB_EVENT_PATH")
             if [[ "$COMMENT_BODY" == /reeve\ apply* ]]; then
               CMD="apply"
             elif [[ "$COMMENT_BODY" == /reeve\ ready* ]]; then
               CMD="ready"
+            elif [[ "$COMMENT_BODY" == /reeve\ help* ]]; then
+              CMD="help"
             else
               echo "Not a reeve command, skipping."
               exit 0
@@ -131,12 +138,16 @@ runs:
             fi
             ;;
           ready|"run ready")
-            PR_NUMBER=$(jq -r .issue.number < "$GITHUB_EVENT_PATH")
+            PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
             reeve run ready --pr "$PR_NUMBER" $EXTRA
             ;;
           apply|"run apply")
             PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
             reeve run apply --pr "$PR_NUMBER" $EXTRA
+            ;;
+          help|"run help")
+            PR_NUMBER=$(jq -r '.issue.number // 0' < "$GITHUB_EVENT_PATH")
+            reeve run help --pr "$PR_NUMBER" $EXTRA
             ;;
           *)
             reeve $CMD $EXTRA

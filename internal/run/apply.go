@@ -242,6 +242,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		pcInputs := preconditions.Inputs{
 			StackRef:           s.Ref(),
 			PRIsFork:           pr.IsFork,
+			PRIsDraft:          pr.IsDraft,
 			ForkOptInAllowed:   in.Shared != nil && in.Shared.Apply.AllowForkPRs,
 			UpToDate:           upToDate,
 			CommitsBehind:      behind,
@@ -310,7 +311,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		} else if res.Counts.Total() == 0 {
 			ss.Status = summary.StatusNoOp
 		} else {
-			ss.Status = summary.StatusReady
+			ss.Status = summary.StatusPlanned
 		}
 		_, _ = in.Locks.Release(ctx, s.Project, s.Name, in.PRNumber)
 		summaries = append(summaries, ss)

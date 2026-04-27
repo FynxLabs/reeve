@@ -102,7 +102,7 @@ func applyStatusCell(s summary.StackSummary) string {
 			return fmt.Sprintf("🔒 blocked by #%d", s.BlockedBy)
 		}
 		return "🔒 blocked"
-	case summary.StatusReady:
+	case summary.StatusPlanned:
 		return "✅ applied"
 	}
 	return string(s.Status)
@@ -119,7 +119,7 @@ func sortApply(ss []summary.StackSummary, mode string) []summary.StackSummary {
 	rank := map[summary.Status]int{
 		summary.StatusError:   0,
 		summary.StatusBlocked: 1,
-		summary.StatusReady:   2,
+		summary.StatusPlanned: 2,
 		summary.StatusNoOp:    3,
 	}
 	sort.SliceStable(out, func(i, j int) bool {

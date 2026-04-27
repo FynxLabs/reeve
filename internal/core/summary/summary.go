@@ -17,7 +17,7 @@ func (c Counts) Total() int { return c.Add + c.Change + c.Delete + c.Replace }
 type Status string
 
 const (
-	StatusReady   Status = "ready"
+	StatusPlanned Status = "planned"
 	StatusNoOp    Status = "noop"
 	StatusBlocked Status = "blocked"
 	StatusError   Status = "error"

@@ -62,6 +62,7 @@ apply:
   trigger: comment
   command: "/reeve apply"
   allow_fork_prs: false          # deny-by-default; flip with care
+  # auto_ready: true             # optional: post ready comment + Slack after successful plan
 ```
 
 **`.reeve/pulumi.yaml`** - engine + stack declarations:
@@ -110,7 +111,7 @@ name: reeve
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
     types: [created]
 
@@ -137,10 +138,19 @@ jobs:
 
 That's it. The action auto-detects the command from the event:
 
-- `pull_request` event → `reeve run preview`
-- `issue_comment` with `/reeve ready` → `reeve run ready`
-- `issue_comment` with `/reeve apply` → `reeve run apply`
-- Any other comment → silent no-op
+| Event / Comment                   | Action                   |
+| --------------------------------- | ------------------------ |
+| `pull_request` (opened / push)    | `reeve run preview`      |
+| `pull_request` (ready_for_review) | `reeve run ready`        |
+| `/reeve ready` comment            | `reeve run ready`        |
+| `/reeve apply` comment            | `reeve run apply`        |
+| `/reeve help` comment             | posts available commands |
+| Any other comment                 | silent no-op             |
+
+> **Draft PRs:** apply is blocked. reeve returns an error if `/reeve apply`
+> is attempted on a draft PR.
+> Enable `apply.auto_ready: true` in `shared.yaml` to automatically mark
+> the PR ready after a successful plan and when it leaves draft.
 
 Open a PR. reeve posts a comment within ~30 seconds showing the plan for
 every stack touched by the changed files.
@@ -269,6 +279,8 @@ Configure schedules + sinks in `.reeve/drift.yaml` - see [drift.md](drift.md).
   dry-run-only credentials by default. Opt in with
   `shared.yaml: apply.allow_fork_prs: true` if you've thought about the
   supply-chain risk.
+- **`apply` says "PR is in draft"** - convert the PR to ready for review
+  first. Draft PRs are always blocked from apply regardless of config.
 - **OIDC token exchange fails locally** - `aws_oidc`/`gcp_wif`/
   `azure_federated` only work inside GitHub Actions (they need the
   `ACTIONS_ID_TOKEN_REQUEST_URL` env var). Use `aws_profile` / `aws_sso` /

@@ -398,7 +398,7 @@ func timelineEntry(ev event, sha string) string {
 
 func stackIcon(s summary.Status) string {
 	switch s {
-	case summary.StatusReady:
+	case summary.StatusPlanned:
 		return ":white_check_mark:"
 	case summary.StatusBlocked:
 		return ":lock:"

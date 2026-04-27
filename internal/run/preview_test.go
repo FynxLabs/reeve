@@ -92,6 +92,29 @@ func TestPreviewEndToEnd(t *testing.T) {
 	}
 }
 
+func TestPlanSucceeded(t *testing.T) {
+	tests := []struct {
+		name   string
+		stacks []summary.StackSummary
+		want   bool
+	}{
+		{"empty", nil, false},
+		{"all planned", []summary.StackSummary{
+			{Status: summary.StatusPlanned},
+			{Status: summary.StatusNoOp},
+		}, true},
+		{"one error", []summary.StackSummary{
+			{Status: summary.StatusPlanned},
+			{Status: summary.StatusError},
+		}, false},
+	}
+	for _, tt := range tests {
+		if got := planSucceeded(tt.stacks); got != tt.want {
+			t.Errorf("%s: planSucceeded = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestPreviewLocalIgnoresChangedFiles(t *testing.T) {
 	ctx := context.Background()
 	engine := &fakeEngine{

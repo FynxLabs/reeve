@@ -78,6 +78,10 @@ type ApplyConfig struct {
 	// AllowForkPRs: if true, apply runs on fork PRs with full creds.
 	// Default false. Surfaces via preconditions GateFork.
 	AllowForkPRs bool `yaml:"allow_fork_prs"`
+	// AutoReady: if true, reeve automatically marks the PR ready (posts
+	// comment + Slack notification) after a fully successful plan, and
+	// also when the PR transitions from draft to ready_for_review.
+	AutoReady bool `yaml:"auto_ready"`
 }
 
 type BucketConfig struct {

@@ -93,7 +93,13 @@ apply:
   trigger: comment                 # comment (default) | merge
   command: "/reeve apply"
   allow_fork_prs: false            # deny-by-default - review risk before flipping
+  auto_ready: false                # if true: post ready comment + Slack after successful plan,
+                                   # and fire ready when PR converts from draft to ready-for-review
 ```
+
+> **Draft PRs:** apply is always blocked on draft PRs regardless of config.
+> Convert to ready for review first. If `auto_ready: true`, reeve fires
+> `/reeve ready` automatically when the PR leaves draft.
 
 ### Approval rule merging
 
@@ -264,9 +270,10 @@ The sidebar color and status field update at each stage:
 | Stage | Trigger | Color |
 | --- | --- | --- |
 | Plan ready | `trigger: plan` - plan finishes | 🟡 yellow |
-| Ready | `trigger: ready` - `/reeve ready` run | 🟡 yellow |
-| Applying | Apply invoked | 🟣 purple |
-| Applied | Apply completes | 🟢 green |
+| Ready | `/reeve ready` or `auto_ready: true` after successful plan | 🟡 yellow |
+| Approved | Preconditions passed, apply imminent | 🔵 blue |
+| Applying | Apply loop started | 🟣 purple |
+| Applied | Apply completes successfully | 🟢 green |
 | Failed | Apply errors | 🔴 red |
 | Blocked | Preconditions not met | 🟡 yellow |
 

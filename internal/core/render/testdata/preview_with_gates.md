@@ -5,11 +5,11 @@
 
 | Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Status |
 |---|---|---|---|---|---|---|
-| api/prod | prod | 1 | 0 | 0 | 0 | ✅ ready |
+| api/prod | prod | 1 | 0 | 0 | 0 | ✅ planned |
 
 ---
 
-### api/prod · prod · ✅ ready
+### api/prod · prod · ✅ planned
 
 🔐 api/prod apply gates:
   ✅ up_to_date: branch up-to-date with base

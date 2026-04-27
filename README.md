@@ -100,11 +100,15 @@ jobs:
 
 ### PR commands
 
-| Comment in PR      | What it does                                            |
-| ------------------ | ------------------------------------------------------- |
-| _(push / PR open)_ | `reeve run preview` runs automatically                  |
-| `/reeve ready`     | Marks PR ready for apply, updates Slack message         |
-| `/reeve apply`     | Applies all affected stacks (subject to approval gates) |
+| Event / Comment              | What it does                                                    |
+| ---------------------------- | --------------------------------------------------------------- |
+| PR opened / push             | `reeve run preview` runs automatically, posts plan comment      |
+| PR converted from draft      | `reeve run ready` runs automatically (if `auto_ready: true`)    |
+| `/reeve ready`               | Marks PR ready for apply, posts comment, notifies Slack         |
+| `/reeve apply`               | Applies all planned stacks (subject to approval gates)          |
+| `/reeve help`                | Posts a comment listing available commands                      |
+
+> Draft PRs cannot be applied. Convert to ready for review first.
 
 Walk-through from here: [docs/getting-started.md](docs/getting-started.md).
 

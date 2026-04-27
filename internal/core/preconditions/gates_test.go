@@ -87,6 +87,31 @@ func TestFreezeBlocks(t *testing.T) {
 	}
 }
 
+func TestDraftPRBlocked(t *testing.T) {
+	res := Evaluate(Config{}, Inputs{PRIsDraft: true, PreviewSucceeded: true, ApprovalsSatisfied: true, LockAcquirable: true})
+	if !res.Blocked {
+		t.Fatal("draft PR should be blocked")
+	}
+	found := false
+	for _, g := range res.Gates {
+		if g.Gate == GateDraft && g.Outcome == OutcomeFail {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected not_draft_pr fail gate: %+v", res.Gates)
+	}
+}
+
+func TestNonDraftPRSkipsDraftGate(t *testing.T) {
+	res := Evaluate(Config{}, Inputs{PRIsDraft: false, PreviewSucceeded: true, ApprovalsSatisfied: true, LockAcquirable: true})
+	for _, g := range res.Gates {
+		if g.Gate == GateDraft && g.Outcome == OutcomeFail {
+			t.Fatalf("non-draft PR should not fail draft gate: %+v", g)
+		}
+	}
+}
+
 func TestHappyPath(t *testing.T) {
 	cfg := Config{RequireUpToDate: true, RequireChecksPassing: true, PreviewFreshness: time.Hour}
 	in := Inputs{

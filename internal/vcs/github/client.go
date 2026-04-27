@@ -54,6 +54,7 @@ func (c *Client) GetPR(ctx context.Context, number int) (*vcs.PR, error) {
 		HeadSHA:  pr.GetHead().GetSHA(),
 		BaseRef:  pr.GetBase().GetRef(),
 		Author:   pr.GetUser().GetLogin(),
+		IsDraft:  pr.GetDraft(),
 		OpenedAt: pr.GetCreatedAt().Format("2006-01-02T15:04:05Z"),
 		URL:      pr.GetHTMLURL(),
 	}

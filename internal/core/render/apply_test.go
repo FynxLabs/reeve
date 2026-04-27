@@ -16,7 +16,7 @@ func TestApplyGolden_Mixed(t *testing.T) {
 			{
 				Project: "api", Stack: "prod", Env: "prod",
 				Counts:      summary.Counts{Add: 2, Change: 1},
-				Status:      summary.StatusReady,
+				Status:      summary.StatusPlanned,
 				DurationMS:  47_000,
 				PlanSummary: "+ s3 bucket\n~ iam role",
 			},
@@ -47,7 +47,7 @@ func TestApplyPreviewGatesRender(t *testing.T) {
 			{
 				Project: "api", Stack: "prod", Env: "prod",
 				Counts: summary.Counts{Add: 1},
-				Status: summary.StatusReady,
+				Status: summary.StatusPlanned,
 				Gates: []summary.GateTrace{
 					{Gate: "up_to_date", Outcome: "pass", Reason: "branch up-to-date with base"},
 					{Gate: "approvals", Outcome: "fail", Reason: "approvals not satisfied"},

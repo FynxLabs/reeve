@@ -29,13 +29,13 @@ func TestPreviewGolden_Basic(t *testing.T) {
 			{
 				Project: "worker", Stack: "prod", Env: "prod",
 				Counts:   summary.Counts{Change: 3, Replace: 1},
-				Status:   summary.StatusReady,
+				Status:   summary.StatusPlanned,
 				FullPlan: "pulumi preview output here\nline two",
 			},
 			{
 				Project: "api", Stack: "staging", Env: "staging",
 				Counts: summary.Counts{Add: 5},
-				Status: summary.StatusReady,
+				Status: summary.StatusPlanned,
 			},
 			{
 				Project: "noop", Stack: "dev", Env: "dev",

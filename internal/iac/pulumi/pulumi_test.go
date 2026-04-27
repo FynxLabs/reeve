@@ -96,6 +96,39 @@ func TestParsePreviewError(t *testing.T) {
 	}
 }
 
+func TestFormatDiff(t *testing.T) {
+	input := "  + aws:s3/bucket:Bucket\n  - aws:iam/role:Role\n  ~ aws:ec2/instance:Instance\n  normal line"
+	got := formatDiff(input)
+	lines := splitLines(got)
+	if lines[0][0] != '+' {
+		t.Errorf("add line should start with +, got %q", lines[0])
+	}
+	if lines[1][0] != '-' {
+		t.Errorf("delete line should start with -, got %q", lines[1])
+	}
+	if lines[2][0] != '!' {
+		t.Errorf("change line should start with !, got %q", lines[2])
+	}
+	if lines[3] != "  normal line" {
+		t.Errorf("normal line should be unchanged, got %q", lines[3])
+	}
+}
+
+func splitLines(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		out = append(out, s[start:])
+	}
+	return out
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (indexOf(s, sub) >= 0)
 }

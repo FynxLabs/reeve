@@ -31,11 +31,13 @@ const (
 	GateLock         GateID = "lock_acquirable"
 	GateFreeze       GateID = "not_in_freeze"
 	GateFork         GateID = "fork_pr_policy"
+	GateDraft        GateID = "not_draft_pr"
 )
 
 // GateOrder is the authoritative ordering (fail-fast semantics).
 var GateOrder = []GateID{
-	GateFork, // fork-PR gate first - denies regardless of other state
+	GateFork,  // fork-PR gate first - denies regardless of other state
+	GateDraft, // draft PRs cannot be applied
 	GateUpToDate,
 	GateChecksGreen,
 	GatePreviewOK,
@@ -71,6 +73,7 @@ type Inputs struct {
 
 	// PR state.
 	PRIsFork         bool
+	PRIsDraft        bool
 	ForkOptInAllowed bool // per-repo opt-in for fork-PR apply
 	UpToDate         bool
 	CommitsBehind    int
@@ -129,6 +132,12 @@ func evalGate(g GateID, cfg Config, in Inputs) GateResult {
 			return GateResult{Gate: g, Outcome: OutcomeSkipped, Reason: "not a fork PR"}
 		}
 		return pass(g, "fork PR with per-repo opt-in")
+
+	case GateDraft:
+		if in.PRIsDraft {
+			return fail(g, "PR is in draft - convert to ready for review before applying")
+		}
+		return GateResult{Gate: g, Outcome: OutcomeSkipped, Reason: "not a draft PR"}
 
 	case GateUpToDate:
 		if !cfg.RequireUpToDate {

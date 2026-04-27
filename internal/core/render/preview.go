@@ -153,7 +153,7 @@ func overallIcon(ss []summary.StackSummary) string {
 			errored = true
 		case summary.StatusBlocked:
 			blocked = true
-		case summary.StatusReady:
+		case summary.StatusPlanned:
 			if s.Counts.Total() > 0 {
 				changed = true
 			}
@@ -182,8 +182,8 @@ func statusCell(s summary.StackSummary) string {
 		return "🔴 error"
 	case summary.StatusNoOp:
 		return "· no-op"
-	case summary.StatusReady:
-		return "✅ ready"
+	case summary.StatusPlanned:
+		return "✅ planned"
 	}
 	return string(s.Status)
 }
@@ -214,7 +214,7 @@ func sorted(ss []summary.StackSummary, mode string) []summary.StackSummary {
 	default: // status_grouped
 		rank := map[summary.Status]int{
 			summary.StatusBlocked: 0,
-			summary.StatusReady:   1,
+			summary.StatusPlanned: 1,
 			summary.StatusError:   2,
 			summary.StatusNoOp:    3,
 		}

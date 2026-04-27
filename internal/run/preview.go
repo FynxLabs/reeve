@@ -16,11 +16,17 @@ import (
 	"github.com/thefynx/reeve/internal/iac"
 	"github.com/thefynx/reeve/internal/observability/annotations"
 	reeveotel "github.com/thefynx/reeve/internal/observability/otel"
+	"github.com/thefynx/reeve/internal/vcs"
 )
 
 // prReader is the subset of VCS we need for preview.
 type prReader interface {
 	ListChangedFiles(ctx context.Context, number int) ([]string, error)
+}
+
+// prMetaReader is the optional extended VCS surface for auto-ready checks.
+type prMetaReader interface {
+	GetPR(ctx context.Context, number int) (*vcs.PR, error)
 }
 
 // commentPoster is what preview writes back to.
@@ -144,6 +150,35 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		}
 	}
 
+	// Auto-ready: if configured and all stacks planned without error, post
+	// a ready comment and fire the Slack ready notification.
+	if in.PRNumber > 0 && in.Shared != nil && in.Shared.Apply.AutoReady &&
+		!in.Local && planSucceeded(summaries) {
+		prAuthor := ""
+		if meta, ok := in.VCS.(prMetaReader); ok {
+			if pr, err := meta.GetPR(ctx, in.PRNumber); err == nil {
+				if pr.IsDraft {
+					goto skipAutoReady
+				}
+				prAuthor = pr.Author
+			}
+		}
+		if in.Comments != nil {
+			readyBody := "<!-- reeve:ready -->\n:white_check_mark: **Plan complete.** Comment `/reeve apply` to apply."
+			if err := in.Comments.UpsertComment(ctx, in.PRNumber, readyBody, "<!-- reeve:ready -->"); err != nil {
+				fmt.Printf("auto-ready comment: %v\n", err)
+			}
+		}
+		if in.Notifications != nil {
+			slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
+			if err := NotifySlackReady(ctx, slackBackend, in.Notifications,
+				in.PRNumber, in.CommitSHA, in.CIRunURL, "", prAuthor, nil, summaries); err != nil {
+				fmt.Printf("auto-ready slack notify: %v\n", err)
+			}
+		}
+	skipAutoReady:
+	}
+
 	return &PreviewOutput{
 		Stacks:      summaries,
 		CommentBody: body,
@@ -204,9 +239,22 @@ func runPreviewOne(ctx context.Context, in PreviewInput, s discovery.Stack) summ
 	if ss.Counts.Total() == 0 {
 		ss.Status = summary.StatusNoOp
 	} else {
-		ss.Status = summary.StatusReady
+		ss.Status = summary.StatusPlanned
 	}
 	return ss
+}
+
+// planSucceeded returns true if every stack planned without error.
+func planSucceeded(ss []summary.StackSummary) bool {
+	if len(ss) == 0 {
+		return false
+	}
+	for _, s := range ss {
+		if s.Status == summary.StatusError {
+			return false
+		}
+	}
+	return true
 }
 
 func declarationsFromConfig(e *schemas.Engine) ([]discovery.Declaration, discovery.Filter) {

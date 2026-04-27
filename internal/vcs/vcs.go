@@ -11,6 +11,7 @@ type PR struct {
 	BaseRef  string
 	Author   string
 	IsFork   bool
+	IsDraft  bool
 	OpenedAt string // RFC3339
 	URL      string
 }

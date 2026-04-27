@@ -6,8 +6,8 @@
 | Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Status |
 |---|---|---|---|---|---|---|
 | api/prod | prod | 2 | 1 | 0 | 0 | 🔒 blocked by #482 |
-| api/staging | staging | 5 | 0 | 0 | 0 | ✅ ready |
-| worker/prod | prod | 0 | 3 | 0 | 1 | ✅ ready |
+| api/staging | staging | 5 | 0 | 0 | 0 | ✅ planned |
+| worker/prod | prod | 0 | 3 | 0 | 1 | ✅ planned |
 | noop/dev | dev | 0 | 0 | 0 | 0 | · no-op |
 
 ⚠️ Replacements detected - review carefully.
@@ -29,11 +29,11 @@
 
 ---
 
-### api/staging · staging · ✅ ready
+### api/staging · staging · ✅ planned
 
 ---
 
-### worker/prod · prod · ✅ ready
+### worker/prod · prod · ✅ planned
 
 <details><summary>Full plan output</summary>
 

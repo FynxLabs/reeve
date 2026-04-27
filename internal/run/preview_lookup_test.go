@@ -29,7 +29,7 @@ func TestFindPreviewForStack_MatchingManifest(t *testing.T) {
 	stacks := []summary.StackSummary{
 		{Project: "api", Stack: "prod", Env: "prod",
 			Counts: summary.Counts{Add: 2, Change: 1},
-			Status: summary.StatusReady},
+			Status: summary.StatusPlanned},
 		{Project: "worker", Stack: "prod", Env: "prod",
 			Status: summary.StatusError, Error: "engine crashed"},
 	}
