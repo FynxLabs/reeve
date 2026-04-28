@@ -59,20 +59,34 @@ runs:
         repository: FynxLabs/reeve
         ref: ${{ inputs.ref }}
         path: _reeve
+        fetch-depth: 1
+
+    - name: Restore reeve binary cache
+      id: reeve-cache
+      uses: actions/cache@v5
+      with:
+        path: ${{ runner.temp }}/reeve-bin/reeve
+        key: reeve-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('_reeve/go.sum') }}
 
     - name: Set up Go (from reeve's go.mod)
+      if: steps.reeve-cache.outputs.cache-hit != 'true'
       uses: actions/setup-go@v6
       with:
         go-version-file: _reeve/go.mod
         cache-dependency-path: _reeve/go.sum
 
     - name: Build reeve
+      if: steps.reeve-cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
         set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/reeve-bin"
         go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/reeve-bin/reeve" ./cmd/reeve
-        echo "$RUNNER_TEMP/reeve-bin" >> "$GITHUB_PATH"
       working-directory: _reeve
+
+    - name: Add reeve to PATH
+      shell: bash
+      run: echo "$RUNNER_TEMP/reeve-bin" >> "$GITHUB_PATH"
 
     - name: Authenticate to GCP
       if: ${{ inputs.gcp-workload-identity-provider != '' }}
@@ -92,6 +106,7 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         SLACK_BOT_TOKEN: ${{ inputs.slack-token }}
+        REEVE_BIN: ${{ runner.temp }}/reeve-bin/reeve
       run: |
         set -euo pipefail
         ROOT="${{ inputs.root }}"
@@ -132,24 +147,24 @@ runs:
           preview|"run preview")
             if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
               PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH")
-              reeve run preview --pr "$PR_NUMBER" $EXTRA
+              "$REEVE_BIN" run preview --pr "$PR_NUMBER" $EXTRA
             else
-              reeve run preview --local $EXTRA
+              "$REEVE_BIN" run preview --local $EXTRA
             fi
             ;;
           ready|"run ready")
             PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
-            reeve run ready --pr "$PR_NUMBER" $EXTRA
+            "$REEVE_BIN" run ready --pr "$PR_NUMBER" $EXTRA
             ;;
           apply|"run apply")
             PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
-            reeve run apply --pr "$PR_NUMBER" $EXTRA
+            "$REEVE_BIN" run apply --pr "$PR_NUMBER" $EXTRA
             ;;
           help|"run help")
             PR_NUMBER=$(jq -r '.issue.number // 0' < "$GITHUB_EVENT_PATH")
-            reeve run help --pr "$PR_NUMBER" $EXTRA
+            "$REEVE_BIN" run help --pr "$PR_NUMBER" $EXTRA
             ;;
           *)
-            reeve $CMD $EXTRA
+            "$REEVE_BIN" $CMD $EXTRA
             ;;
         esac
