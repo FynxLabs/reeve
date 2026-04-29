@@ -141,11 +141,23 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		}
 	}
 
+	// Fetch PR metadata once for author + draft status (used by Slack + auto-ready).
+	var prAuthor string
+	var prIsDraft bool
+	if in.PRNumber > 0 && !in.Local {
+		if meta, ok := in.VCS.(prMetaReader); ok {
+			if pr, err := meta.GetPR(ctx, in.PRNumber); err == nil {
+				prAuthor = pr.Author
+				prIsDraft = pr.IsDraft
+			}
+		}
+	}
+
 	// Slack runs last in the pipeline so upstream failures are captured.
 	if in.PRNumber > 0 && in.Notifications != nil {
 		slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
 		if err := NotifySlackPlanReady(ctx, slackBackend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, "", "", nil, summaries); err != nil {
+			in.PRNumber, in.CommitSHA, in.CIRunURL, "", prAuthor, nil, summaries); err != nil {
 			fmt.Printf("slack notify: %v\n", err)
 		}
 	}
@@ -154,14 +166,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	// a ready comment and fire the Slack ready notification.
 	if in.PRNumber > 0 && in.Shared != nil && in.Shared.Apply.AutoReady &&
 		!in.Local && planSucceeded(summaries) {
-		prAuthor := ""
-		if meta, ok := in.VCS.(prMetaReader); ok {
-			if pr, err := meta.GetPR(ctx, in.PRNumber); err == nil {
-				if pr.IsDraft {
-					goto skipAutoReady
-				}
-				prAuthor = pr.Author
-			}
+		if prIsDraft {
+			goto skipAutoReady
 		}
 		if in.Comments != nil {
 			readyBody := "<!-- reeve:ready -->\n:white_check_mark: **Plan complete.** Comment `/reeve apply` to apply."
