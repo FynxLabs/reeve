@@ -53,6 +53,7 @@ func (c *Client) GetPR(ctx context.Context, number int) (*vcs.PR, error) {
 		Number:   pr.GetNumber(),
 		HeadSHA:  pr.GetHead().GetSHA(),
 		BaseRef:  pr.GetBase().GetRef(),
+		Title:    pr.GetTitle(),
 		Author:   pr.GetUser().GetLogin(),
 		IsDraft:  pr.GetDraft(),
 		OpenedAt: pr.GetCreatedAt().Format("2006-01-02T15:04:05Z"),

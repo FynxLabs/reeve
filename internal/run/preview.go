@@ -45,6 +45,7 @@ type Engine interface {
 // PreviewInput wires the dependencies and run context together.
 type PreviewInput struct {
 	PRNumber      int
+	PRTitle       string
 	CommitSHA     string
 	RunNumber     int
 	CIRunURL      string
@@ -151,22 +152,26 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	}
 
 	// Fetch PR metadata once for author + draft status (used by Slack + auto-ready).
-	var prAuthor string
+	var prAuthor, prTitle string
 	var prIsDraft bool
 	if in.PRNumber > 0 && !in.Local {
 		if meta, ok := in.VCS.(prMetaReader); ok {
 			if pr, err := meta.GetPR(ctx, in.PRNumber); err == nil {
 				prAuthor = pr.Author
+				prTitle = pr.Title
 				prIsDraft = pr.IsDraft
 			}
 		}
+	}
+	if prTitle == "" {
+		prTitle = in.PRTitle
 	}
 
 	// Slack runs last in the pipeline so upstream failures are captured.
 	if in.PRNumber > 0 && in.Notifications != nil {
 		slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
 		if err := NotifySlackPlanReady(ctx, slackBackend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, "", prAuthor, nil, summaries); err != nil {
+			in.PRNumber, in.CommitSHA, in.CIRunURL, prTitle, prAuthor, nil, summaries); err != nil {
 			fmt.Printf("slack notify: %v\n", err)
 		}
 	}
@@ -179,7 +184,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 			goto skipAutoReady
 		}
 		if in.Comments != nil {
-			readyBody := "<!-- reeve:ready -->\n:white_check_mark: **Plan complete.** Comment `/reeve apply` to apply."
+			readyBody := "<!-- reeve:ready -->\n:white_check_mark: **Plan complete.** Ready for approval."
 			if err := in.Comments.UpsertComment(ctx, in.PRNumber, readyBody, "<!-- reeve:ready -->"); err != nil {
 				fmt.Printf("auto-ready comment: %v\n", err)
 			}
@@ -187,7 +192,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		if in.Notifications != nil {
 			slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
 			if err := NotifySlackReady(ctx, slackBackend, in.Notifications,
-				in.PRNumber, in.CommitSHA, in.CIRunURL, "", prAuthor, nil, summaries); err != nil {
+				in.PRNumber, in.CommitSHA, in.CIRunURL, prTitle, prAuthor, nil, summaries); err != nil {
 				fmt.Printf("auto-ready slack notify: %v\n", err)
 			}
 		}

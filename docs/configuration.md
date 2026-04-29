@@ -285,12 +285,8 @@ states show "Waiting for approval." instead.
 
 ### Thread timeline
 
-The first message opens a Slack thread. The thread contains:
-
-1. Initial reply listing stacks with changes (add/change/delete counts).
-   Stacks with no changes are omitted.
-2. A timestamped timeline entry appended for every subsequent event
-   (planned, approved, applying, applied, failed).
+The first message opens a Slack thread. Each event appends a timestamped
+timeline entry (planned, ready, approved, applying, applied, failed).
 
 No plan output is sent to Slack. Full output is in the GitHub Actions run log.
 

@@ -98,10 +98,6 @@ func (b *SlackBackend) NotifyApplying(ctx context.Context, in NotifyInput) error
 		return nil
 	}
 	state, _ := b.loadState(ctx, in.PR)
-	if state.MainTS == "" {
-		// First message on apply trigger path.
-		return b.sendOrUpdate(ctx, in, state, eventApplying, colorApplying)
-	}
 	return b.sendOrUpdate(ctx, in, state, eventApplying, colorApplying)
 }
 
@@ -316,7 +312,7 @@ func eventTitle(ev event) string {
 	case eventPlanReady:
 		return "Planned - Pending Approval"
 	case eventReady:
-		return "Ready for Apply"
+		return "Ready for Approval"
 	case eventApproved:
 		return "Approved - Ready to Apply"
 	case eventApplying:

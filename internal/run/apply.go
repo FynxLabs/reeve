@@ -170,11 +170,11 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			})
 		}
 		if err := NotifySlackApproved(ctx, slackBackend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, "", pr.Author, preSummaries); err != nil {
+			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, preSummaries); err != nil {
 			fmt.Printf("slack notify approved: %v\n", err)
 		}
 		if err := NotifySlackApplying(ctx, slackBackend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, "", pr.Author, preSummaries); err != nil {
+			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, preSummaries); err != nil {
 			fmt.Printf("slack notify applying: %v\n", err)
 		}
 	}
@@ -348,7 +348,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	if in.PRNumber > 0 && in.Notifications != nil {
 		backend := BuildSlackBackend(in.Notifications, in.Blob)
 		if err := NotifySlackApplied(ctx, backend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, "", pr.Author, summaries, anyBlocked); err != nil {
+			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, summaries, anyBlocked); err != nil {
 			fmt.Printf("slack notify: %v\n", err)
 		}
 	}

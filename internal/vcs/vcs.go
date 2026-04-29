@@ -9,6 +9,7 @@ type PR struct {
 	Number   int
 	HeadSHA  string
 	BaseRef  string
+	Title    string
 	Author   string
 	IsFork   bool
 	IsDraft  bool
