@@ -21,8 +21,8 @@ ready, no-op last), each with: required approvers (if any), then collapsed
 single table line with no section.
 
 A help comment is upserted separately under marker `<!-- reeve:help -->`,
-listing available commands. An auto-ready comment is upserted under
-`<!-- reeve:ready -->` when `auto_ready: true` and plan succeeds.
+listing available commands. A ready comment is upserted under
+`<!-- reeve:ready -->` when `/reeve ready` is triggered (manually or via `auto_ready`).
 
 Apply comment mirrors preview structure, adds durations, floats failures
 to top.

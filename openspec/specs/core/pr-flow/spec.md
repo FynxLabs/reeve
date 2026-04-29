@@ -12,8 +12,8 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
 2. Single PR comment posted, identified by hidden HTML marker, edited in place
    on subsequent runs. Help comment upserted separately.
 3. Slack message posted/updated (if configured).
-4. If `auto_ready: true` and plan succeeded, PR is marked ready for approval
-   automatically. Otherwise author runs `/reeve ready`.
+4. If `auto_ready: true`, when PR converts from draft to ready for review and plan has
+   succeeded, reeve fires `/reeve ready` automatically. Otherwise author runs it manually.
 5. Reviewers approve per configured rules.
 6. On `/reeve apply` comment → acquire locks, evaluate preconditions, run apply.
 7. Results update PR comment and Slack message.

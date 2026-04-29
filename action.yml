@@ -127,10 +127,12 @@ runs:
             fi
           elif [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
             COMMENT_BODY=$(jq -r .comment.body < "$GITHUB_EVENT_PATH")
-            if [[ "$COMMENT_BODY" == /reeve\ apply* ]]; then
+            if [[ "$COMMENT_BODY" == /reeve\ apply* || "$COMMENT_BODY" == /reeve\ up* ]]; then
               CMD="apply"
             elif [[ "$COMMENT_BODY" == /reeve\ ready* ]]; then
               CMD="ready"
+            elif [[ "$COMMENT_BODY" == /reeve\ preview* || "$COMMENT_BODY" == /reeve\ plan* ]]; then
+              CMD="preview"
             elif [[ "$COMMENT_BODY" == /reeve\ help* ]]; then
               CMD="pr-help"
             else
@@ -147,6 +149,9 @@ runs:
           preview|"run preview")
             if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
               PR_NUMBER=$(jq -r .pull_request.number < "$GITHUB_EVENT_PATH")
+              "$REEVE_BIN" run preview --pr "$PR_NUMBER" $EXTRA
+            elif [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
+              PR_NUMBER=$(jq -r '.issue.number' < "$GITHUB_EVENT_PATH")
               "$REEVE_BIN" run preview --pr "$PR_NUMBER" $EXTRA
             else
               "$REEVE_BIN" run preview --local $EXTRA

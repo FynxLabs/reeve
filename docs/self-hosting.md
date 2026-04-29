@@ -219,7 +219,7 @@ permissions:
 reeve expects these events:
 
 - `pull_request` (`opened`, `synchronize`, `reopened`) - fires `preview`
-- `issue_comment` (`created`, body starts with `/reeve apply`, `/reeve ready`, or `/reeve help`) - fires respective command
+- `issue_comment` (`created`, body starts with `/reeve apply` (or `/reeve up`), `/reeve ready`, `/reeve preview` (or `/reeve plan`), or `/reeve help`) - fires respective command
 - `schedule` - fires `drift run`
 - `workflow_dispatch` - manual re-runs
 

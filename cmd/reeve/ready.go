@@ -81,7 +81,8 @@ func runReady(cmd *cobra.Command, _ []string) error {
 	}
 
 	if !run.PlanSucceededForPR(ctx, store, pr, sha) {
-		return fmt.Errorf("no successful plan found for PR #%d at %s - run preview first", pr, sha[:7])
+		fmt.Fprintf(cmd.OutOrStdout(), "no successful plan found for PR #%d at %s - skipping ready\n", pr, sha[:7])
+		return nil
 	}
 
 	backend := run.BuildSlackBackend(cfg.Notifications, store)
