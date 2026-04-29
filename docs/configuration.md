@@ -254,7 +254,6 @@ slack:
     engine: ":building_construction:"   # repo/project header icon
     runner: ":runner:"                  # CI runner / view-run button
     author: ":bust_in_silhouette:"      # PR author field
-    commit: ":package:"                 # commit SHA field
     approver: ":approved_stamp:"        # required approvers field
 
   rules:
