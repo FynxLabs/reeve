@@ -28,7 +28,7 @@ func newRunCmd() *cobra.Command {
 	}
 	addPreviewFlags(preview)
 
-	cmd.AddCommand(preview, newApplyCmd(), newReadyCmd(), newHelpCmd())
+	cmd.AddCommand(preview, newApplyCmd(), newReadyCmd(), newApprovedCmd(), newHelpCmd())
 	return cmd
 }
 

@@ -247,6 +247,15 @@ slack:
   #   ready            - message created only when /reeve ready is run
   trigger: plan
 
+  # events lists which lifecycle events emit a Slack notification.
+  # When omitted, all events at or after the trigger fire (default behavior).
+  # Valid values: plan, ready, approved, applying, applied, failed, blocked
+  #
+  # Example: only notify on plan and final result, skip the intermediate steps:
+  #   events: [plan, applied, failed, blocked]
+  #
+  # events: [plan, ready, approved, applying, applied, failed, blocked]
+
   # icons overrides the default emoji used in the message layout.
   # All fields are optional. Useful when your Slack workspace has custom emoji
   # (e.g. :pulumi:, :github:) that aren't available by default.

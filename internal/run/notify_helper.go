@@ -108,6 +108,9 @@ func NotifySlackPlanReady(ctx context.Context, backend *notifications.SlackBacke
 	if backend == nil {
 		return nil
 	}
+	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventPlan) {
+		return nil
+	}
 	return backend.NotifyPlanReady(ctx, notifications.NotifyInput{
 		PR:                pr,
 		CommitSHA:         sha,
@@ -124,6 +127,9 @@ func NotifySlackPlanReady(ctx context.Context, backend *notifications.SlackBacke
 // NotifySlackReady is called when /reeve ready is run.
 func NotifySlackReady(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, requiredApprovers []string, stacks []summary.StackSummary) error {
 	if backend == nil {
+		return nil
+	}
+	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventReady) {
 		return nil
 	}
 	return backend.NotifyReady(ctx, notifications.NotifyInput{
@@ -144,6 +150,9 @@ func NotifySlackApproved(ctx context.Context, backend *notifications.SlackBacken
 	if backend == nil {
 		return nil
 	}
+	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventApproved) {
+		return nil
+	}
 	return backend.NotifyApproved(ctx, notifications.NotifyInput{
 		PR:        pr,
 		CommitSHA: sha,
@@ -159,6 +168,9 @@ func NotifySlackApproved(ctx context.Context, backend *notifications.SlackBacken
 // NotifySlackApplying is called immediately before the apply loop starts.
 func NotifySlackApplying(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary) error {
 	if backend == nil {
+		return nil
+	}
+	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventApplying) {
 		return nil
 	}
 	return backend.NotifyApplying(ctx, notifications.NotifyInput{
@@ -177,6 +189,14 @@ func NotifySlackApplying(ctx context.Context, backend *notifications.SlackBacken
 func NotifySlackApplied(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary, blocked bool) error {
 	if backend == nil {
 		return nil
+	}
+	if cfg != nil {
+		applied := schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventApplied)
+		failed := schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventFailed)
+		blk := schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventBlocked)
+		if !applied && !failed && !blk {
+			return nil
+		}
 	}
 	return backend.NotifyApplied(ctx, notifications.NotifyInput{
 		PR:        pr,

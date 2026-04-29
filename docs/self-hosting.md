@@ -219,6 +219,8 @@ permissions:
 reeve expects these events:
 
 - `pull_request` (`opened`, `synchronize`, `reopened`) - fires `preview`
+- `pull_request` (`ready_for_review`) - fires `ready` (if `auto_ready: true` and plan succeeded)
+- `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update)
 - `issue_comment` (`created`, body starts with `/reeve apply` (or `/reeve up`), `/reeve ready`, `/reeve preview` (or `/reeve plan`), or `/reeve help`) - fires respective command
 - `schedule` - fires `drift run`
 - `workflow_dispatch` - manual re-runs

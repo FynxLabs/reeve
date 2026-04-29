@@ -18,6 +18,65 @@ const (
 	SlackTriggerReady SlackTrigger = "ready"
 )
 
+// SlackEvent represents a named lifecycle event that can emit a Slack notification.
+type SlackEvent string
+
+const (
+	SlackEventPlan     SlackEvent = "plan"
+	SlackEventReady    SlackEvent = "ready"
+	SlackEventApproved SlackEvent = "approved"
+	SlackEventApplying SlackEvent = "applying"
+	SlackEventApplied  SlackEvent = "applied"
+	SlackEventFailed   SlackEvent = "failed"
+	SlackEventBlocked  SlackEvent = "blocked"
+)
+
+// slackEventOrder defines the natural lifecycle order for default filtering.
+var slackEventOrder = []SlackEvent{
+	SlackEventPlan,
+	SlackEventReady,
+	SlackEventApproved,
+	SlackEventApplying,
+	SlackEventApplied,
+	SlackEventFailed,
+	SlackEventBlocked,
+}
+
+// SlackEventEnabled returns true if the given event should emit a Slack notification.
+// When Events is empty, all events at or after the trigger are enabled by default.
+func SlackEventEnabled(cfg *SlackConfig, event SlackEvent) bool {
+	if cfg == nil {
+		return false
+	}
+	if len(cfg.Events) > 0 {
+		for _, e := range cfg.Events {
+			if e == event {
+				return true
+			}
+		}
+		return false
+	}
+	// Default: all events from trigger onward.
+	triggerEvent := SlackEvent(cfg.Trigger)
+	if triggerEvent == "" {
+		triggerEvent = SlackEvent(SlackTriggerApply)
+	}
+	triggerIdx := -1
+	eventIdx := -1
+	for i, e := range slackEventOrder {
+		if e == triggerEvent {
+			triggerIdx = i
+		}
+		if e == event {
+			eventIdx = i
+		}
+	}
+	if triggerIdx < 0 || eventIdx < 0 {
+		return true
+	}
+	return eventIdx >= triggerIdx
+}
+
 // SlackIcons overrides the default emoji used in messages.
 // All fields are optional -- unset fields use the built-in defaults.
 type SlackIcons struct {
@@ -43,9 +102,13 @@ type SlackConfig struct {
 	// Trigger controls when the initial Slack message is created.
 	// Subsequent events always update the existing message in place.
 	// Default: "apply"
-	Trigger SlackTrigger      `yaml:"trigger,omitempty"`
-	Icons   *SlackIcons       `yaml:"icons,omitempty"`
-	Rules   []SlackNotifyRule `yaml:"rules,omitempty"`
+	Trigger SlackTrigger `yaml:"trigger,omitempty"`
+	// Events lists which lifecycle events emit a Slack notification.
+	// When empty, all events at or after the trigger fire (default behavior).
+	// Valid values: plan, ready, approved, applying, applied, failed, blocked.
+	Events []SlackEvent      `yaml:"events,omitempty"`
+	Icons  *SlackIcons       `yaml:"icons,omitempty"`
+	Rules  []SlackNotifyRule `yaml:"rules,omitempty"`
 }
 
 // SlackNotifyRule gates which stacks flow into Slack (e.g. environments: [prod]).

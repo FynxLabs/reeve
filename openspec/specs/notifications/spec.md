@@ -13,6 +13,9 @@ pipeline so upstream failures are captured accurately.
 - Block Kit layout.
 - Rule-gated (e.g. `environment: prod` only).
 - Always links back to the PR.
+- `trigger` controls which event **creates** the initial message (`plan` | `ready` | `apply`).
+- `events` controls which lifecycle events emit at all. Default: all events at or after the trigger.
+  Valid values: `plan`, `ready`, `approved`, `applying`, `applied`, `failed`, `blocked`.
 
 ## Client sharing
 

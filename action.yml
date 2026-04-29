@@ -118,7 +118,15 @@ runs:
 
         # Auto-detect command from event context when not explicitly set
         if [[ -z "$CMD" ]]; then
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request_review" ]]; then
+            REVIEW_STATE=$(jq -r .review.state < "$GITHUB_EVENT_PATH")
+            if [[ "$REVIEW_STATE" == "approved" ]]; then
+              CMD="approved"
+            else
+              echo "Review state '$REVIEW_STATE' - skipping."
+              exit 0
+            fi
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             ACTION=$(jq -r .action < "$GITHUB_EVENT_PATH")
             if [[ "$ACTION" == "ready_for_review" ]]; then
               CMD="ready"
@@ -156,6 +164,10 @@ runs:
             else
               "$REEVE_BIN" run preview --local $EXTRA
             fi
+            ;;
+          approved|"run approved")
+            PR_NUMBER=$(jq -r '.pull_request.number' < "$GITHUB_EVENT_PATH")
+            "$REEVE_BIN" run approved --pr "$PR_NUMBER" $EXTRA
             ;;
           ready|"run ready")
             PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
