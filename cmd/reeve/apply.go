@@ -124,7 +124,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 
 	if out.Blocked {
 		fmt.Fprintf(cmd.OutOrStdout(), "apply blocked by preconditions for one or more stacks (PR #%d, run_id=%s)\n", pr, out.RunID)
-		os.Exit(2) // non-zero but distinct from crashes
+		return nil
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "apply complete (PR #%d, run_id=%s, %d stacks, %ds)\n",
 		pr, out.RunID, len(out.Stacks), out.DurationSec)

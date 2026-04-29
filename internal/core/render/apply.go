@@ -70,6 +70,14 @@ func Apply(in ApplyInput) string {
 		}
 		b.WriteString("---\n\n")
 		fmt.Fprintf(&b, "### %s · %s · %s\n\n", s.Ref(), envOrDash(s.Env), applyStatusCell(s))
+		if s.Status == summary.StatusBlocked && len(s.Gates) > 0 {
+			for _, g := range s.Gates {
+				if g.Outcome == "fail" {
+					fmt.Fprintf(&b, "**Blocked:** %s (`%s`)\n\n", g.Reason, g.Gate)
+					break
+				}
+			}
+		}
 		if s.Error != "" {
 			fmt.Fprintf(&b, "  **Error:** %s\n\n", s.Error)
 		}

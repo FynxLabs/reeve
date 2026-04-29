@@ -114,9 +114,13 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreNames []stri
 	if sha == "" {
 		return false, nil, errors.New("sha required")
 	}
-	ignore := map[string]bool{}
-	for _, n := range ignoreNames {
-		ignore[n] = true
+	shouldIgnore := func(name string) bool {
+		for _, n := range ignoreNames {
+			if name == n || strings.HasPrefix(name, n+" ") || strings.HasPrefix(name, n+"/") {
+				return true
+			}
+		}
+		return false
 	}
 	// Check-runs (the modern shape).
 	var failing []string
@@ -127,7 +131,7 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreNames []stri
 			return false, nil, err
 		}
 		for _, r := range runs.CheckRuns {
-			if ignore[r.GetName()] {
+			if shouldIgnore(r.GetName()) {
 				continue
 			}
 			switch r.GetConclusion() {
@@ -148,7 +152,7 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreNames []stri
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
 	if err == nil && st.GetState() != "" && st.GetState() != "success" {
 		for _, s := range st.Statuses {
-			if ignore[s.GetContext()] {
+			if shouldIgnore(s.GetContext()) {
 				continue
 			}
 			if s.GetState() != "success" {
