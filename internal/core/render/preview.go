@@ -100,6 +100,9 @@ func writeSections(b *strings.Builder, in PreviewInput) {
 		if s.Error != "" {
 			fmt.Fprintf(b, "  **Error:** %s\n\n", s.Error)
 		}
+		if len(s.RequiredApprovers) > 0 {
+			fmt.Fprintf(b, "👥 **Required approvers:** %s\n\n", strings.Join(s.RequiredApprovers, ", "))
+		}
 		if s.PlanSummary != "" {
 			fmt.Fprintf(b, "<details><summary>Summary (%d add, %d change, %d delete, %d replace)</summary>\n\n```diff\n%s\n```\n\n</details>\n\n",
 				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
@@ -120,9 +123,6 @@ func writeSections(b *strings.Builder, in PreviewInput) {
 				b.WriteString("\n")
 			}
 			b.WriteString("```\n\n</details>\n\n")
-		}
-		if len(s.RequiredApprovers) > 0 {
-			fmt.Fprintf(b, "👥 **Required approvers:** %s\n\n", strings.Join(s.RequiredApprovers, ", "))
 		}
 		if len(s.Gates) > 0 {
 			fmt.Fprintf(b, "🔐 %s apply gates:\n", s.Ref())
