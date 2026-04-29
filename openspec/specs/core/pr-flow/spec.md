@@ -10,13 +10,15 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
 
 1. PR opened / updated → `reeve run preview` for touched stacks.
 2. Single PR comment posted, identified by hidden HTML marker, edited in place
-   on subsequent runs.
-3. Slack message posted/updated in parallel (if configured).
-4. Reviewers approve per configured rules.
-5. On `/reeve apply` comment (or merge, per config) → acquire locks, run apply.
-6. Results update PR comment and Slack message.
-7. Audit log entry written to bucket.
-8. Locks released, queue advanced.
+   on subsequent runs. Help comment upserted separately.
+3. Slack message posted/updated (if configured).
+4. If `auto_ready: true` and plan succeeded, PR is marked ready for approval
+   automatically. Otherwise author runs `/reeve ready`.
+5. Reviewers approve per configured rules.
+6. On `/reeve apply` comment → acquire locks, evaluate preconditions, run apply.
+7. Results update PR comment and Slack message.
+8. Audit log entry written to bucket.
+9. Locks released, queue advanced.
 
 ## Requirements
 

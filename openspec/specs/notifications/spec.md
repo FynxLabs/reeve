@@ -9,7 +9,7 @@ pipeline so upstream failures are captured accurately.
 
 - One message per PR, tracked by message ID in `notifications/pr-{n}/slack.json`.
 - Main message: high-level status (planned → applying → applied/failed/closed-unmerged).
-- Thread: per-stack summaries (counts + high-level changes; never full plan).
+- Thread: timestamped timeline entries only (one per event: planned, ready, approved, applying, applied, failed).
 - Block Kit layout.
 - Rule-gated (e.g. `environment: prod` only).
 - Always links back to the PR.
