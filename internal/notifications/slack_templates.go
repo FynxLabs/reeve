@@ -153,8 +153,12 @@ func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *
 			Attachments: []slack.Attachment{{Color: color, Blocks: blocks}},
 		})
 	} else {
+		ch := state.Channel
+		if ch == "" {
+			ch = b.Channel
+		}
 		res, err = b.Client.Update(ctx, slack.Message{
-			Channel:     b.Channel,
+			Channel:     ch,
 			TS:          state.MainTS,
 			Text:        text,
 			Attachments: []slack.Attachment{{Color: color, Blocks: blocks}},
@@ -163,12 +167,16 @@ func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *
 	if err != nil {
 		return err
 	}
-	state.Channel = b.Channel
+	state.Channel = res.Channel
 	state.MainTS = res.TS
 
 	// Thread: first timeline entry initialises the thread; subsequent events append.
+	ch := state.Channel
+	if ch == "" {
+		ch = b.Channel
+	}
 	timelineText := timelineEntry(ev, in.CommitSHA)
-	tr, terr := b.Client.PostThread(ctx, b.Channel, res.TS, timelineText, nil)
+	tr, terr := b.Client.PostThread(ctx, ch, res.TS, timelineText, nil)
 	if terr == nil && state.ThreadTS == "" {
 		state.ThreadTS = tr.TS
 	}
