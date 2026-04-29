@@ -1,4 +1,4 @@
-package cli
+package main
 
 import (
 	"context"
@@ -16,14 +16,13 @@ import (
 
 func newHelpCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "help",
+		Use:   "pr-help",
 		Short: "Post a help comment to the PR listing available reeve commands",
 		RunE:  runHelp,
 	}
 	cmd.Flags().Int("pr", 0, "PR number")
 	cmd.Flags().String("repo", "", "owner/repo (default: $GITHUB_REPOSITORY)")
 	cmd.Flags().String("token", "", "GitHub token (default: $GITHUB_TOKEN)")
-	cmd.Flags().String("root", "", "Repo root (default: cwd)")
 	return cmd
 }
 

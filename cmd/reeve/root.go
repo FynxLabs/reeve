@@ -1,6 +1,6 @@
 // Package cli wires the reeve command tree. Phase 0 ships the command surface
 // with `not implemented` stubs; later phases attach real runners.
-package cli
+package main
 
 import "github.com/spf13/cobra"
 

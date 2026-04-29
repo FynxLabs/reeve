@@ -13,7 +13,7 @@ branding:
 inputs:
   command:
     description: >-
-      reeve subcommand: "preview", "ready", "apply", "lint", "stacks", "drift run",
+      reeve subcommand: "preview", "ready", "apply", "pr-help", "lint", "stacks", "drift run",
       "locks list", etc. Omit to auto-detect from the GitHub event context.
     required: false
     default: ""
@@ -132,7 +132,7 @@ runs:
             elif [[ "$COMMENT_BODY" == /reeve\ ready* ]]; then
               CMD="ready"
             elif [[ "$COMMENT_BODY" == /reeve\ help* ]]; then
-              CMD="help"
+              CMD="pr-help"
             else
               echo "Not a reeve command, skipping."
               exit 0
@@ -160,9 +160,9 @@ runs:
             PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
             "$REEVE_BIN" run apply --pr "$PR_NUMBER" $EXTRA
             ;;
-          help|"run help")
+          pr-help|"run pr-help")
             PR_NUMBER=$(jq -r '.issue.number // 0' < "$GITHUB_EVENT_PATH")
-            "$REEVE_BIN" run help --pr "$PR_NUMBER" $EXTRA
+            "$REEVE_BIN" run pr-help --pr "$PR_NUMBER" $EXTRA
             ;;
           *)
             "$REEVE_BIN" $CMD $EXTRA
