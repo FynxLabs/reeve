@@ -80,13 +80,17 @@ func runReady(cmd *cobra.Command, _ []string) error {
 		sha = prMeta.HeadSHA
 	}
 
+	if !run.PlanSucceededForPR(ctx, store, pr, sha) {
+		return fmt.Errorf("no successful plan found for PR #%d at %s - run preview first", pr, sha[:7])
+	}
+
 	backend := run.BuildSlackBackend(cfg.Notifications, store)
 	if err := run.NotifySlackReady(ctx, backend, cfg.Notifications,
-		pr, sha, runURL, "", prMeta.Author, nil, nil); err != nil {
+		pr, sha, runURL, prMeta.Title, prMeta.Author, nil, nil); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "slack notify: %v\n", err)
 	}
 
-	comment := "<!-- reeve:ready -->\n:white_check_mark: **Ready for apply.** Comment `/reeve apply` to apply."
+	comment := "<!-- reeve:ready -->\n:white_check_mark: **Plan complete.** Ready for approval."
 	if err := client.UpsertComment(ctx, pr, comment, "<!-- reeve:ready -->"); err != nil {
 		return fmt.Errorf("post comment: %w", err)
 	}
