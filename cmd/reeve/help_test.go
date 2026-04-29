@@ -3,10 +3,12 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/thefynx/reeve/internal/core/render"
 )
 
 func TestBuildHelpComment_ContainsCommands(t *testing.T) {
-	body := buildHelpComment(false)
+	body := render.BuildHelpComment(false)
 	for _, want := range []string{
 		"<!-- reeve:help -->",
 		"/reeve apply",
@@ -23,7 +25,7 @@ func TestBuildHelpComment_ContainsCommands(t *testing.T) {
 }
 
 func TestBuildHelpComment_AutoReadyHint(t *testing.T) {
-	body := buildHelpComment(true)
+	body := render.BuildHelpComment(true)
 	if !strings.Contains(body, "auto_ready") {
 		t.Error("expected auto_ready hint when enabled")
 	}

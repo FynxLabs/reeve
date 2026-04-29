@@ -121,6 +121,9 @@ func writeSections(b *strings.Builder, in PreviewInput) {
 			}
 			b.WriteString("```\n\n</details>\n\n")
 		}
+		if len(s.RequiredApprovers) > 0 {
+			fmt.Fprintf(b, "👥 **Required approvers:** %s\n\n", strings.Join(s.RequiredApprovers, ", "))
+		}
 		if len(s.Gates) > 0 {
 			fmt.Fprintf(b, "🔐 %s apply gates:\n", s.Ref())
 			for _, g := range s.Gates {

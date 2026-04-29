@@ -26,18 +26,19 @@ const (
 // StackSummary is what the render package consumes to build the preview
 // comment. Populated by the run/preview pipeline.
 type StackSummary struct {
-	Project     string
-	Stack       string
-	Env         string
-	Counts      Counts
-	Status      Status
-	BlockedBy   int         // PR number, 0 if none
-	Error       string      // non-empty if Status == StatusError
-	FullPlan    string      // raw JSON preview output (redacted)
-	PlanSummary string      // human-readable short summary (+/-/~/± per resource)
-	PlanDiff    string      // pulumi preview --diff output (redacted)
-	DurationMS  int64       // apply duration (preview may be 0)
-	Gates       []GateTrace // rendered as "🔐 apply gates" section
+	Project           string
+	Stack             string
+	Env               string
+	Counts            Counts
+	Status            Status
+	BlockedBy         int         // PR number, 0 if none
+	Error             string      // non-empty if Status == StatusError
+	FullPlan          string      // raw JSON preview output (redacted)
+	PlanSummary       string      // human-readable short summary (+/-/~/± per resource)
+	PlanDiff          string      // pulumi preview --diff output (redacted)
+	DurationMS        int64       // apply duration (preview may be 0)
+	Gates             []GateTrace // rendered as "🔐 apply gates" section
+	RequiredApprovers []string    // approvers required before apply
 }
 
 // GateTrace is one line of the per-stack "apply gates" trace.

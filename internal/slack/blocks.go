@@ -26,6 +26,14 @@ func Field(label, value string) Block {
 	})
 }
 
+// MrkdwnField returns a single mrkdwn field block with a single string (no label/value split).
+func MrkdwnField(text string) Block {
+	return must(map[string]any{
+		"type": "mrkdwn",
+		"text": text,
+	})
+}
+
 // Fields returns a section block containing up to 10 two-column fields.
 func Fields(fields ...Block) Block {
 	raw := make([]json.RawMessage, len(fields))

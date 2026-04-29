@@ -10,6 +10,7 @@ import (
 	"github.com/thefynx/reeve/internal/auth"
 	"github.com/thefynx/reeve/internal/blob"
 	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/thefynx/reeve/internal/core/approvals"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/core/render"
 	"github.com/thefynx/reeve/internal/core/summary"
@@ -109,9 +110,12 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		target = discovery.Affected(declared, changed, cm)
 	}
 
+	appCfg := toApprovalsConfig(in.Shared)
 	summaries := make([]summary.StackSummary, 0, len(target))
 	for _, s := range target {
 		ss := runPreviewOne(ctx, in, s)
+		rules := approvals.Resolve(appCfg, s.Ref())
+		ss.RequiredApprovers = rules.Approvers
 		summaries = append(summaries, ss)
 	}
 
@@ -138,6 +142,11 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	if in.Comments != nil && in.PRNumber > 0 {
 		if err := in.Comments.UpsertComment(ctx, in.PRNumber, body, render.Marker); err != nil {
 			return nil, fmt.Errorf("upsert pr comment: %w", err)
+		}
+		autoReady := in.Shared != nil && in.Shared.Apply.AutoReady
+		helpBody := render.BuildHelpComment(autoReady)
+		if err := in.Comments.UpsertComment(ctx, in.PRNumber, helpBody, render.HelpMarker); err != nil {
+			fmt.Printf("upsert help comment: %v\n", err)
 		}
 	}
 

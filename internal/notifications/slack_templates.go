@@ -170,20 +170,11 @@ func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *
 	state.Channel = b.Channel
 	state.MainTS = res.TS
 
-	// Thread: first message initialises it; subsequent events append a timeline entry.
-	if state.ThreadTS == "" {
-		stackBlocks := b.buildStackThreadBlocks(in.Stacks)
-		if len(stackBlocks) > 0 {
-			tr, terr := b.Client.PostThread(ctx, b.Channel, res.TS, fmt.Sprintf("Stack changes for PR #%d", in.PR), stackBlocks)
-			if terr == nil {
-				state.ThreadTS = tr.TS
-			}
-		}
-	}
-	// Always append a timeline entry to the thread.
-	if state.ThreadTS != "" {
-		timelineText := timelineEntry(ev, in.CommitSHA)
-		_, _ = b.Client.PostThread(ctx, b.Channel, state.MainTS, timelineText, nil)
+	// Thread: first timeline entry initialises the thread; subsequent events append.
+	timelineText := timelineEntry(ev, in.CommitSHA)
+	tr, terr := b.Client.PostThread(ctx, b.Channel, res.TS, timelineText, nil)
+	if terr == nil && state.ThreadTS == "" {
+		state.ThreadTS = tr.TS
 	}
 
 	return b.saveState(ctx, in.PR, state)
@@ -196,19 +187,15 @@ func (b *SlackBackend) buildMainBlocks(in NotifyInput, ev event) []slack.Block {
 	authorIcon := b.icon("author", ":bust_in_silhouette:")
 	approverIcon := b.icon("approver", ":approved_stamp:")
 
-	// Header
-	a, c, d, r := totals(in.Stacks)
-	totalStr := fmt.Sprintf("+%d ~%d -%d ±%d across %d stack(s)", a, c, d, r, len(in.Stacks))
 	blocks := []slack.Block{
 		slack.Header(fmt.Sprintf("%s IAC Changes", engineIcon)),
-		slack.Section(fmt.Sprintf("%s *%s*", runnerIcon, totalStr)),
 		slack.Divider(),
 	}
 
 	// Status + Author row
 	blocks = append(blocks, slack.Fields(
-		slack.Field(fmt.Sprintf("%s *Status:*", statusEmoji(ev)), eventTitle(ev)),
-		slack.Field(fmt.Sprintf("%s *Author:*", authorIcon), in.PRAuthor),
+		slack.MrkdwnField(fmt.Sprintf("%s *Status:* %s", statusEmoji(ev), eventTitle(ev))),
+		slack.MrkdwnField(fmt.Sprintf("%s *Author:* %s", authorIcon, in.PRAuthor)),
 	))
 
 	blocks = append(blocks, slack.Divider())
@@ -291,35 +278,12 @@ func stackSummaryLines(stacks []summary.StackSummary) string {
 		if s.Counts.Total() == 0 && s.Status != summary.StatusError {
 			continue
 		}
-		fmt.Fprintf(&sb, "%s `%s` +%d ~%d -%d ±%d\n",
+		fmt.Fprintf(&sb, "%s `%s` — +%d ~%d -%d ±%d\n",
 			stackIcon(s.Status), s.Stack,
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
 	}
 	// Ellipsis hint if all stacks were no-ops (shouldn't normally trigger the block).
 	return strings.TrimRight(sb.String(), "\n")
-}
-
-// buildStackThreadBlocks builds the initial thread message listing stacks with changes.
-func (b *SlackBackend) buildStackThreadBlocks(stacks []summary.StackSummary) []slack.Block {
-	var changed []summary.StackSummary
-	for _, s := range stacks {
-		if s.Counts.Total() > 0 || s.Status == summary.StatusError {
-			changed = append(changed, s)
-		}
-	}
-	if len(changed) == 0 {
-		return nil
-	}
-	var sb strings.Builder
-	for _, s := range changed {
-		fmt.Fprintf(&sb, "%s `%s` +%d ~%d -%d ±%d\n",
-			stackIcon(s.Status), s.Stack,
-			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace)
-		if s.PlanSummary != "" {
-			fmt.Fprintf(&sb, "  _%s_\n", truncate(s.PlanSummary, 120))
-		}
-	}
-	return []slack.Block{slack.Section(strings.TrimRight(sb.String(), "\n"))}
 }
 
 func (b *SlackBackend) icon(kind, defaultEmoji string) string {
@@ -350,11 +314,11 @@ func (b *SlackBackend) icon(kind, defaultEmoji string) string {
 func eventTitle(ev event) string {
 	switch ev {
 	case eventPlanReady:
-		return "Plan Ready -Pending Approval"
+		return "Planned - Pending Approval"
 	case eventReady:
 		return "Ready for Apply"
 	case eventApproved:
-		return "Approved -Ready to Apply"
+		return "Approved - Ready to Apply"
 	case eventApplying:
 		return "Applying..."
 	case eventApplied:
@@ -434,17 +398,6 @@ func (b *SlackBackend) saveState(ctx context.Context, pr int, s *State) error {
 	return err
 }
 
-func totals(stacks []summary.StackSummary) (int, int, int, int) {
-	var a, c, d, r int
-	for _, s := range stacks {
-		a += s.Counts.Add
-		c += s.Counts.Change
-		d += s.Counts.Delete
-		r += s.Counts.Replace
-	}
-	return a, c, d, r
-}
-
 func anyErrors(stacks []summary.StackSummary) bool {
 	for _, s := range stacks {
 		if s.Status == summary.StatusError {
@@ -459,11 +412,4 @@ func shortSHA(s string) string {
 		return s[:7]
 	}
 	return s
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
