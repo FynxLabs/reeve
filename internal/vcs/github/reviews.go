@@ -115,9 +115,9 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64)
 	if sha == "" {
 		return false, nil, errors.New("sha required")
 	}
-	ignoreRunIDStr := ""
+	ignoreURLFragment := ""
 	if ignoreRunID > 0 {
-		ignoreRunIDStr = fmt.Sprintf("%d", ignoreRunID)
+		ignoreURLFragment = fmt.Sprintf("/runs/%d/", ignoreRunID)
 	}
 	// Check-runs (the modern shape).
 	var failing []string
@@ -128,7 +128,16 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64)
 			return false, nil, err
 		}
 		for _, r := range runs.CheckRuns {
-			if ignoreRunIDStr != "" && r.GetExternalID() == ignoreRunIDStr {
+			// Skip check runs that belong to the current workflow run.
+			if ignoreURLFragment != "" && strings.Contains(r.GetDetailsURL(), ignoreURLFragment) {
+				continue
+			}
+			if r.GetStatus() == "queued" || r.GetStatus() == "waiting" {
+				failing = append(failing, r.GetName()+":pending")
+				continue
+			}
+			if r.GetStatus() == "in_progress" {
+				failing = append(failing, r.GetName()+":in_progress")
 				continue
 			}
 			switch r.GetConclusion() {
@@ -145,7 +154,7 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64)
 		}
 		checkOpt.Page = resp.NextPage
 	}
-	// Combined statuses (legacy).
+	// Commit statuses (legacy, separate from check runs).
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
 	if err == nil && st.GetState() != "" && st.GetState() != "success" {
 		for _, s := range st.Statuses {

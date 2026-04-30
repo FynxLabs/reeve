@@ -56,7 +56,7 @@ type ApplyInput struct {
 	PRNumber      int
 	CommitSHA     string
 	RunNumber     int
-	CIRunID       int64 // GITHUB_RUN_ID - used to ignore the current check run in checks_green gate
+	CIRunID       int64
 	CIRunURL      string
 	RepoRoot      string
 	RepoFull      string // "owner/name" for audit log
@@ -130,13 +130,9 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		return nil, fmt.Errorf("get pr: %w", err)
 	}
 
-	checksGreen, failingChecks, err := in.VCS.ChecksGreen(ctx, in.CommitSHA, in.CIRunID)
+	checksGreen, _, err := in.VCS.ChecksGreen(ctx, in.CommitSHA, in.CIRunID)
 	if err != nil {
-		// Not fatal - record as failing and continue; gate evaluator will block.
 		checksGreen = false
-	}
-	if !checksGreen {
-		fmt.Printf("checks not green: %v\n", failingChecks)
 	}
 
 	behind, err := in.VCS.CompareBranches(ctx, pr.BaseRef, in.CommitSHA)

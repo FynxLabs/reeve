@@ -44,6 +44,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		token = os.Getenv("REEVE_GITHUB_TOKEN")
 	}
 	actor := flagStringOrEnv(cmd, "actor", "GITHUB_ACTOR")
+	ciRunID, _ := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
 	root := flagStringOrDefault(cmd, "root", "")
 	if root == "" {
 		root, _ = os.Getwd()
@@ -97,8 +98,6 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 	annotationEmitters := run.BuildAnnotationEmitters(cfg.Observability)
-
-	ciRunID, _ := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
 
 	out, err := run.Apply(ctx, run.ApplyInput{
 		PRNumber:      pr,

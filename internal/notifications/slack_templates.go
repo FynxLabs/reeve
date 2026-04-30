@@ -175,7 +175,7 @@ func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *
 	if ch == "" {
 		ch = b.Channel
 	}
-	timelineText := timelineEntry(ev, in.CommitSHA)
+	timelineText := timelineEntry(ev, in.CommitSHA, in.RunURL)
 	tr, terr := b.Client.PostThread(ctx, ch, res.TS, timelineText, nil)
 	if terr != nil {
 		fmt.Printf("slack thread post: %v\n", terr)
@@ -341,29 +341,33 @@ func mainFallbackText(repoFull string, pr int, ev event) string {
 	return fmt.Sprintf("%s %s - PR #%d", repoFull, ev, pr)
 }
 
-func timelineEntry(ev event, sha string) string {
+func timelineEntry(ev event, sha, runURL string) string {
 	ts := time.Now().UTC().Format("15:04 UTC")
 	commit := ""
 	if sha != "" {
 		commit = fmt.Sprintf(" · `%s`", shortSHA(sha))
 	}
+	run := ""
+	if runURL != "" {
+		run = fmt.Sprintf(" · <%s|View Run>", runURL)
+	}
 	switch ev {
 	case eventPlanReady:
-		return fmt.Sprintf(":clipboard: *Plan ready* · %s%s", ts, commit)
+		return fmt.Sprintf(":clipboard: *Plan ready* · %s%s%s", ts, commit, run)
 	case eventReady:
-		return fmt.Sprintf(":white_check_mark: *Marked ready* · %s%s", ts, commit)
+		return fmt.Sprintf(":white_check_mark: *Marked ready* · %s%s%s", ts, commit, run)
 	case eventApproved:
-		return fmt.Sprintf(":approved_stamp: *Approved* · %s%s", ts, commit)
+		return fmt.Sprintf(":approved_stamp: *Approved* · %s%s%s", ts, commit, run)
 	case eventApplying:
-		return fmt.Sprintf(":hourglass_flowing_sand: *Applying* · %s%s", ts, commit)
+		return fmt.Sprintf(":hourglass_flowing_sand: *Applying* · %s%s%s", ts, commit, run)
 	case eventApplied:
-		return fmt.Sprintf(":white_check_mark: *Applied* · %s%s", ts, commit)
+		return fmt.Sprintf(":white_check_mark: *Applied* · %s%s%s", ts, commit, run)
 	case eventFailed:
-		return fmt.Sprintf(":x: *Failed* · %s%s", ts, commit)
+		return fmt.Sprintf(":x: *Failed* · %s%s%s", ts, commit, run)
 	case eventBlocked:
-		return fmt.Sprintf(":lock: *Blocked* · %s%s", ts, commit)
+		return fmt.Sprintf(":lock: *Blocked* · %s%s%s", ts, commit, run)
 	}
-	return fmt.Sprintf("· %s%s", ts, commit)
+	return fmt.Sprintf("· %s%s%s", ts, commit, run)
 }
 
 func stackIcon(s summary.Status) string {
