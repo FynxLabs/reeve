@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	gh "github.com/google/go-github/v66/github"
@@ -107,20 +108,16 @@ func anyPrefixIn(file string, paths []string) bool {
 }
 
 // ChecksGreen reports whether required status checks are passing for a
-// commit. Phase 2 approximation: all non-reeve check-runs and statuses
-// on HEAD SHA must be SUCCESS. Users can refine via required-check list
-// in shared.yaml in later phases.
-func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreNames []string) (bool, []string, error) {
+// commit. ignoreRunID is the GitHub Actions run ID of the current workflow
+// run (GITHUB_RUN_ID) - check runs belonging to that run are skipped so
+// reeve does not block itself.
+func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64) (bool, []string, error) {
 	if sha == "" {
 		return false, nil, errors.New("sha required")
 	}
-	shouldIgnore := func(name string) bool {
-		for _, n := range ignoreNames {
-			if name == n || strings.HasPrefix(name, n+" ") || strings.HasPrefix(name, n+"/") {
-				return true
-			}
-		}
-		return false
+	ignoreRunIDStr := ""
+	if ignoreRunID > 0 {
+		ignoreRunIDStr = fmt.Sprintf("%d", ignoreRunID)
 	}
 	// Check-runs (the modern shape).
 	var failing []string
@@ -131,7 +128,7 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreNames []stri
 			return false, nil, err
 		}
 		for _, r := range runs.CheckRuns {
-			if shouldIgnore(r.GetName()) {
+			if ignoreRunIDStr != "" && r.GetExternalID() == ignoreRunIDStr {
 				continue
 			}
 			switch r.GetConclusion() {
@@ -152,9 +149,6 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreNames []stri
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
 	if err == nil && st.GetState() != "" && st.GetState() != "success" {
 		for _, s := range st.Statuses {
-			if shouldIgnore(s.GetContext()) {
-				continue
-			}
 			if s.GetState() != "success" {
 				failing = append(failing, s.GetContext()+":"+s.GetState())
 			}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -97,10 +98,13 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	}()
 	annotationEmitters := run.BuildAnnotationEmitters(cfg.Observability)
 
+	ciRunID, _ := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
+
 	out, err := run.Apply(ctx, run.ApplyInput{
 		PRNumber:      pr,
 		CommitSHA:     sha,
 		RunNumber:     runNum,
+		CIRunID:       ciRunID,
 		CIRunURL:      runURL,
 		RepoRoot:      root,
 		RepoFull:      repoFull,

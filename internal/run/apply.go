@@ -41,7 +41,7 @@ type applyVCS interface {
 	Capabilities() vcs.CommentCapabilities
 	GetPR(ctx context.Context, number int) (*vcs.PR, error)
 	// checks / up-to-date
-	ChecksGreen(ctx context.Context, sha string, ignoreNames []string) (bool, []string, error)
+	ChecksGreen(ctx context.Context, sha string, ignoreRunID int64) (bool, []string, error)
 	CompareBranches(ctx context.Context, base, head string) (int, error)
 	// approvals
 	approvals.Source
@@ -56,6 +56,7 @@ type ApplyInput struct {
 	PRNumber      int
 	CommitSHA     string
 	RunNumber     int
+	CIRunID       int64 // GITHUB_RUN_ID - used to ignore the current check run in checks_green gate
 	CIRunURL      string
 	RepoRoot      string
 	RepoFull      string // "owner/name" for audit log
@@ -129,12 +130,14 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		return nil, fmt.Errorf("get pr: %w", err)
 	}
 
-	checksGreen, failingChecks, err := in.VCS.ChecksGreen(ctx, in.CommitSHA, []string{"reeve"})
+	checksGreen, failingChecks, err := in.VCS.ChecksGreen(ctx, in.CommitSHA, in.CIRunID)
 	if err != nil {
 		// Not fatal - record as failing and continue; gate evaluator will block.
 		checksGreen = false
 	}
-	_ = failingChecks
+	if !checksGreen {
+		fmt.Printf("checks not green: %v\n", failingChecks)
+	}
 
 	behind, err := in.VCS.CompareBranches(ctx, pr.BaseRef, in.CommitSHA)
 	if err != nil {

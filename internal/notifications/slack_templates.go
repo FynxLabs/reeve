@@ -177,7 +177,9 @@ func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *
 	}
 	timelineText := timelineEntry(ev, in.CommitSHA)
 	tr, terr := b.Client.PostThread(ctx, ch, res.TS, timelineText, nil)
-	if terr == nil && state.ThreadTS == "" {
+	if terr != nil {
+		fmt.Printf("slack thread post: %v\n", terr)
+	} else if state.ThreadTS == "" {
 		state.ThreadTS = tr.TS
 	}
 
