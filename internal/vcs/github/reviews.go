@@ -128,16 +128,15 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64)
 			return false, nil, err
 		}
 		for _, r := range runs.CheckRuns {
-			// Skip check runs that belong to the current workflow run.
+			fmt.Printf("check_run name=%q status=%q conclusion=%q url=%q\n", r.GetName(), r.GetStatus(), r.GetConclusion(), r.GetDetailsURL())
+			// Skip the current workflow run - it cannot be green while running.
 			if ignoreURLFragment != "" && strings.Contains(r.GetDetailsURL(), ignoreURLFragment) {
+				fmt.Printf("check_run skipped (current run)\n")
 				continue
 			}
-			if r.GetStatus() == "queued" || r.GetStatus() == "waiting" {
-				failing = append(failing, r.GetName()+":pending")
-				continue
-			}
-			if r.GetStatus() == "in_progress" {
-				failing = append(failing, r.GetName()+":in_progress")
+			// Skip all in-progress/queued/waiting checks - they haven't finished yet.
+			if r.GetStatus() == "in_progress" || r.GetStatus() == "queued" || r.GetStatus() == "waiting" {
+				fmt.Printf("check_run skipped (in_progress/queued/waiting)\n")
 				continue
 			}
 			switch r.GetConclusion() {
@@ -155,14 +154,17 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64)
 		checkOpt.Page = resp.NextPage
 	}
 	// Commit statuses (legacy, separate from check runs).
+	// Only check failure/error - "pending" reflects in-progress check runs which we already skip above.
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
-	if err == nil && st.GetState() != "" && st.GetState() != "success" {
+	fmt.Printf("combined_status state=%q statuses=%d\n", st.GetState(), len(st.Statuses))
+	if err == nil && (st.GetState() == "failure" || st.GetState() == "error") {
 		for _, s := range st.Statuses {
-			if s.GetState() != "success" {
+			if s.GetState() != "success" && s.GetState() != "pending" {
 				failing = append(failing, s.GetContext()+":"+s.GetState())
 			}
 		}
 	}
+	fmt.Printf("checks_green=%v failing=%v\n", len(failing) == 0, failing)
 	return len(failing) == 0, failing, nil
 }
 
