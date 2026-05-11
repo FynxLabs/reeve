@@ -107,10 +107,14 @@ description = "Tidy go.mod / go.sum"
 
 [tasks.update]
 run = """
+mise upgrade go
+go get go@latest
+go get toolchain@latest
 go get -u ./...
 go mod tidy
+govulncheck ./...
 """
-description = "Bump all direct + indirect deps to latest and tidy"
+description = "Bump Go toolchain + all deps to latest, tidy, and re-scan for vulns"
 
 [tasks.clean]
 run = "rm -rf bin/ dist/"
