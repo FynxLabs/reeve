@@ -105,6 +105,13 @@ description = "Validate the goreleaser config"
 run = "go mod tidy"
 description = "Tidy go.mod / go.sum"
 
+[tasks.update]
+run = """
+go get -u ./...
+go mod tidy
+"""
+description = "Bump all direct + indirect deps to latest and tidy"
+
 [tasks.clean]
 run = "rm -rf bin/ dist/"
 description = "Remove build artifacts"
