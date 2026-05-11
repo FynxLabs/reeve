@@ -109,3 +109,4 @@ fabric.properties
 .local/
 
 dist/
+bin/

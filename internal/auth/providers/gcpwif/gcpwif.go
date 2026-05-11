@@ -67,8 +67,11 @@ func (p *Provider) Acquire(ctx context.Context) (*auth.Credential, error) {
 		return nil, fmt.Errorf("generate sa token: %w", err)
 	}
 
-	// Write ambient credentials file so SDKs + pulumi can find it.
-	credPath, err := writeAmbientCreds(p.name, saToken)
+	// Write ambient credentials file so SDKs + pulumi can find it. The
+	// returned dir is captured by Cleanup so the file does not outlive the
+	// run - long-lived self-hosted runners would otherwise accumulate
+	// valid-token credentials in /tmp until reboot.
+	credPath, credDir, err := writeAmbientCreds(p.name, saToken)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +85,9 @@ func (p *Provider) Acquire(ctx context.Context) (*auth.Credential, error) {
 		Kind:      "gcp-sa",
 		Source:    p.name,
 		ExpiresAt: expiresAt,
+		Cleanup: func() error {
+			return os.RemoveAll(credDir)
+		},
 	}, nil
 }
 
@@ -145,22 +151,29 @@ func generateSAAccessToken(ctx context.Context, stsToken, sa string, ttl time.Du
 	return out.AccessToken, exp, nil
 }
 
-func writeAmbientCreds(name, accessToken string) (string, error) {
+// writeAmbientCreds materialises an external-account impersonation file the
+// Google SDK can read via $GOOGLE_APPLICATION_CREDENTIALS, and returns both
+// the file path (for the env var) and the temp directory (for Cleanup).
+func writeAmbientCreds(name, accessToken string) (string, string, error) {
 	dir, err := os.MkdirTemp("", "reeve-gcp-creds-")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	// External-account impersonation file consumed by the Google SDK.
 	creds := map[string]any{
 		"type":         "external_account_authorized_user",
 		"access_token": accessToken,
 	}
-	data, _ := json.MarshalIndent(creds, "", "  ")
+	data, err := json.MarshalIndent(creds, "", "  ")
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", "", fmt.Errorf("marshal credentials: %w", err)
+	}
 	path := filepath.Join(dir, "reeve-"+name+".json")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", err
+		_ = os.RemoveAll(dir)
+		return "", "", err
 	}
-	return path, nil
+	return path, dir, nil
 }
 
 func fetchGitHubOIDC(ctx context.Context, audience string) (string, error) {

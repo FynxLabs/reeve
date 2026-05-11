@@ -8,9 +8,9 @@ package secrets
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -128,33 +128,24 @@ func applyEnvMap(m map[string]string, value string) map[string]string {
 	return out
 }
 
+// extractJSONField pulls a string field out of a top-level JSON object. A
+// previous implementation hand-rolled the scan and mishandled escaped
+// quotes / unicode / nested values; using encoding/json is both safer and
+// shorter.
 func extractJSONField(raw, field string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if !strings.HasPrefix(raw, "{") {
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
 		return "", false
 	}
-	// Best-effort substring match for "field": "value" - JSON parsing
-	// would pull in another dep; a targeted scan is fine.
-	needle := `"` + field + `"`
-	idx := strings.Index(raw, needle)
-	if idx < 0 {
+	v, ok := obj[field]
+	if !ok {
 		return "", false
 	}
-	rest := raw[idx+len(needle):]
-	colon := strings.Index(rest, ":")
-	if colon < 0 {
+	s, ok := v.(string)
+	if !ok {
 		return "", false
 	}
-	rest = strings.TrimSpace(rest[colon+1:])
-	if !strings.HasPrefix(rest, `"`) {
-		return "", false
-	}
-	rest = rest[1:]
-	end := strings.Index(rest, `"`)
-	if end < 0 {
-		return "", false
-	}
-	return rest[:end], true
+	return s, true
 }
 
 // compile-time checks

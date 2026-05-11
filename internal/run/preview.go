@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -147,7 +148,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		autoReady := in.Shared != nil && in.Shared.Apply.AutoReady
 		helpBody := render.BuildHelpComment(autoReady)
 		if err := in.Comments.UpsertComment(ctx, in.PRNumber, helpBody, render.HelpMarker); err != nil {
-			fmt.Printf("upsert help comment: %v\n", err)
+			// Help comment is informational; failure must not block the run.
+			slog.Warn("upsert help comment failed", "err", err, "pr", in.PRNumber)
 		}
 	}
 
@@ -158,6 +160,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 			if pr, err := meta.GetPR(ctx, in.PRNumber); err == nil {
 				prAuthor = pr.Author
 				prTitle = pr.Title
+			} else {
+				slog.Warn("fetch pr metadata for slack failed", "err", err, "pr", in.PRNumber)
 			}
 		}
 	}
@@ -170,7 +174,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
 		if err := NotifySlackPlanReady(ctx, slackBackend, in.Notifications,
 			in.PRNumber, in.CommitSHA, in.CIRunURL, prTitle, prAuthor, nil, summaries); err != nil {
-			fmt.Printf("slack notify: %v\n", err)
+			slog.Warn("slack notify plan-ready failed", "err", err, "pr", in.PRNumber)
 		}
 	}
 
@@ -185,13 +189,14 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 func runPreviewOne(ctx context.Context, in PreviewInput, s discovery.Stack) summary.StackSummary {
 	redactor := BuildRedactor(in.Shared)
 
-	authEnv, authErr := ResolveAuthEnv(ctx, in.AuthConfig, in.AuthRegistry, s.Ref(), auth.ModePreview)
+	authEnv, authCleanup, authErr := ResolveAuthEnv(ctx, in.AuthConfig, in.AuthRegistry, s.Ref(), auth.ModePreview)
 	if authErr != nil {
 		return summary.StackSummary{
 			Project: s.Project, Stack: s.Name, Env: s.Env,
 			Status: summary.StatusError, Error: redactor.Redact(authErr.Error()),
 		}
 	}
+	defer authCleanup()
 	// Register every credential literal with the redactor - if any leaks
 	// into stdout, it gets scrubbed.
 	for _, v := range authEnv {

@@ -3,17 +3,28 @@ package run
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/thefynx/reeve/internal/auth"
 	"github.com/thefynx/reeve/internal/config/schemas"
 )
 
-// ResolveAuthEnv returns the merged env var map for a single stack +
-// mode. If cfg is nil or has no bindings, returns empty env (relies on
-// ambient creds / $GITHUB_TOKEN / etc).
-func ResolveAuthEnv(ctx context.Context, cfg *schemas.Auth, registry *auth.Registry, stackRef string, mode auth.Mode) (map[string]string, error) {
+// CleanupFunc runs all on-disk cleanups registered by credential providers.
+// It is safe to call on a nil receiver and safe to call more than once.
+type CleanupFunc func()
+
+// ResolveAuthEnv returns the merged env var map for a single stack + mode
+// plus a cleanup func the caller defers. If cfg is nil or has no bindings,
+// returns empty env (the engine relies on ambient creds / $GITHUB_TOKEN).
+//
+// The cleanup func runs every Credential.Cleanup the providers attached
+// (e.g. removing the GCP WIF on-disk credential file). Cleanup errors are
+// logged but never propagated - they happen at end-of-run so the work has
+// already shipped.
+func ResolveAuthEnv(ctx context.Context, cfg *schemas.Auth, registry *auth.Registry, stackRef string, mode auth.Mode) (map[string]string, CleanupFunc, error) {
+	noop := func() {}
 	if cfg == nil || registry == nil {
-		return nil, nil
+		return nil, noop, nil
 	}
 	bindings := make([]auth.Binding, 0, len(cfg.Bindings))
 	for _, b := range cfg.Bindings {
@@ -26,11 +37,22 @@ func ResolveAuthEnv(ctx context.Context, cfg *schemas.Auth, registry *auth.Regis
 	}
 	names := auth.Resolve(bindings, stackRef, mode)
 	if len(names) == 0 {
-		return nil, nil
+		return nil, noop, nil
 	}
-	env, _, err := registry.AcquireAll(ctx, names)
+	env, creds, err := registry.AcquireAll(ctx, names)
 	if err != nil {
-		return nil, fmt.Errorf("acquire creds for %s (%s): %w", stackRef, mode, err)
+		return nil, noop, fmt.Errorf("acquire creds for %s (%s): %w", stackRef, mode, err)
 	}
-	return env, nil
+	cleanup := func() {
+		for _, c := range creds {
+			if c == nil || c.Cleanup == nil {
+				continue
+			}
+			if cerr := c.Cleanup(); cerr != nil {
+				slog.Warn("credential cleanup failed",
+					"provider", c.Source, "kind", c.Kind, "err", cerr)
+			}
+		}
+	}
+	return env, cleanup, nil
 }

@@ -200,13 +200,17 @@ func promoteNext(l Lock, now time.Time, ttl time.Duration) Lock {
 	return l
 }
 
+// expired reports whether a lock holder's lease has elapsed. A nil holder or
+// missing ExpiresAt is treated as not-expired (the caller hasn't promoted to
+// owner yet). An unparseable ExpiresAt is treated as expired so a corrupted
+// lock blob is evictable by the reaper instead of being immortal.
 func expired(h *Holder, now time.Time) bool {
 	if h == nil || h.ExpiresAt == "" {
 		return false
 	}
 	exp, err := time.Parse(time.RFC3339, h.ExpiresAt)
 	if err != nil {
-		return false
+		return true
 	}
 	return now.After(exp)
 }

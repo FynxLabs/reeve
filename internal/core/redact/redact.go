@@ -6,8 +6,16 @@ package redact
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
+
+// MinSecretLength is the shortest literal string AddSecret will accept.
+// Strings shorter than this are rejected because the false-positive rate
+// becomes destructive (a 3-char secret would over-redact across normal
+// output). Callers that genuinely need to redact a short token should
+// register a regex via AddRule with anchoring context instead.
+const MinSecretLength = 8
 
 // Redactor wraps a set of rules. Immutable once constructed.
 type Redactor struct {
@@ -58,32 +66,51 @@ func NewFromRules(rules []*regexp.Regexp) *Redactor {
 	return &Redactor{rules: rules, replacement: "[redacted]", secrets: map[string]struct{}{}}
 }
 
-// AddSecret registers a literal string to redact. Empty strings are
-// ignored. Callers should register credential values after acquiring
-// them so stdout leaks don't expose them.
+// AddSecret registers a literal string to redact. Strings below
+// MinSecretLength are silently ignored - their false-positive rate would
+// destroy normal output. Callers should register credential values after
+// acquiring them so stdout leaks don't expose them.
 func (r *Redactor) AddSecret(s string) {
-	if len(s) < 4 {
-		return // too short to safely redact - false positives would eat everything
+	if len(s) < MinSecretLength {
+		return
 	}
 	r.secrets[s] = struct{}{}
 }
 
-// Redact returns s with all rules + known secrets replaced.
+// Redact returns s with all rules + known secrets replaced. The replacement
+// is deterministic: literal secrets are applied longest-first so a secret
+// that is a suffix or prefix of another doesn't leave a partial leak. Regex
+// rules are applied in the order they were compiled.
 func (r *Redactor) Redact(s string) string {
 	if r == nil {
 		return s
 	}
 	out := s
-	// Literal-secret replacement first.
-	for sec := range r.secrets {
+	for _, sec := range r.sortedSecrets() {
 		out = strings.ReplaceAll(out, sec, r.replacement)
 	}
-	// Regex rules second.
 	for _, re := range r.rules {
 		out = re.ReplaceAllString(out, r.replacement)
 	}
 	// Pulumi [secret] markers - handled idempotently.
 	out = pulumiSecretMarker.ReplaceAllString(out, r.replacement)
+	return out
+}
+
+// sortedSecrets returns the registered secrets in longest-first order. Map
+// iteration is otherwise unordered, which made redaction non-deterministic
+// (and unsafe when one secret was a substring of another).
+func (r *Redactor) sortedSecrets() []string {
+	out := make([]string, 0, len(r.secrets))
+	for sec := range r.secrets {
+		out = append(out, sec)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) != len(out[j]) {
+			return len(out[i]) > len(out[j])
+		}
+		return out[i] < out[j] // stable order for equal-length values
+	})
 	return out
 }
 

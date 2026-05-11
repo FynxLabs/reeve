@@ -42,11 +42,17 @@ type PR struct {
 // Rules is the merged approvals.yaml-ish surface for a single stack.
 type Rules struct {
 	RequiredApprovals  int
-	Approvers          []string // team slugs or user handles (no leading @)
+	Approvers          []string // team slugs ("org/team") or user handles (no leading @)
 	Codeowners         bool
 	RequireAllGroups   bool // approvers list treated as groups
 	DismissOnNewCommit bool
 	Freshness          time.Duration // 0 = no freshness requirement
+	// TeamMembers is the optional pre-resolved team-slug → member-logins
+	// map. Populated by the caller before Evaluate so a rule like
+	// `approvers: [my-org/sre]` matches when an SRE team member approves.
+	// nil or missing entries fall back to literal slug matching (legacy
+	// behavior; safe but never matches a real approval).
+	TeamMembers map[string][]string
 }
 
 // Config is the raw config_type=shared approvals block. Populated by
@@ -125,13 +131,15 @@ type Resolution struct {
 }
 
 // Evaluate checks the rules against the list of approvals + optional
-// CODEOWNERS resolution (path → owner slugs).
+// CODEOWNERS resolution (path → owner slugs). The input approvals slice is
+// not mutated - filtering writes into a fresh slice.
 func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]string, author string) Resolution {
 	res := Resolution{Rules: rules}
 
-	// Filter dismissed approvals: if DismissOnNewCommit and the approval
-	// was for a different SHA than pr.HeadSHA, drop it.
-	effective := approvals[:0]
+	// Filter dismissed approvals into a fresh slice. The previous
+	// implementation aliased `approvals[:0]` and patched it back, which
+	// silently corrupted the caller's slice header.
+	effective := make([]Approval, 0, len(approvals))
 	for _, a := range approvals {
 		if rules.DismissOnNewCommit && a.CommitSHA != "" && a.CommitSHA != pr.HeadSHA {
 			res.Trace = append(res.Trace, fmt.Sprintf("dismissed %s (approval on %s, HEAD is %s)", a.Approver, short(a.CommitSHA), short(pr.HeadSHA)))
@@ -141,20 +149,14 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 			res.Trace = append(res.Trace, fmt.Sprintf("ignored %s (self-approval)", a.Approver))
 			continue
 		}
-		if rules.Freshness > 0 && !a.SubmittedAt.IsZero() {
-			// Freshness check deferred - caller passes only fresh approvals in
-			// practice. Keep the trace for visibility.
-			_ = a.SubmittedAt
-		}
 		effective = append(effective, a)
 	}
-	approvals = append(approvals[:0:0], effective...)
 
-	approvers := names(approvals)
+	approvers := names(effective)
 
 	// Count simple required_approvals (any approver in the allow list).
 	if rules.RequiredApprovals > 0 {
-		hits := intersect(approvers, rules.Approvers)
+		hits := intersect(approvers, rules.Approvers, rules.TeamMembers)
 		res.Trace = append(res.Trace, fmt.Sprintf("required_approvals=%d, matched=%d (%s)",
 			rules.RequiredApprovals, len(hits), strings.Join(hits, ",")))
 		res.Got += len(hits)
@@ -171,7 +173,7 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 	if rules.RequireAllGroups && len(rules.Approvers) > 0 {
 		groupsSatisfied := 0
 		for _, g := range rules.Approvers {
-			if matchesOne(approvers, g) {
+			if matchesOne(approvers, g, rules.TeamMembers) {
 				groupsSatisfied++
 				res.Trace = append(res.Trace, fmt.Sprintf("group %s: satisfied", g))
 			} else {
@@ -188,7 +190,7 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 		for path, owners := range codeowners {
 			found := false
 			for _, o := range owners {
-				if matchesOne(approvers, o) {
+				if matchesOne(approvers, o, rules.TeamMembers) {
 					found = true
 					break
 				}
@@ -232,7 +234,7 @@ func names(aa []Approval) []string {
 	return out
 }
 
-func intersect(approvers, required []string) []string {
+func intersect(approvers, required []string, teams map[string][]string) []string {
 	set := map[string]struct{}{}
 	for _, a := range approvers {
 		set[strings.TrimPrefix(a, "@")] = struct{}{}
@@ -240,28 +242,50 @@ func intersect(approvers, required []string) []string {
 	var hits []string
 	for _, r := range required {
 		r = strings.TrimPrefix(r, "@")
-		// Teams (with "/") can't be matched to individual logins without
-		// the VCS adapter's team-member expansion. Phase 2: rely on caller
-		// to pre-expand teams by passing approvers containing either the
-		// user login OR the team slug string matching.
 		if _, ok := set[r]; ok {
 			hits = append(hits, r)
+			continue
+		}
+		// Team slug ("org/team"): expand via the pre-resolved map and check
+		// whether any expanded member is in the approver set.
+		if isTeamSlug(r) {
+			for _, member := range teams[r] {
+				if _, ok := set[strings.TrimPrefix(member, "@")]; ok {
+					hits = append(hits, r)
+					break
+				}
+			}
 		}
 	}
 	return hits
 }
 
-// matchesOne returns true if any approver string matches g (team slug or
-// user login). Phase 2: simple equality after @ trim. Phase 4: VCS team
-// expansion.
-func matchesOne(approvers []string, g string) bool {
+// matchesOne returns true if any approver matches g, where g may be a user
+// login or a team slug ("org/team"). Team slugs are resolved via the
+// pre-populated teams map; an unknown slug falls back to literal match.
+func matchesOne(approvers []string, g string, teams map[string][]string) bool {
 	g = strings.TrimPrefix(g, "@")
+	set := map[string]struct{}{}
 	for _, a := range approvers {
-		if strings.TrimPrefix(a, "@") == g {
-			return true
+		set[strings.TrimPrefix(a, "@")] = struct{}{}
+	}
+	if _, ok := set[g]; ok {
+		return true
+	}
+	if isTeamSlug(g) {
+		for _, member := range teams[g] {
+			if _, ok := set[strings.TrimPrefix(member, "@")]; ok {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// isTeamSlug reports whether s looks like a team handle ("org/team") rather
+// than an individual login.
+func isTeamSlug(s string) bool {
+	return strings.Contains(s, "/")
 }
 
 func unionStrings(a, b []string) []string {

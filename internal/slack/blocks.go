@@ -1,6 +1,9 @@
 package slack
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+)
 
 // Header returns a header block.
 func Header(text string) Block {
@@ -86,10 +89,17 @@ func LinkButton(text, url string) Block {
 	})
 }
 
+// must marshals a literal-data block descriptor into raw JSON. The helpers
+// in this file build their inputs from string/int/slice/map literals only, so
+// json.Marshal cannot fail in practice - but a panic mid-apply over a Slack
+// templating glitch would be the wrong tradeoff. On the unreachable error
+// path we log loudly and return an empty Block; Slack tolerates an empty
+// element and the surrounding message still ships.
 func must(v any) Block {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic(err)
+		slog.Error("slack block marshal failed - emitting empty block", "err", err)
+		return Block("{}")
 	}
 	return b
 }

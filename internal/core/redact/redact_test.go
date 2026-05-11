@@ -32,10 +32,39 @@ func TestRedactPulumiMarker(t *testing.T) {
 
 func TestShortSecretsNotAdded(t *testing.T) {
 	r := New()
-	r.AddSecret("abc") // too short
-	got := r.Redact("abc abc abc")
-	if got != "abc abc abc" {
-		t.Fatalf("short secret should not be redacted: %q", got)
+	r.AddSecret("abc")     // too short (3)
+	r.AddSecret("1234567") // still too short (7, below MinSecretLength)
+	got := r.Redact("abc abc abc 1234567")
+	if got != "abc abc abc 1234567" {
+		t.Fatalf("short secrets should not be redacted: %q", got)
+	}
+}
+
+func TestSecretReplacementIsLongestFirst(t *testing.T) {
+	// "tokenABCDEFGH" contains "tokenABCD" as a prefix. If replacement
+	// order were random (map iteration), the shorter secret could fire
+	// first and leave "EFGH" unredacted. Longest-first guarantees the
+	// outer secret wins.
+	r := New()
+	r.AddSecret("tokenABCD")
+	r.AddSecret("tokenABCDEFGH")
+	got := r.Redact("found tokenABCDEFGH in logs")
+	if contains(got, "tokenABCD") || contains(got, "EFGH") {
+		t.Fatalf("longest-first replacement leaked: %q", got)
+	}
+}
+
+func TestSecretReplacementIsDeterministic(t *testing.T) {
+	// Two registered secrets, run Redact many times, all outputs must
+	// match. Map iteration alone would fail this test.
+	r := New()
+	r.AddSecret("alphabetagamma")
+	r.AddSecret("deltaepsilonzeta")
+	want := r.Redact("alphabetagamma deltaepsilonzeta")
+	for i := 0; i < 100; i++ {
+		if got := r.Redact("alphabetagamma deltaepsilonzeta"); got != want {
+			t.Fatalf("non-deterministic redaction: %q vs %q", got, want)
+		}
 	}
 }
 

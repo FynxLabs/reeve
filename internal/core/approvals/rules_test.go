@@ -107,6 +107,47 @@ func TestEvaluateSelfApprovalIgnored(t *testing.T) {
 	}
 }
 
+func TestEvaluateTeamSlugExpansion(t *testing.T) {
+	// Without TeamMembers populated, a rule like `approvers: [org/sre]` only
+	// matched if the literal string "org/sre" appeared as an approver -
+	// i.e. never. With the expansion map, an actual SRE member's approval
+	// satisfies the rule.
+	rules := Rules{
+		RequiredApprovals: 1,
+		Approvers:         []string{"org/sre"},
+		TeamMembers:       map[string][]string{"org/sre": {"alice", "bob"}},
+	}
+	pr := PR{Number: 7, HeadSHA: "sha1", Author: "dave"}
+	res := Evaluate(rules, []Approval{{Approver: "alice"}}, pr, nil, "dave")
+	if !res.Satisfied {
+		t.Fatalf("team expansion should let alice satisfy org/sre: %+v", res)
+	}
+	// And without expansion, the rule must NOT silently pass on a
+	// non-member's approval.
+	res = Evaluate(rules, []Approval{{Approver: "carol"}}, pr, nil, "dave")
+	if res.Satisfied {
+		t.Fatalf("non-member must not satisfy team rule: %+v", res)
+	}
+}
+
+func TestEvaluateInputApprovalsNotMutated(t *testing.T) {
+	// The previous Evaluate aliased the input slice via approvals[:0] and
+	// patched it back, silently corrupting the caller's slice header.
+	rules := Rules{RequiredApprovals: 1, Approvers: []string{"alice"}, DismissOnNewCommit: true}
+	pr := PR{Number: 7, HeadSHA: "sha-new"}
+	in := []Approval{
+		{Approver: "alice", CommitSHA: "sha-old"}, // dismissed
+		{Approver: "bob", CommitSHA: "sha-new"},
+	}
+	snapshot := append([]Approval(nil), in...)
+	_ = Evaluate(rules, in, pr, nil, "dave")
+	for i := range in {
+		if in[i] != snapshot[i] {
+			t.Fatalf("Evaluate mutated caller's approvals slice at %d: got %+v, want %+v", i, in[i], snapshot[i])
+		}
+	}
+}
+
 func TestEvaluateNoGatesConfiguredPasses(t *testing.T) {
 	// No rules configured → open PR repo, no gate requirements → pass.
 	res := Evaluate(Rules{}, nil, PR{HeadSHA: "x"}, nil, "dave")

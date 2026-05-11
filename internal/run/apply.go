@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -41,38 +42,43 @@ type applyVCS interface {
 	Capabilities() vcs.CommentCapabilities
 	GetPR(ctx context.Context, number int) (*vcs.PR, error)
 	// checks / up-to-date
-	ChecksGreen(ctx context.Context, sha string, ignoreRunID int64) (bool, []string, error)
+	ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGreenOpts) (bool, []string, error)
 	CompareBranches(ctx context.Context, base, head string) (int, error)
 	// approvals
 	approvals.Source
 	// CODEOWNERS
 	FetchCodeowners(ctx context.Context) (string, error)
-	// team expansion (optional; may be called for team slugs in rules)
+	// team expansion (called by core/approvals to resolve org/team rules)
 	ListTeamMembers(ctx context.Context, slug string) ([]string, error)
 }
 
 // ApplyInput wires dependencies and run context.
 type ApplyInput struct {
-	PRNumber      int
-	CommitSHA     string
-	RunNumber     int
-	CIRunID       int64
-	CIRunURL      string
-	RepoRoot      string
-	RepoFull      string // "owner/name" for audit log
-	Actor         string
-	Engine        applyEngine
-	Config        *schemas.Engine
-	Shared        *schemas.Shared
-	AuthConfig    *schemas.Auth
-	AuthRegistry  *auth.Registry
-	Notifications *schemas.Notifications
-	Blob          blob.Store
-	Locks         *blocks.Store
-	VCS           applyVCS
-	AuditWriter   *audit.Writer
-	OTEL          *reeveotel.Provider
-	Annotations   []annotations.Emitter
+	PRNumber  int
+	CommitSHA string // best-effort; overridden from PR HEAD post-GetPR
+	RunNumber int
+	CIRunID   int64
+	CIRunURL  string
+	// SelfCheckNames is the list of check_run names that belong to reeve
+	// itself and must be skipped when computing ChecksGreen (otherwise a
+	// previously failed apply pins the gate red on the same SHA forever).
+	// Typically populated from $GITHUB_WORKFLOW + $GITHUB_JOB.
+	SelfCheckNames []string
+	RepoRoot       string
+	RepoFull       string // "owner/name" for audit log
+	Actor          string
+	Engine         applyEngine
+	Config         *schemas.Engine
+	Shared         *schemas.Shared
+	AuthConfig     *schemas.Auth
+	AuthRegistry   *auth.Registry
+	Notifications  *schemas.Notifications
+	Blob           blob.Store
+	Locks          *blocks.Store
+	VCS            applyVCS
+	AuditWriter    *audit.Writer
+	OTEL           *reeveotel.Provider
+	Annotations    []annotations.Emitter
 }
 
 // ApplyOutput bundles the artifacts from an apply run.
@@ -130,21 +136,56 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		return nil, fmt.Errorf("get pr: %w", err)
 	}
 
-	checksGreen, _, err := in.VCS.ChecksGreen(ctx, in.CommitSHA, in.CIRunID)
+	// PR HEAD is the source of truth for the SHA. The env-derived
+	// in.CommitSHA may be wrong (on `issue_comment` events $GITHUB_SHA is
+	// the default-branch HEAD, not the PR's HEAD). Override and log when
+	// they disagree so operators can spot misconfigured workflows.
+	if pr.HeadSHA != "" && in.CommitSHA != pr.HeadSHA {
+		slog.Info("commit sha overridden from PR head",
+			"env_sha", in.CommitSHA, "pr_head_sha", pr.HeadSHA, "pr", in.PRNumber)
+		in.CommitSHA = pr.HeadSHA
+	}
+
+	checksOpts := vcs.ChecksGreenOpts{
+		IgnoreRunID: in.CIRunID,
+		IgnoreNames: in.SelfCheckNames,
+	}
+	checksGreen, failingChecks, err := in.VCS.ChecksGreen(ctx, in.CommitSHA, checksOpts)
 	if err != nil {
-		checksGreen = false
+		// Fail-closed: an API outage must not silently pass the gate. The
+		// gate-evaluation error is propagated so the caller can distinguish
+		// "checks failed" from "checks could not be evaluated".
+		return nil, fmt.Errorf("evaluate checks_green: %w", err)
+	}
+	if !checksGreen {
+		slog.Info("required checks not green", "failing", failingChecks, "sha", in.CommitSHA)
 	}
 
 	behind, err := in.VCS.CompareBranches(ctx, pr.BaseRef, in.CommitSHA)
 	if err != nil {
-		behind = 0
+		// Fail-closed: previously this defaulted to behind=0 which made the
+		// up-to-date gate silently pass on VCS outage.
+		return nil, fmt.Errorf("compare branches %s..%s: %w", pr.BaseRef, in.CommitSHA, err)
 	}
 	upToDate := behind == 0
 
-	rawApprovals, _ := in.VCS.ListApprovals(ctx, approvals.PR{Number: in.PRNumber, HeadSHA: in.CommitSHA, Author: pr.Author, Changed: changed})
+	rawApprovals, err := in.VCS.ListApprovals(ctx, approvals.PR{
+		Number: in.PRNumber, HeadSHA: in.CommitSHA, Author: pr.Author, Changed: changed,
+	})
+	if err != nil {
+		// Fail-closed: previously the error was swallowed and rawApprovals
+		// was nil, which made the approvals gate fail with "no approvals"
+		// instead of surfacing the underlying VCS error.
+		return nil, fmt.Errorf("list approvals: %w", err)
+	}
 
-	// CODEOWNERS (optional).
-	coContent, _ := in.VCS.FetchCodeowners(ctx)
+	// CODEOWNERS (optional). A 404 returns "" with nil error; only a real
+	// transport error reaches here, and that must not silently pass the
+	// codeowners gate.
+	coContent, err := in.VCS.FetchCodeowners(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch codeowners: %w", err)
+	}
 	var coResolved map[string][]string
 	if coContent != "" {
 		rules := codeowners.Parse(strings.NewReader(coContent))
@@ -156,6 +197,23 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	preCfg := toPreconditionsConfig(in.Shared)
 	appCfg := toApprovalsConfig(in.Shared)
 	ttl := lockTTL(in.Shared)
+
+	// Pre-resolve team-slug membership once for every stack we're about to
+	// process. Without this, a rule like `approvers: [my-org/sre]` would
+	// only match if the literal string "my-org/sre" appeared in the
+	// approvals - i.e. never. Expansion is per-org, so resolving once
+	// outside the loop is correct and avoids hammering the VCS API.
+	stackRules := make([]approvals.Rules, 0, len(target))
+	for _, s := range target {
+		stackRules = append(stackRules, approvals.Resolve(appCfg, s.Ref()))
+	}
+	teamMembers, err := approvals.ExpandTeams(ctx, in.VCS, stackRules...)
+	if err != nil {
+		// Partial expansion is fine - log slugs that failed but proceed.
+		// The unresolved slugs fall back to literal-match (which never
+		// fires), so the gate fails closed for them.
+		slog.Warn("team expansion partial", "err", err)
+	}
 
 	now := time.Now()
 
@@ -170,11 +228,11 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		}
 		if err := NotifySlackApproved(ctx, slackBackend, in.Notifications,
 			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, preSummaries); err != nil {
-			fmt.Printf("slack notify approved: %v\n", err)
+			slog.Warn("slack notify approved failed", "err", err, "pr", in.PRNumber)
 		}
 		if err := NotifySlackApplying(ctx, slackBackend, in.Notifications,
 			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, preSummaries); err != nil {
-			fmt.Printf("slack notify applying: %v\n", err)
+			slog.Warn("slack notify applying failed", "err", err, "pr", in.PRNumber)
 		}
 	}
 
@@ -201,20 +259,24 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			lockBlockedBy = lock.Holder.PR
 		}
 
-		// Resolve rules + approvals for this stack.
+		// Resolve rules + approvals for this stack. TeamMembers is the
+		// pre-resolved expansion shared across all stacks in this run.
 		rules := approvals.Resolve(appCfg, s.Ref())
+		rules.TeamMembers = teamMembers
 		approvalsRes := approvals.Evaluate(rules, rawApprovals, approvals.PR{
 			Number: in.PRNumber, HeadSHA: in.CommitSHA, Author: pr.Author,
 		}, coResolved, pr.Author)
 
-		// Freeze check.
+		// Freeze check. The window name flows into preconditions.Inputs so
+		// the gate's failure reason can identify which window blocked.
 		inFreeze := false
 		freezeName := ""
 		if name, active, ferr := freezeActiveFor(freezeCfg, s.Ref(), now); ferr == nil && active {
 			inFreeze = true
 			freezeName = name
+		} else if ferr != nil {
+			slog.Warn("freeze evaluation failed", "stack", s.Ref(), "err", ferr)
 		}
-		_ = freezeName
 
 		// Run policy hooks against the stack's current summary.
 		redactor := BuildRedactor(in.Shared)
@@ -254,6 +316,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			LockAcquirable:     acquired,
 			LockBlockedByPR:    lockBlockedBy,
 			InFreeze:           inFreeze,
+			FreezeName:         freezeName,
 		}
 		pcResult := preconditions.Evaluate(preCfg, pcInputs)
 		ss.Gates = gatesToTrace(pcResult)
@@ -264,20 +327,21 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 				ss.Status = summary.StatusBlocked
 			}
 			anyBlocked = true
-			// If we acquired the lock but gates failed, release it.
 			if acquired {
-				_, _ = in.Locks.Release(ctx, s.Project, s.Name, in.PRNumber)
+				releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "gates blocked")
 			}
 			summaries = append(summaries, ss)
 			continue
 		}
 
-		// Gates green - acquire auth creds and run apply.
-		authEnv, aerr := ResolveAuthEnv(ctx, in.AuthConfig, in.AuthRegistry, s.Ref(), auth.ModeApply)
+		// Gates green - acquire auth creds and run apply. authCleanup must
+		// run before the loop iteration ends so on-disk credential
+		// artefacts (e.g. GCP WIF token files) do not outlive their use.
+		authEnv, authCleanup, aerr := ResolveAuthEnv(ctx, in.AuthConfig, in.AuthRegistry, s.Ref(), auth.ModeApply)
 		if aerr != nil {
 			ss.Status = summary.StatusError
 			ss.Error = redactor.Redact(aerr.Error())
-			_, _ = in.Locks.Release(ctx, s.Project, s.Name, in.PRNumber)
+			releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "auth resolve failed")
 			summaries = append(summaries, ss)
 			continue
 		}
@@ -287,13 +351,14 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		stackCtx, endStack := in.OTEL.StartStackSpan(ctx, s.Project, s.Name, s.Env, "apply")
 		stackStart := time.Now()
 		res, aerr := in.Engine.Apply(stackCtx, s, iac.ApplyOpts{Cwd: absJoin(in.RepoRoot, s.Path), Env: authEnv})
+		authCleanup()
 		stackOutcome := "success"
 		if aerr != nil {
 			ss.Status = summary.StatusError
 			ss.Error = redactor.Redact(aerr.Error())
 			stackOutcome = "error"
 			endStack(stackOutcome, time.Since(stackStart).Seconds())
-			_, _ = in.Locks.Release(ctx, s.Project, s.Name, in.PRNumber)
+			releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "engine apply failed")
 			summaries = append(summaries, ss)
 			PostAnnotation(ctx, in.Annotations, annotations.EventApplyFailed,
 				s.Project, s.Name, s.Env, "failed", ss.Error, in.PRNumber, in.CommitSHA)
@@ -312,7 +377,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		} else {
 			ss.Status = summary.StatusPlanned
 		}
-		_, _ = in.Locks.Release(ctx, s.Project, s.Name, in.PRNumber)
+		releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "stack apply complete")
 		summaries = append(summaries, ss)
 	}
 
@@ -343,16 +408,20 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		}
 	}
 
-	// 7. Slack notification (runs last, captures everything above).
+	// 7. Slack notification (runs last, captures everything above). The
+	// apply has already shipped at this point; a Slack failure must not
+	// abort the run.
 	if in.PRNumber > 0 && in.Notifications != nil {
 		backend := BuildSlackBackend(in.Notifications, in.Blob)
 		if err := NotifySlackApplied(ctx, backend, in.Notifications,
 			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, summaries, anyBlocked); err != nil {
-			fmt.Printf("slack notify: %v\n", err)
+			slog.Warn("slack notify applied failed", "err", err, "pr", in.PRNumber)
 		}
 	}
 
-	// 8. Audit log.
+	// 8. Audit log. Side effects (apply, PR comment, Slack) have already
+	// shipped, so a write failure is logged loudly but not propagated -
+	// returning an error here would falsely tell the caller the run failed.
 	if in.AuditWriter != nil {
 		entry := audit.Entry{
 			RunID:      runID,
@@ -368,7 +437,8 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			DurationMS: time.Since(start).Milliseconds(),
 		}
 		if err := in.AuditWriter.Write(ctx, entry); err != nil && !errors.Is(err, blob.ErrPreconditionFailed) {
-			return nil, fmt.Errorf("audit write: %w", err)
+			slog.Error("audit write failed - run already shipped",
+				"err", err, "run_id", runID, "pr", in.PRNumber)
 		}
 	}
 
@@ -399,6 +469,20 @@ func gatesToTrace(r preconditions.Result) []summary.GateTrace {
 		})
 	}
 	return out
+}
+
+// releaseLockOrLog releases a per-stack lock and logs a warning on failure
+// instead of swallowing the error. The lock-release path needs to be
+// best-effort (the work has already happened or been declined), but a silent
+// drop hid leaks until the reaper noticed - operators need a signal.
+func releaseLockOrLog(ctx context.Context, store *blocks.Store, project, stack string, pr int, reason string) {
+	if store == nil {
+		return
+	}
+	if _, err := store.Release(ctx, project, stack, pr); err != nil {
+		slog.Warn("lock release failed",
+			"project", project, "stack", stack, "pr", pr, "reason", reason, "err", err)
+	}
 }
 
 func writeApplyManifest(ctx context.Context, store blob.Store, pr int, runID string, stacks []summary.StackSummary, sha string) error {

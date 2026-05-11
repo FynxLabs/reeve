@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	gh "github.com/google/go-github/v66/github"
 
 	"github.com/thefynx/reeve/internal/core/approvals"
+	"github.com/thefynx/reeve/internal/vcs"
 )
 
 // ListApprovals returns APPROVED reviews for the PR. It filters out
@@ -108,44 +110,63 @@ func anyPrefixIn(file string, paths []string) bool {
 }
 
 // ChecksGreen reports whether required status checks are passing for a
-// commit. ignoreRunID is the GitHub Actions run ID of the current workflow
-// run (GITHUB_RUN_ID) - check runs belonging to that run are skipped so
-// reeve does not block itself.
-func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64) (bool, []string, error) {
+// commit. See vcs.ChecksGreenOpts for self-skip semantics.
+func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGreenOpts) (bool, []string, error) {
 	if sha == "" {
 		return false, nil, errors.New("sha required")
 	}
+	logger := slog.With("op", "checks_green", "sha", shortSHA(sha))
+
 	ignoreURLFragment := ""
-	if ignoreRunID > 0 {
-		ignoreURLFragment = fmt.Sprintf("/runs/%d/", ignoreRunID)
+	if opts.IgnoreRunID > 0 {
+		ignoreURLFragment = fmt.Sprintf("/runs/%d/", opts.IgnoreRunID)
 	}
-	// Check-runs (the modern shape).
+	ignoreNames := make(map[string]struct{}, len(opts.IgnoreNames))
+	for _, n := range opts.IgnoreNames {
+		if n == "" {
+			continue
+		}
+		ignoreNames[n] = struct{}{}
+	}
+
 	var failing []string
 	checkOpt := &gh.ListCheckRunsOptions{ListOptions: gh.ListOptions{PerPage: 100}}
 	for {
 		runs, resp, err := c.gh.Checks.ListCheckRunsForRef(ctx, c.owner, c.repo, sha, checkOpt)
 		if err != nil {
-			return false, nil, err
+			return false, nil, fmt.Errorf("list check runs: %w", err)
 		}
 		for _, r := range runs.CheckRuns {
-			fmt.Printf("check_run name=%q status=%q conclusion=%q url=%q\n", r.GetName(), r.GetStatus(), r.GetConclusion(), r.GetDetailsURL())
+			name, status, conclusion, url := r.GetName(), r.GetStatus(), r.GetConclusion(), r.GetDetailsURL()
+			logger.Debug("check_run inspected",
+				"name", name, "status", status, "conclusion", conclusion, "url", url)
+
 			// Skip the current workflow run - it cannot be green while running.
-			if ignoreURLFragment != "" && strings.Contains(r.GetDetailsURL(), ignoreURLFragment) {
-				fmt.Printf("check_run skipped (current run)\n")
+			if ignoreURLFragment != "" && strings.Contains(url, ignoreURLFragment) {
+				logger.Debug("check_run skipped: current run", "name", name)
 				continue
 			}
-			// Skip all in-progress/queued/waiting checks - they haven't finished yet.
-			if r.GetStatus() == "in_progress" || r.GetStatus() == "queued" || r.GetStatus() == "waiting" {
-				fmt.Printf("check_run skipped (in_progress/queued/waiting)\n")
+			// Skip reeve's own check_runs from prior workflow runs on this
+			// SHA. Without this, a single failed apply pins the gate red
+			// forever because the failed check_run lives on the SHA, not the
+			// run.
+			if _, self := ignoreNames[name]; self {
+				logger.Debug("check_run skipped: self by name", "name", name)
 				continue
 			}
-			switch r.GetConclusion() {
+			// Skip all in-progress/queued/waiting checks - they haven't
+			// finished yet, so they don't carry a verdict.
+			if status == "in_progress" || status == "queued" || status == "waiting" {
+				logger.Debug("check_run skipped: not yet concluded", "name", name, "status", status)
+				continue
+			}
+			switch conclusion {
 			case "success", "skipped", "neutral":
 				continue
 			case "":
-				failing = append(failing, r.GetName()+":pending")
+				failing = append(failing, name+":pending")
 			default:
-				failing = append(failing, r.GetName()+":"+r.GetConclusion())
+				failing = append(failing, name+":"+conclusion)
 			}
 		}
 		if resp.NextPage == 0 {
@@ -153,19 +174,33 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, ignoreRunID int64)
 		}
 		checkOpt.Page = resp.NextPage
 	}
-	// Commit statuses (legacy, separate from check runs).
-	// Only check failure/error - "pending" reflects in-progress check runs which we already skip above.
+
+	// Commit statuses (legacy, separate from check runs). Only "failure" /
+	// "error" combined states matter; "pending" reflects in-progress check
+	// runs already filtered above.
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
-	fmt.Printf("combined_status state=%q statuses=%d\n", st.GetState(), len(st.Statuses))
-	if err == nil && (st.GetState() == "failure" || st.GetState() == "error") {
+	if err != nil {
+		return false, nil, fmt.Errorf("combined status: %w", err)
+	}
+	logger.Debug("combined_status", "state", st.GetState(), "n", len(st.Statuses))
+	if st.GetState() == "failure" || st.GetState() == "error" {
 		for _, s := range st.Statuses {
 			if s.GetState() != "success" && s.GetState() != "pending" {
 				failing = append(failing, s.GetContext()+":"+s.GetState())
 			}
 		}
 	}
-	fmt.Printf("checks_green=%v failing=%v\n", len(failing) == 0, failing)
-	return len(failing) == 0, failing, nil
+
+	green := len(failing) == 0
+	logger.Debug("verdict", "green", green, "failing", failing)
+	return green, failing, nil
+}
+
+func shortSHA(sha string) string {
+	if len(sha) < 7 {
+		return sha
+	}
+	return sha[:7]
 }
 
 // CompareBranches reports how many commits HEAD is behind base.

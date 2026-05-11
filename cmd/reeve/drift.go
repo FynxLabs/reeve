@@ -86,7 +86,13 @@ func driftRun(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	resolver := func(ctx context.Context, ref string) (map[string]string, error) {
-		return run.ResolveAuthEnv(ctx, cfg.Auth, authReg, ref, auth.ModeDrift)
+		// Drift currently doesn't expose a per-call cleanup hook; once the
+		// drift runner gains stack-scoped lifecycles we should plumb the
+		// cleanup func through. For now an unrun cleanup leaks the GCP WIF
+		// temp file until the process exits, which is bounded by the run's
+		// duration on GitHub Actions.
+		env, _, err := run.ResolveAuthEnv(ctx, cfg.Auth, authReg, ref, auth.ModeDrift)
+		return env, err
 	}
 
 	decls := make([]discovery.Declaration, 0, len(engineCfg.Engine.Stacks))

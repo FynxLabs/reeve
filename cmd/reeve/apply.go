@@ -45,6 +45,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	}
 	actor := flagStringOrEnv(cmd, "actor", "GITHUB_ACTOR")
 	ciRunID, _ := strconv.ParseInt(os.Getenv("GITHUB_RUN_ID"), 10, 64)
+	selfNames := selfCheckNames()
 	root := flagStringOrDefault(cmd, "root", "")
 	if root == "" {
 		root, _ = os.Getwd()
@@ -100,26 +101,27 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	annotationEmitters := run.BuildAnnotationEmitters(cfg.Observability)
 
 	out, err := run.Apply(ctx, run.ApplyInput{
-		PRNumber:      pr,
-		CommitSHA:     sha,
-		RunNumber:     runNum,
-		CIRunID:       ciRunID,
-		CIRunURL:      runURL,
-		RepoRoot:      root,
-		RepoFull:      repoFull,
-		Actor:         actor,
-		Engine:        engine,
-		Config:        engineCfg,
-		Shared:        cfg.Shared,
-		AuthConfig:    cfg.Auth,
-		AuthRegistry:  authReg,
-		Notifications: cfg.Notifications,
-		OTEL:          otelProvider,
-		Annotations:   annotationEmitters,
-		Blob:          store,
-		Locks:         lockStore,
-		VCS:           client,
-		AuditWriter:   audit.NewWriter(store),
+		PRNumber:       pr,
+		CommitSHA:      sha,
+		RunNumber:      runNum,
+		CIRunID:        ciRunID,
+		CIRunURL:       runURL,
+		SelfCheckNames: selfNames,
+		RepoRoot:       root,
+		RepoFull:       repoFull,
+		Actor:          actor,
+		Engine:         engine,
+		Config:         engineCfg,
+		Shared:         cfg.Shared,
+		AuthConfig:     cfg.Auth,
+		AuthRegistry:   authReg,
+		Notifications:  cfg.Notifications,
+		OTEL:           otelProvider,
+		Annotations:    annotationEmitters,
+		Blob:           store,
+		Locks:          lockStore,
+		VCS:            client,
+		AuditWriter:    audit.NewWriter(store),
 	})
 	if err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -178,7 +179,9 @@ func (b *SlackBackend) sendOrUpdate(ctx context.Context, in NotifyInput, state *
 	timelineText := timelineEntry(ev, in.CommitSHA, in.RunURL)
 	tr, terr := b.Client.PostThread(ctx, ch, res.TS, timelineText, nil)
 	if terr != nil {
-		fmt.Printf("slack thread post: %v\n", terr)
+		// Thread post is a courtesy update on the main message; failure is
+		// non-fatal but should be visible in operator logs.
+		slog.Warn("slack thread post failed", "err", terr, "pr", in.PR, "channel", ch)
 	} else if state.ThreadTS == "" {
 		state.ThreadTS = tr.TS
 	}

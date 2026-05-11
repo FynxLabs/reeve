@@ -17,6 +17,11 @@ type Credential struct {
 	Source string
 	// ExpiresAt is zero if the credential has no expiry (e.g. env passthrough).
 	ExpiresAt time.Time
+	// Cleanup, if non-nil, is invoked by the orchestrator when the
+	// credential is no longer needed (typically end-of-run via defer).
+	// Providers that materialize on-disk artefacts (token files, key
+	// material) populate this so secrets do not outlive the run.
+	Cleanup func() error
 }
 
 // Provider is the interface every auth adapter satisfies. Implementations

@@ -96,6 +96,16 @@ func TestExpiredHolderEvictedOnAcquire(t *testing.T) {
 	}
 }
 
+func TestCorruptedExpiresAtTreatedAsExpired(t *testing.T) {
+	// A lock blob with a malformed ExpiresAt would otherwise be immortal -
+	// the eviction check returned false on parse failure. The reaper must
+	// be able to clear it.
+	corrupted := &Holder{PR: 1, ExpiresAt: "not-a-timestamp"}
+	if !expired(corrupted, t0) {
+		t.Fatal("expected corrupted ExpiresAt to be treated as expired")
+	}
+}
+
 func TestReapEvictsAndPromotes(t *testing.T) {
 	l := NewLock("api", "prod", t0)
 	l, _, _ = TryAcquire(l, Holder{PR: 1}, time.Hour, t0)
