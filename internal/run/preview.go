@@ -76,16 +76,7 @@ type PreviewOutput struct {
 func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	start := time.Now()
 
-	// PR HEAD is the source of truth for the SHA. On pull_request events
-	// $GITHUB_SHA is the ephemeral merge commit, not the branch tip -- apply
-	// overrides the same way, so preview must match or the SHA lookup fails.
-	if in.VCS != nil && in.PRNumber > 0 {
-		if pr, err := in.VCS.GetPR(ctx, in.PRNumber); err == nil && pr.HeadSHA != "" && in.CommitSHA != pr.HeadSHA {
-			slog.Info("commit sha overridden from PR head",
-				"env_sha", in.CommitSHA, "pr_head_sha", pr.HeadSHA, "pr", in.PRNumber)
-			in.CommitSHA = pr.HeadSHA
-		}
-	}
+	in.CommitSHA = resolvePRHeadSHA(ctx, in.VCS, in.PRNumber, in.CommitSHA)
 
 	runID := fmt.Sprintf("run-%d-%s", in.RunNumber, shortSHA(in.CommitSHA))
 

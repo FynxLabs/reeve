@@ -136,10 +136,6 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		return nil, fmt.Errorf("get pr: %w", err)
 	}
 
-	// PR HEAD is the source of truth for the SHA. The env-derived
-	// in.CommitSHA may be wrong (on `issue_comment` events $GITHUB_SHA is
-	// the default-branch HEAD, not the PR's HEAD). Override and log when
-	// they disagree so operators can spot misconfigured workflows.
 	if pr.HeadSHA != "" && in.CommitSHA != pr.HeadSHA {
 		slog.Info("commit sha overridden from PR head",
 			"env_sha", in.CommitSHA, "pr_head_sha", pr.HeadSHA, "pr", in.PRNumber)

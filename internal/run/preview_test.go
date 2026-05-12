@@ -177,6 +177,176 @@ func TestPreviewSHAOverriddenFromPRHead(t *testing.T) {
 	}
 }
 
+// TestPreviewIgnoreChanges verifies that files matching ignore_changes globs
+// are stripped before stack matching -- a change only to an ignored path must
+// not trigger any stack.
+func TestPreviewIgnoreChanges(t *testing.T) {
+	ctx := context.Background()
+	engine := &fakeEngine{
+		enum: []discovery.Stack{{Project: "api", Path: "projects/api", Name: "dev", Env: "dev"}},
+	}
+	fvcs := &fakeVCS{
+		// Only a docs change -- would normally not match, but also in ignore_changes.
+		changed: []string{"projects/api/README.md"},
+		headSHA: "head-sha",
+	}
+	store, _ := filesystem.New(t.TempDir())
+	out, err := Preview(ctx, PreviewInput{
+		PRNumber:  1,
+		CommitSHA: "head-sha",
+		RunNumber: 1,
+		RepoRoot:  "/nope",
+		Engine:    engine,
+		Config: &schemas.Engine{Engine: schemas.EngineBody{
+			Stacks: []schemas.StackDecl{{Project: "api", Path: "projects/api", Stacks: []string{"dev"}}},
+			ChangeMapping: schemas.ChangeMap{
+				IgnoreChanges: []string{"**/*.md"},
+			},
+		}},
+		Shared:   &schemas.Shared{},
+		Blob:     store,
+		VCS:      fvcs,
+		Comments: fvcs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Stacks) != 0 {
+		t.Fatalf("ignored file change should affect 0 stacks, got %d: %v", len(out.Stacks), out.Stacks)
+	}
+}
+
+// TestPreviewExtraTriggers verifies that extra_triggers cause a project to run
+// preview even when its own stack path has no changed files.
+func TestPreviewExtraTriggers(t *testing.T) {
+	ctx := context.Background()
+	engine := &fakeEngine{
+		enum: []discovery.Stack{{Project: "api", Path: "projects/api", Name: "dev", Env: "dev"}},
+	}
+	fvcs := &fakeVCS{
+		// Change is in shared lib, not in projects/api -- but api has an extra trigger for it.
+		changed: []string{"shared/lib/utils.ts"},
+		headSHA: "head-sha",
+	}
+	store, _ := filesystem.New(t.TempDir())
+	out, err := Preview(ctx, PreviewInput{
+		PRNumber:  1,
+		CommitSHA: "head-sha",
+		RunNumber: 1,
+		RepoRoot:  "/nope",
+		Engine:    engine,
+		Config: &schemas.Engine{Engine: schemas.EngineBody{
+			Stacks: []schemas.StackDecl{{Project: "api", Path: "projects/api", Stacks: []string{"dev"}}},
+			ChangeMapping: schemas.ChangeMap{
+				ExtraTriggers: []schemas.ExtraTrigger{
+					{Project: "api", Paths: []string{"shared/lib/**"}},
+				},
+			},
+		}},
+		Shared:   &schemas.Shared{},
+		Blob:     store,
+		VCS:      fvcs,
+		Comments: fvcs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Stacks) != 1 {
+		t.Fatalf("extra_trigger should affect 1 stack, got %d", len(out.Stacks))
+	}
+	if out.Stacks[0].Stack != "dev" {
+		t.Errorf("unexpected stack %q", out.Stacks[0].Stack)
+	}
+}
+
+// TestPreviewExcludeFilter verifies that filters.exclude removes stacks from
+// the enumeration before preview runs.
+func TestPreviewExcludeFilter(t *testing.T) {
+	ctx := context.Background()
+	engine := &fakeEngine{
+		enum: []discovery.Stack{
+			{Project: "api", Path: "projects/api", Name: "dev", Env: "dev"},
+			{Project: "api", Path: "projects/api", Name: "prod", Env: "prod"},
+		},
+	}
+	fvcs := &fakeVCS{
+		changed: []string{"projects/api/index.ts"},
+		headSHA: "head-sha",
+	}
+	store, _ := filesystem.New(t.TempDir())
+	out, err := Preview(ctx, PreviewInput{
+		PRNumber:  1,
+		CommitSHA: "head-sha",
+		RunNumber: 1,
+		RepoRoot:  "/nope",
+		Engine:    engine,
+		Config: &schemas.Engine{Engine: schemas.EngineBody{
+			Stacks: []schemas.StackDecl{{Project: "api", Path: "projects/api", Stacks: []string{"dev", "prod"}}},
+			Filters: schemas.EngineFilters{
+				Exclude: []schemas.ExcludeRule{{Stack: "*/prod"}},
+			},
+		}},
+		Shared:   &schemas.Shared{},
+		Blob:     store,
+		VCS:      fvcs,
+		Comments: fvcs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Stacks) != 1 {
+		t.Fatalf("exclude filter should leave 1 stack, got %d: %v", len(out.Stacks), out.Stacks)
+	}
+	if out.Stacks[0].Stack != "dev" {
+		t.Errorf("expected dev stack, got %q", out.Stacks[0].Stack)
+	}
+}
+
+// TestPreviewPatternDecl verifies that pattern-based stack declarations
+// (glob over paths) match stacks correctly.
+func TestPreviewPatternDecl(t *testing.T) {
+	ctx := context.Background()
+	engine := &fakeEngine{
+		enum: []discovery.Stack{
+			{Project: "svc-auth", Path: "services/auth", Name: "prod", Env: "prod"},
+			{Project: "svc-billing", Path: "services/billing", Name: "prod", Env: "prod"},
+			{Project: "infra", Path: "infra", Name: "prod", Env: "prod"},
+		},
+	}
+	fvcs := &fakeVCS{
+		changed: []string{"services/auth/main.go"},
+		headSHA: "head-sha",
+	}
+	store, _ := filesystem.New(t.TempDir())
+	out, err := Preview(ctx, PreviewInput{
+		PRNumber:  1,
+		CommitSHA: "head-sha",
+		RunNumber: 1,
+		RepoRoot:  "/nope",
+		Engine:    engine,
+		Config: &schemas.Engine{Engine: schemas.EngineBody{
+			Stacks: []schemas.StackDecl{
+				{Pattern: "services/*", Stacks: []string{"prod"}},
+				{Project: "infra", Path: "infra", Stacks: []string{"prod"}},
+			},
+		}},
+		Shared:   &schemas.Shared{},
+		Blob:     store,
+		VCS:      fvcs,
+		Comments: fvcs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only services/auth changed -- svc-auth/prod should be affected, not svc-billing or infra.
+	if len(out.Stacks) != 1 {
+		t.Fatalf("pattern decl should match 1 stack, got %d: %v", len(out.Stacks), out.Stacks)
+	}
+	if out.Stacks[0].Project != "svc-auth" {
+		t.Errorf("expected svc-auth project, got %q", out.Stacks[0].Project)
+	}
+}
+
 func TestPreviewLocalIgnoresChangedFiles(t *testing.T) {
 	ctx := context.Background()
 	engine := &fakeEngine{
@@ -197,5 +367,77 @@ func TestPreviewLocalIgnoresChangedFiles(t *testing.T) {
 	}
 	if len(out.Stacks) != 1 {
 		t.Fatalf("local mode should run all declared stacks, got %d", len(out.Stacks))
+	}
+}
+
+// TestPreviewLocalSkipsSHAOverride verifies that --local mode (no VCS) does
+// not attempt SHA override and uses CommitSHA as-is.
+func TestPreviewLocalSkipsSHAOverride(t *testing.T) {
+	ctx := context.Background()
+	const sha = "local-sha"
+	engine := &fakeEngine{
+		enum: []discovery.Stack{{Project: "api", Path: "projects/api", Name: "dev", Env: "dev"}},
+	}
+	store, _ := filesystem.New(t.TempDir())
+	out, err := Preview(ctx, PreviewInput{
+		Local:     true,
+		PRNumber:  1,
+		CommitSHA: sha,
+		RunNumber: 1,
+		Engine:    engine,
+		Config: &schemas.Engine{Engine: schemas.EngineBody{
+			Stacks: []schemas.StackDecl{{Project: "api", Path: "projects/api", Stacks: []string{"dev"}}},
+		}},
+		Shared: &schemas.Shared{},
+		Blob:   store,
+		// VCS intentionally nil -- local mode must not call GetPR
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(out.RunID, shortSHA(sha)) {
+		t.Errorf("RunID %q should end with shortSHA(%q)=%q", out.RunID, sha, shortSHA(sha))
+	}
+}
+
+// TestPreviewNoAffectedStacks verifies that when no changed files match any
+// stack, an empty manifest is written and no stacks are returned.
+func TestPreviewNoAffectedStacks(t *testing.T) {
+	ctx := context.Background()
+	engine := &fakeEngine{
+		enum: []discovery.Stack{{Project: "api", Path: "projects/api", Name: "dev", Env: "dev"}},
+	}
+	fvcs := &fakeVCS{
+		changed: []string{"docs/README.md"}, // matches no stack path
+		headSHA: "head-sha",
+	}
+	store, _ := filesystem.New(t.TempDir())
+	out, err := Preview(ctx, PreviewInput{
+		PRNumber:  1,
+		CommitSHA: "head-sha",
+		RunNumber: 1,
+		RepoRoot:  "/nope",
+		Engine:    engine,
+		Config: &schemas.Engine{Engine: schemas.EngineBody{
+			Stacks: []schemas.StackDecl{{Project: "api", Path: "projects/api", Stacks: []string{"dev"}}},
+		}},
+		Shared:   &schemas.Shared{},
+		Blob:     store,
+		VCS:      fvcs,
+		Comments: fvcs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Stacks) != 0 {
+		t.Fatalf("expected 0 affected stacks, got %d", len(out.Stacks))
+	}
+	// FindPreviewForStack must return Found=false when stack not in manifest.
+	status, err := FindPreviewForStack(ctx, store, 1, "head-sha", "api/dev")
+	if err != nil {
+		t.Fatalf("FindPreviewForStack: %v", err)
+	}
+	if status.Found {
+		t.Error("stack should not be found in manifest when not affected")
 	}
 }
