@@ -23,12 +23,8 @@ import (
 
 // prReader is the subset of VCS we need for preview.
 type prReader interface {
-	ListChangedFiles(ctx context.Context, number int) ([]string, error)
-}
-
-// prMetaReader is the optional extended VCS surface for auto-ready checks.
-type prMetaReader interface {
 	GetPR(ctx context.Context, number int) (*vcs.PR, error)
+	ListChangedFiles(ctx context.Context, number int) ([]string, error)
 }
 
 // commentPoster is what preview writes back to.
@@ -79,6 +75,18 @@ type PreviewOutput struct {
 // renders a PR comment, and - if Comments is non-nil - upserts it.
 func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	start := time.Now()
+
+	// PR HEAD is the source of truth for the SHA. On pull_request events
+	// $GITHUB_SHA is the ephemeral merge commit, not the branch tip -- apply
+	// overrides the same way, so preview must match or the SHA lookup fails.
+	if in.VCS != nil && in.PRNumber > 0 {
+		if pr, err := in.VCS.GetPR(ctx, in.PRNumber); err == nil && pr.HeadSHA != "" && in.CommitSHA != pr.HeadSHA {
+			slog.Info("commit sha overridden from PR head",
+				"env_sha", in.CommitSHA, "pr_head_sha", pr.HeadSHA, "pr", in.PRNumber)
+			in.CommitSHA = pr.HeadSHA
+		}
+	}
+
 	runID := fmt.Sprintf("run-%d-%s", in.RunNumber, shortSHA(in.CommitSHA))
 
 	// OTEL root span for this preview run.
@@ -156,13 +164,11 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	// Fetch PR metadata once for author + title (used by Slack).
 	var prAuthor, prTitle string
 	if in.PRNumber > 0 && !in.Local {
-		if meta, ok := in.VCS.(prMetaReader); ok {
-			if pr, err := meta.GetPR(ctx, in.PRNumber); err == nil {
-				prAuthor = pr.Author
-				prTitle = pr.Title
-			} else {
-				slog.Warn("fetch pr metadata for slack failed", "err", err, "pr", in.PRNumber)
-			}
+		if pr, err := in.VCS.GetPR(ctx, in.PRNumber); err == nil {
+			prAuthor = pr.Author
+			prTitle = pr.Title
+		} else {
+			slog.Warn("fetch pr metadata for slack failed", "err", err, "pr", in.PRNumber)
 		}
 	}
 	if prTitle == "" {

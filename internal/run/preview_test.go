@@ -10,6 +10,7 @@ import (
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/core/summary"
 	"github.com/thefynx/reeve/internal/iac"
+	"github.com/thefynx/reeve/internal/vcs"
 )
 
 type fakeEngine struct {
@@ -32,10 +33,14 @@ func (f *fakeEngine) Preview(ctx context.Context, s discovery.Stack, opts iac.Pr
 type fakeVCS struct {
 	changed []string
 	posted  string
+	headSHA string
 }
 
 func (f *fakeVCS) ListChangedFiles(ctx context.Context, _ int) ([]string, error) {
 	return f.changed, nil
+}
+func (f *fakeVCS) GetPR(ctx context.Context, _ int) (*vcs.PR, error) {
+	return &vcs.PR{HeadSHA: f.headSHA}, nil
 }
 func (f *fakeVCS) UpsertComment(ctx context.Context, _ int, body, _ string) error {
 	f.posted = body
@@ -112,6 +117,63 @@ func TestPlanSucceeded(t *testing.T) {
 		if got := planSucceeded(tt.stacks); got != tt.want {
 			t.Errorf("%s: planSucceeded = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+// TestPreviewSHAOverriddenFromPRHead verifies that Preview overwrites the
+// env-derived CommitSHA with the PR head SHA before storing the manifest.
+// On pull_request events $GITHUB_SHA is the ephemeral merge commit; apply
+// always uses pr.HeadSHA, so the manifest must be keyed to the same SHA.
+func TestPreviewSHAOverriddenFromPRHead(t *testing.T) {
+	ctx := context.Background()
+	const envSHA = "merge-commit-sha"
+	const headSHA = "pr-head-sha"
+
+	engine := &fakeEngine{
+		enum: []discovery.Stack{{Project: "api", Path: "projects/api", Name: "dev", Env: "dev"}},
+	}
+	fvcs := &fakeVCS{
+		changed: []string{"projects/api/main.ts"},
+		headSHA: headSHA,
+	}
+	store, _ := filesystem.New(t.TempDir())
+
+	out, err := Preview(ctx, PreviewInput{
+		PRNumber:  1,
+		CommitSHA: envSHA,
+		RunNumber: 1,
+		RepoRoot:  "/nope",
+		Engine:    engine,
+		Config: &schemas.Engine{Engine: schemas.EngineBody{
+			Stacks: []schemas.StackDecl{{Project: "api", Path: "projects/api", Stacks: []string{"dev"}}},
+		}},
+		Shared:   &schemas.Shared{},
+		Blob:     store,
+		VCS:      fvcs,
+		Comments: fvcs,
+	})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	// RunID embeds the short SHA -- must be from headSHA, not envSHA.
+	if !strings.HasSuffix(out.RunID, shortSHA(headSHA)) {
+		t.Errorf("RunID %q should end with shortSHA(%q)=%q", out.RunID, headSHA, shortSHA(headSHA))
+	}
+
+	// Manifest stored in bucket must be keyed to headSHA so apply can find it.
+	found, err := FindPreviewForStack(ctx, store, 1, headSHA, "api/dev")
+	if err != nil {
+		t.Fatalf("FindPreviewForStack: %v", err)
+	}
+	if !found.Found {
+		t.Error("manifest not found under headSHA -- SHA override did not apply")
+	}
+
+	// Must not be findable under the merge commit SHA.
+	notFound, _ := FindPreviewForStack(ctx, store, 1, envSHA, "api/dev")
+	if notFound.Found {
+		t.Error("manifest found under envSHA -- SHA was not overridden")
 	}
 }
 
