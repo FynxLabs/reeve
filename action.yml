@@ -49,6 +49,10 @@ inputs:
     description: Additional args passed verbatim to the reeve subcommand.
     required: false
     default: ""
+  log-level:
+    description: Log level for reeve (debug, info, warn, error).
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -107,6 +111,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         SLACK_BOT_TOKEN: ${{ inputs.slack-token }}
         REEVE_BIN: ${{ runner.temp }}/reeve-bin/reeve
+        REEVE_LOG_LEVEL: ${{ inputs.log-level }}
       run: |
         set -euo pipefail
         ROOT="${{ inputs.root }}"
