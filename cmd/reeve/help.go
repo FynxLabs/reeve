@@ -60,6 +60,7 @@ func runHelp(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	applyLogConfig(cfg.Shared.LogLevel, cfg.Shared.LogFormat)
 
 	store, err := factory.Open(ctx, cfg.Shared.Bucket, root)
 	if err != nil {

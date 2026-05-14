@@ -96,6 +96,7 @@ func runPreview(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	applyLogConfig(cfg.Shared.LogLevel, cfg.Shared.LogFormat)
 	if err := cfg.Validate(); err != nil {
 		return err
 	}

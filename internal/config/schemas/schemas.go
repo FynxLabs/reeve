@@ -20,6 +20,8 @@ type Shared struct {
 	Preconditions PreconditionsYAML  `yaml:"preconditions"`
 	FreezeWindows []FreezeWindowYAML `yaml:"freeze_windows"`
 	Apply         ApplyConfig        `yaml:"apply"`
+	LogLevel      string             `yaml:"log_level"`
+	LogFormat     string             `yaml:"log_format"`
 }
 
 type LockingConfig struct {

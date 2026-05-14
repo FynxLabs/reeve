@@ -81,13 +81,25 @@ func Install(w io.Writer, level slog.Level, format Format) *slog.Logger {
 // suitable for `cmd/reeve` PersistentPreRun and for tests that need
 // deterministic output. Honours an explicit override pair when non-empty.
 func FromEnv(levelOverride, formatOverride string) *slog.Logger {
-	level := levelOverride
+	return FromConfig(levelOverride, formatOverride, "", "")
+}
+
+// FromConfig installs a logger with priority: flag > env > config file.
+// cfgLevel and cfgFormat come from shared.yaml; flag/env take precedence.
+func FromConfig(levelFlag, formatFlag, cfgLevel, cfgFormat string) *slog.Logger {
+	level := levelFlag
 	if level == "" {
 		level = os.Getenv("REEVE_LOG_LEVEL")
 	}
-	format := formatOverride
+	if level == "" {
+		level = cfgLevel
+	}
+	format := formatFlag
 	if format == "" {
 		format = os.Getenv("REEVE_LOG_FORMAT")
+	}
+	if format == "" {
+		format = cfgFormat
 	}
 	return Install(os.Stderr, Level(level), ParseFormat(format))
 }
