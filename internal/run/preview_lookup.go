@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -90,7 +91,9 @@ func FindPreviewForStack(ctx context.Context, store blob.Store, prNumber int, co
 			manifests = append(manifests, k)
 		}
 	}
+	slog.Debug("preview lookup: scanning manifests", "pr", prNumber, "sha", commitSHA, "stack", stackRef, "manifest_count", len(manifests))
 	if len(manifests) == 0 {
+		slog.Debug("preview lookup: no manifests found", "pr", prNumber, "sha", commitSHA)
 		return PreviewStatus{}, nil
 	}
 
@@ -109,6 +112,7 @@ func FindPreviewForStack(ctx context.Context, store blob.Store, prNumber int, co
 		if err := json.Unmarshal(data, &m); err != nil {
 			continue // skip malformed
 		}
+		slog.Debug("preview lookup: manifest scanned", "key", k, "op", m.Op, "manifest_sha", m.CommitSHA, "want_sha", commitSHA, "match", m.Op == "preview" && m.CommitSHA == commitSHA)
 		if m.Op != "preview" || m.CommitSHA != commitSHA {
 			continue
 		}
@@ -118,8 +122,10 @@ func FindPreviewForStack(ctx context.Context, store blob.Store, prNumber int, co
 		}
 	}
 	if best == nil {
+		slog.Debug("preview lookup: no matching preview manifest for sha", "pr", prNumber, "sha", commitSHA)
 		return PreviewStatus{}, nil
 	}
+	slog.Debug("preview lookup: best manifest", "run_id", best.RunID, "created_at", best.CreatedAt, "stack_count", len(best.Stacks))
 
 	createdAt, err := time.Parse(time.RFC3339, best.CreatedAt)
 	if err != nil {

@@ -3,6 +3,7 @@ package approvals
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -35,21 +36,33 @@ func ExpandTeams(ctx context.Context, expander TeamExpander, rules ...Rules) (ma
 		}
 	}
 	if len(want) == 0 {
+		slog.Debug("team expansion: no team slugs in rules, skipping")
 		return nil, nil
 	}
+	slog.Debug("team expansion: resolving slugs", "slugs", slugKeys(want))
 
 	out := make(map[string][]string, len(want))
 	var errs []string
 	for slug := range want {
 		members, err := expander.ListTeamMembers(ctx, slug)
 		if err != nil {
+			slog.Warn("team expansion failed for slug", "slug", slug, "err", err)
 			errs = append(errs, fmt.Sprintf("%s: %v", slug, err))
 			continue
 		}
+		slog.Debug("team expanded", "slug", slug, "member_count", len(members), "members", members)
 		out[slug] = members
 	}
 	if len(errs) > 0 {
 		return out, fmt.Errorf("team expansion: %s", strings.Join(errs, "; "))
 	}
 	return out, nil
+}
+
+func slugKeys(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

@@ -77,6 +77,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	start := time.Now()
 
 	in.CommitSHA = resolvePRHeadSHA(ctx, in.VCS, in.PRNumber, in.CommitSHA)
+	slog.Debug("preview starting", "pr", in.PRNumber, "sha", in.CommitSHA, "local", in.Local)
 
 	runID := fmt.Sprintf("run-%d-%s", in.RunNumber, shortSHA(in.CommitSHA))
 
@@ -102,13 +103,19 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	var target []discovery.Stack
 	if in.Local || in.VCS == nil {
 		target = declared
+		slog.Debug("preview target: all declared stacks", "count", len(target))
 	} else {
 		changed, err := in.VCS.ListChangedFiles(ctx, in.PRNumber)
 		if err != nil {
 			return nil, fmt.Errorf("list changed files: %w", err)
 		}
+		slog.Debug("changed files", "count", len(changed), "files", changed)
 		cm := changeMappingFromConfig(in.Config)
 		target = discovery.Affected(declared, changed, cm)
+		slog.Debug("preview target: affected stacks", "count", len(target))
+	}
+	for _, s := range target {
+		slog.Debug("target stack", "ref", s.Ref(), "path", s.Path)
 	}
 
 	appCfg := toApprovalsConfig(in.Shared)

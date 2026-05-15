@@ -127,14 +127,20 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list changed files: %w", err)
 	}
+	slog.Debug("changed files", "count", len(changed), "files", changed)
 	cm := changeMappingFromConfig(in.Config)
 	target := discovery.Affected(declared, changed, cm)
+	slog.Debug("apply target stacks", "count", len(target))
+	for _, s := range target {
+		slog.Debug("target stack", "ref", s.Ref(), "path", s.Path)
+	}
 
 	// 2. Per-stack context: PR + checks + upstream-commits + approvals + CODEOWNERS.
 	pr, err := in.VCS.GetPR(ctx, in.PRNumber)
 	if err != nil {
 		return nil, fmt.Errorf("get pr: %w", err)
 	}
+	slog.Debug("pr fetched", "number", in.PRNumber, "head_sha", pr.HeadSHA, "author", pr.Author, "base_ref", pr.BaseRef, "is_draft", pr.IsDraft, "is_fork", pr.IsFork)
 
 	if pr.HeadSHA != "" && in.CommitSHA != pr.HeadSHA {
 		slog.Info("commit sha overridden from PR head",
@@ -174,6 +180,10 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		// instead of surfacing the underlying VCS error.
 		return nil, fmt.Errorf("list approvals: %w", err)
 	}
+	slog.Debug("raw approvals fetched", "count", len(rawApprovals), "pr_head_sha", in.CommitSHA)
+	for _, a := range rawApprovals {
+		slog.Debug("raw approval", "approver", a.Approver, "commit_sha", a.CommitSHA, "source", a.Source)
+	}
 
 	// CODEOWNERS (optional). A 404 returns "" with nil error; only a real
 	// transport error reaches here, and that must not silently pass the
@@ -209,6 +219,12 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		// The unresolved slugs fall back to literal-match (which never
 		// fires), so the gate fails closed for them.
 		slog.Warn("team expansion partial", "err", err)
+	}
+	for slug, members := range teamMembers {
+		slog.Debug("team expanded", "slug", slug, "members", members)
+	}
+	if len(teamMembers) == 0 {
+		slog.Debug("team expansion returned no members - approvals will use literal matching only")
 	}
 
 	now := time.Now()
@@ -262,6 +278,14 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		approvalsRes := approvals.Evaluate(rules, rawApprovals, approvals.PR{
 			Number: in.PRNumber, HeadSHA: in.CommitSHA, Author: pr.Author,
 		}, coResolved, pr.Author)
+		slog.Debug("approvals evaluated",
+			"stack", s.Ref(),
+			"satisfied", approvalsRes.Satisfied,
+			"got", approvalsRes.Got,
+			"needed", approvalsRes.TotalNeeded,
+			"missing", approvalsRes.Missing,
+			"trace", approvalsRes.Trace,
+		)
 
 		// Freeze check. The window name flows into preconditions.Inputs so
 		// the gate's failure reason can identify which window blocked.
@@ -292,8 +316,10 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		prev, lookupErr := FindPreviewForStack(ctx, in.Blob, in.PRNumber, in.CommitSHA, s.Ref())
 		if lookupErr != nil {
 			// Not fatal - treat as "no preview" so the gate fails cleanly.
+			slog.Debug("preview lookup failed", "stack", s.Ref(), "sha", in.CommitSHA, "err", lookupErr)
 			prev = PreviewStatus{}
 		}
+		slog.Debug("preview status", "stack", s.Ref(), "found", prev.Found, "succeeded", prev.Succeeded, "age", prev.Age)
 
 		// Evaluate preconditions.
 		pcInputs := preconditions.Inputs{
@@ -317,6 +343,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		pcResult := preconditions.Evaluate(preCfg, pcInputs)
 		ss.Gates = gatesToTrace(pcResult)
 		ss.BlockedBy = lockBlockedBy
+		slog.Debug("preconditions evaluated", "stack", s.Ref(), "blocked", pcResult.Blocked, "gates", ss.Gates)
 
 		if pcResult.Blocked {
 			if ss.Status == "" {

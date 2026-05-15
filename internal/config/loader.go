@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -154,6 +155,9 @@ func Load(root string) (*Config, error) {
 		}
 	}
 
+	if cfg.Shared != nil {
+		slog.Debug("config loaded", "log_level", cfg.Shared.LogLevel, "log_format", cfg.Shared.LogFormat)
+	}
 	return cfg, nil
 }
 
