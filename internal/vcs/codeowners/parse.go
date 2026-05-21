@@ -41,32 +41,34 @@ func Parse(r io.Reader) []Rule {
 }
 
 // Resolve returns path → owners for every changed file with at least one
-// matching rule. Follows GitHub "last match wins" semantics. Files with
+// matching rule. All matching rules contribute owners (union); files with
 // no owner are omitted.
 func Resolve(rules []Rule, changedPaths []string) map[string][]string {
 	out := map[string][]string{}
 	for _, p := range changedPaths {
-		best, ok := bestMatch(rules, p)
-		if ok {
-			out[p] = best.Owners
+		owners := allOwners(rules, p)
+		if len(owners) > 0 {
+			out[p] = owners
 		}
 	}
 	return out
 }
 
-// bestMatch scans rules top-to-bottom, remembering the last match.
-// Patterns are GitHub-CODEOWNERS-flavored: leading /, ** wildcards, and
-// trailing / for directory matches.
-func bestMatch(rules []Rule, p string) (Rule, bool) {
-	var last Rule
-	found := false
+// allOwners collects the union of owners from every rule that matches p.
+func allOwners(rules []Rule, p string) []string {
+	seen := map[string]struct{}{}
+	var out []string
 	for _, r := range rules {
 		if match(r.Pattern, p) {
-			last = r
-			found = true
+			for _, o := range r.Owners {
+				if _, ok := seen[o]; !ok {
+					seen[o] = struct{}{}
+					out = append(out, o)
+				}
+			}
 		}
 	}
-	return last, found
+	return out
 }
 
 // match implements a small subset of gitignore-style glob used by

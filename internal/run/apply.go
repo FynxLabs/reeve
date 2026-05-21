@@ -213,6 +213,22 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	for _, s := range target {
 		stackRules = append(stackRules, approvals.Resolve(appCfg, s.Ref()))
 	}
+	// Also expand any teams referenced in CODEOWNERS so matchesOne can
+	// resolve them. Without this, a path owned by @org/team that isn't in
+	// any stack approval rule never gets expanded and the gate always fails.
+	if len(coResolved) > 0 {
+		coOwners := make(map[string]struct{})
+		for _, owners := range coResolved {
+			for _, o := range owners {
+				coOwners[o] = struct{}{}
+			}
+		}
+		var coApprovers []string
+		for o := range coOwners {
+			coApprovers = append(coApprovers, o)
+		}
+		stackRules = append(stackRules, approvals.Rules{Approvers: coApprovers})
+	}
 	teamMembers, err := approvals.ExpandTeams(ctx, in.VCS, stackRules...)
 	if err != nil {
 		// Partial expansion is fine - log slugs that failed but proceed.

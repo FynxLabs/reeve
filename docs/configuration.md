@@ -114,6 +114,25 @@ apply:
 - `require_all_groups: true` changes semantics: every listed approver
   group must contribute one approval, regardless of `required_approvals`.
 
+### CODEOWNERS resolution
+
+When `codeowners: true`, reeve parses the repo's `CODEOWNERS` file and
+requires at least one approval from an owner of each changed file.
+
+Owner resolution unions **all** matching rules for a file. For example:
+
+```
+* @org/platform
+Pulumi.*.yaml @org/engineering
+```
+
+A `Pulumi.*.yaml` file matches both rules, so owners =
+`[@org/platform, @org/engineering]`. Either team's member satisfies the
+gate for that file.
+
+Team slugs in CODEOWNERS are expanded the same way as `approvers` entries:
+reeve resolves `org/team` → member logins via the VCS API before evaluation.
+
 Inspect the merged result:
 
 ```bash

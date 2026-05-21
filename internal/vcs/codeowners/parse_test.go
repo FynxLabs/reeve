@@ -19,7 +19,7 @@ func TestParseSkipsCommentsAndBlanks(t *testing.T) {
 	}
 }
 
-func TestResolveLastMatchWins(t *testing.T) {
+func TestResolveUnionAllMatching(t *testing.T) {
 	src := `*       @default-team
 *.md    @docs-team
 /internal/core/rendering/*   @frontend-lead
@@ -30,12 +30,21 @@ func TestResolveLastMatchWins(t *testing.T) {
 		"internal/core/rendering/preview.go",
 		"internal/core/locks/locks.go",
 	})
+	// README.md matches both * and *.md → both teams.
 	if !contains(got["README.md"], "@docs-team") {
-		t.Fatalf("README.md: %v", got["README.md"])
+		t.Fatalf("README.md missing @docs-team: %v", got["README.md"])
 	}
+	if !contains(got["README.md"], "@default-team") {
+		t.Fatalf("README.md missing @default-team: %v", got["README.md"])
+	}
+	// rendering matches * and the specific pattern → both teams.
 	if !contains(got["internal/core/rendering/preview.go"], "@frontend-lead") {
-		t.Fatalf("rendering: %v", got["internal/core/rendering/preview.go"])
+		t.Fatalf("rendering missing @frontend-lead: %v", got["internal/core/rendering/preview.go"])
 	}
+	if !contains(got["internal/core/rendering/preview.go"], "@default-team") {
+		t.Fatalf("rendering missing @default-team: %v", got["internal/core/rendering/preview.go"])
+	}
+	// locks only matches *.
 	if !contains(got["internal/core/locks/locks.go"], "@default-team") {
 		t.Fatalf("locks: %v", got["internal/core/locks/locks.go"])
 	}
