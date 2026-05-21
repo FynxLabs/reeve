@@ -148,6 +148,42 @@ func TestEvaluateInputApprovalsNotMutated(t *testing.T) {
 	}
 }
 
+// TestEvaluateTeamWithCodeowners verifies that when required_approvals=1,
+// codeowners=true, and dismiss_on_new_commit=true, a team member approval on
+// the current HEAD SHA satisfies both the required_approvals gate and every
+// CODEOWNERS path owned by that team.
+func TestEvaluateTeamWithCodeowners(t *testing.T) {
+	const headSHA = "abc1234"
+	rules := Rules{
+		RequiredApprovals:  1,
+		Approvers:          []string{"@acme/platform"},
+		Codeowners:         true,
+		DismissOnNewCommit: true,
+		TeamMembers:        map[string][]string{"acme/platform": {"alice", "bob"}},
+	}
+	pr := PR{Number: 42, HeadSHA: headSHA, Author: "charlie"}
+	rawApprovals := []Approval{
+		{Approver: "alice", CommitSHA: headSHA, Source: "pr_review"},
+	}
+	codeowners := map[string][]string{
+		"infra/main.tf":  {"@acme/platform"},
+		"config/app.yml": {"@acme/platform"},
+	}
+	res := Evaluate(rules, rawApprovals, pr, codeowners, "charlie")
+	if !res.Satisfied {
+		t.Fatalf("team member approval must satisfy all gates: got=%d needed=%d missing=%v trace=%v",
+			res.Got, res.TotalNeeded, res.Missing, res.Trace)
+	}
+
+	// Without team expansion, gate must fail closed.
+	rulesNoExpansion := rules
+	rulesNoExpansion.TeamMembers = nil
+	res2 := Evaluate(rulesNoExpansion, rawApprovals, pr, codeowners, "charlie")
+	if res2.Satisfied {
+		t.Fatalf("without team expansion, gate must not pass: %+v", res2)
+	}
+}
+
 func TestEvaluateNoGatesConfiguredPasses(t *testing.T) {
 	// No rules configured → open PR repo, no gate requirements → pass.
 	res := Evaluate(Rules{}, nil, PR{HeadSHA: "x"}, nil, "dave")
