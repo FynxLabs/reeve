@@ -156,7 +156,7 @@ func Load(root string) (*Config, error) {
 	}
 
 	if cfg.Shared != nil {
-		slog.Info("config loaded", "log_level", cfg.Shared.LogLevel, "log_format", cfg.Shared.LogFormat)
+		slog.Info("config loaded", "dir", dir, "log_level", cfg.Shared.LogLevel, "log_format", cfg.Shared.LogFormat)
 	}
 	return cfg, nil
 }
