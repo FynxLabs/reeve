@@ -8,6 +8,9 @@ import (
 	"github.com/thefynx/reeve/internal/core/summary"
 )
 
+// ApplyMarker identifies reeve's apply-specific PR comment slot.
+const ApplyMarker = "<!-- reeve:apply:v1 -->"
+
 // ApplyInput mirrors PreviewInput but carries apply-specific data.
 type ApplyInput struct {
 	RunNumber   int
@@ -16,12 +19,17 @@ type ApplyInput struct {
 	CIRunURL    string
 	Stacks      []summary.StackSummary
 	SortMode    string
+	Style       string
 }
 
 // Apply renders the apply comment markdown.
 func Apply(in ApplyInput) string {
 	var b strings.Builder
-	b.WriteString(Marker)
+	if in.Style == "section" {
+		b.WriteString(ApplyMarker)
+	} else {
+		b.WriteString(Marker)
+	}
 	b.WriteString("\n")
 
 	icon := overallIcon(in.Stacks)

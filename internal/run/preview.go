@@ -30,6 +30,7 @@ type prReader interface {
 // commentPoster is what preview writes back to.
 type commentPoster interface {
 	UpsertComment(ctx context.Context, number int, body, marker string) error
+	PostComment(ctx context.Context, number int, body string) error
 }
 
 // Engine is what run/preview.go needs from an IaC adapter.

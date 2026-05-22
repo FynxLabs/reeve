@@ -48,6 +48,7 @@ comments:
   sort: status_grouped             # status_grouped (default) | alphabetical
   collapse_threshold: 10
   show_gates: true
+  style: replace                   # replace (default) | append | section
 
 locking:
   ttl: 4h                          # default 4h
@@ -96,6 +97,16 @@ apply:
   auto_ready: false                # if true: when PR converts from draft to ready-for-review
                                    # and plan has succeeded, notify for approval via Slack + PR comment
 ```
+
+### `comments.style`
+
+Controls how the apply comment relates to the preview comment.
+
+| Value | Behavior |
+| --- | --- |
+| `replace` (default) | Apply upserts using the same marker as preview, replacing it in-place. |
+| `append` | Apply always posts a new comment; the preview comment is left untouched. |
+| `section` | Apply upserts with a separate marker (`<!-- reeve:apply:v1 -->`), so preview and apply each occupy their own comment slot. |
 
 > **Draft PRs:** apply is always blocked on draft PRs regardless of config.
 > Convert to ready for review first. If `auto_ready: true` and a plan has succeeded,

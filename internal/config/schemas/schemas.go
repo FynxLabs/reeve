@@ -97,6 +97,7 @@ type CommentsConfig struct {
 	Sort              string `yaml:"sort"`               // status_grouped | alphabetical | env_priority
 	CollapseThreshold int    `yaml:"collapse_threshold"` // collapse no-op stacks above N
 	ShowGates         bool   `yaml:"show_gates"`
+	Style             string `yaml:"style"` // replace (default) | append | section
 }
 
 // Engine is .reeve/<engine>.yaml. Phase 1 supports Pulumi stack declarations

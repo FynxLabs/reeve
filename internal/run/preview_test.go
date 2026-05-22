@@ -46,6 +46,10 @@ func (f *fakeVCS) UpsertComment(ctx context.Context, _ int, body, _ string) erro
 	f.posted = body
 	return nil
 }
+func (f *fakeVCS) PostComment(ctx context.Context, _ int, body string) error {
+	f.posted = body
+	return nil
+}
 
 func TestPreviewEndToEnd(t *testing.T) {
 	ctx := context.Background()

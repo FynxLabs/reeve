@@ -142,12 +142,6 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	}
 	slog.Debug("pr fetched", "number", in.PRNumber, "head_sha", pr.HeadSHA, "author", pr.Author, "base_ref", pr.BaseRef, "is_draft", pr.IsDraft, "is_fork", pr.IsFork)
 
-	if pr.HeadSHA != "" && in.CommitSHA != pr.HeadSHA {
-		slog.Info("commit sha overridden from PR head",
-			"env_sha", in.CommitSHA, "pr_head_sha", pr.HeadSHA, "pr", in.PRNumber)
-		in.CommitSHA = pr.HeadSHA
-	}
-
 	checksOpts := vcs.ChecksGreenOpts{
 		IgnoreRunID: in.CIRunID,
 		IgnoreNames: in.SelfCheckNames,
@@ -171,8 +165,15 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	}
 	upToDate := behind == 0
 
+	// Use pr.HeadSHA (from the VCS API) for approval matching so that
+	// dismiss_on_new_commit compares against the actual PR HEAD, not the
+	// SHA the CI runner happened to check out (which may be a merge commit).
+	approvalHeadSHA := pr.HeadSHA
+	if approvalHeadSHA == "" {
+		approvalHeadSHA = in.CommitSHA
+	}
 	rawApprovals, err := in.VCS.ListApprovals(ctx, approvals.PR{
-		Number: in.PRNumber, HeadSHA: in.CommitSHA, Author: pr.Author, Changed: changed,
+		Number: in.PRNumber, HeadSHA: approvalHeadSHA, Author: pr.Author, Changed: changed,
 	})
 	if err != nil {
 		// Fail-closed: previously the error was swallowed and rawApprovals
@@ -292,7 +293,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		rules := approvals.Resolve(appCfg, s.Ref())
 		rules.TeamMembers = teamMembers
 		approvalsRes := approvals.Evaluate(rules, rawApprovals, approvals.PR{
-			Number: in.PRNumber, HeadSHA: in.CommitSHA, Author: pr.Author,
+			Number: in.PRNumber, HeadSHA: approvalHeadSHA, Author: pr.Author,
 		}, coResolved, pr.Author)
 		slog.Debug("approvals evaluated",
 			"stack", s.Ref(),
@@ -425,6 +426,10 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	if in.Shared != nil && in.Shared.Comments.Sort != "" {
 		sortMode = in.Shared.Comments.Sort
 	}
+	commentStyle := "replace"
+	if in.Shared != nil && in.Shared.Comments.Style != "" {
+		commentStyle = in.Shared.Comments.Style
+	}
 	dur := int(time.Since(start).Seconds())
 	body := render.Apply(render.ApplyInput{
 		RunNumber:   in.RunNumber,
@@ -433,6 +438,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		CIRunURL:    in.CIRunURL,
 		Stacks:      summaries,
 		SortMode:    sortMode,
+		Style:       commentStyle,
 	})
 
 	// 5. Write run manifest.
@@ -440,10 +446,19 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		return nil, fmt.Errorf("write manifest: %w", err)
 	}
 
-	// 6. Upsert PR comment.
+	// 6. Post PR comment.
 	if in.VCS != nil && in.PRNumber > 0 {
-		if err := in.VCS.UpsertComment(ctx, in.PRNumber, body, render.Marker); err != nil {
-			return nil, fmt.Errorf("upsert pr comment: %w", err)
+		var cerr error
+		switch commentStyle {
+		case "append":
+			cerr = in.VCS.PostComment(ctx, in.PRNumber, body)
+		case "section":
+			cerr = in.VCS.UpsertComment(ctx, in.PRNumber, body, render.ApplyMarker)
+		default:
+			cerr = in.VCS.UpsertComment(ctx, in.PRNumber, body, render.Marker)
+		}
+		if cerr != nil {
+			return nil, fmt.Errorf("post pr comment: %w", cerr)
 		}
 	}
 

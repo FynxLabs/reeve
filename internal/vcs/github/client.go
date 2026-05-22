@@ -88,6 +88,12 @@ func (c *Client) ListChangedFiles(ctx context.Context, number int) ([]string, er
 	return out, nil
 }
 
+// PostComment always creates a new PR comment.
+func (c *Client) PostComment(ctx context.Context, number int, body string) error {
+	_, _, err := c.gh.Issues.CreateComment(ctx, c.owner, c.repo, number, &gh.IssueComment{Body: gh.String(body)})
+	return err
+}
+
 // UpsertComment finds reeve's existing PR comment by marker substring and
 // edits it; creates a new one if none exists.
 func (c *Client) UpsertComment(ctx context.Context, number int, body, marker string) error {
