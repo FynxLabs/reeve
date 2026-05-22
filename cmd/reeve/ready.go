@@ -77,7 +77,7 @@ func runReady(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("get pr: %w", err)
 	}
-	if sha == "" {
+	if prMeta.HeadSHA != "" {
 		sha = prMeta.HeadSHA
 	}
 

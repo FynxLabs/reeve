@@ -85,6 +85,12 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	if pr > 0 {
+		if prMeta, err := client.GetPR(ctx, pr); err == nil && prMeta.HeadSHA != "" {
+			sha = prMeta.HeadSHA
+		}
+	}
+
 	engineCfg := cfg.Engines[0]
 	engine := pulumi.New(engineCfg.Engine.Binary.Path)
 
