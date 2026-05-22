@@ -92,6 +92,13 @@ runs:
       shell: bash
       run: echo "$RUNNER_TEMP/reeve-bin" >> "$GITHUB_PATH"
 
+    - name: Checkout PR HEAD
+      if: ${{ github.event.pull_request.number != '' || github.event.issue.number != '' }}
+      uses: actions/checkout@v6
+      with:
+        ref: refs/pull/${{ github.event.pull_request.number || github.event.issue.number }}/head
+        fetch-depth: 1
+
     - name: Authenticate to GCP
       if: ${{ inputs.gcp-workload-identity-provider != '' }}
       uses: google-github-actions/auth@v3
