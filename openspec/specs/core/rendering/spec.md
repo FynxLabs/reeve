@@ -27,6 +27,28 @@ listing available commands. A ready comment is upserted under
 Apply comment mirrors preview structure, adds durations, floats failures
 to top.
 
+## `comments.style`
+
+Controls how reeve posts PR comments. Three modes: `replace` (default) upserts
+a single comment in place using the same marker (`<!-- reeve:pr-comment:v1 -->`);
+`append` posts a new comment on every run without editing the previous one;
+`section` uses a separate marker for apply results (`<!-- reeve:apply:v1 -->`)
+while preview keeps `<!-- reeve:pr-comment:v1 -->`, so preview and apply history
+remain distinct threads.
+
+## Apply-starting comment
+
+When apply begins, reeve immediately posts a standalone new comment before any
+stack runs:
+
+```
+🚀 reeve · apply starting · run #N · [commit <sha>] · [View run](<url>)
+```
+
+This comment is separate from the final apply result comment and is always
+appended (not upserted), so it acts as an unambiguous acknowledgement
+timestamp regardless of `comments.style`.
+
 ## Safety rails
 
 - Secrets marked by Pulumi `[secret]` are redacted before render.

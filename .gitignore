@@ -107,6 +107,7 @@ fabric.properties
 /reeve
 
 .local/
+.claude/
 
 dist/
 bin/

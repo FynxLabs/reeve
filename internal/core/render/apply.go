@@ -11,6 +11,16 @@ import (
 // ApplyMarker identifies reeve's apply-specific PR comment slot.
 const ApplyMarker = "<!-- reeve:apply:v1 -->"
 
+// ApplyStarting renders the "apply is running" acknowledgement comment.
+func ApplyStarting(runNumber int, commitSHA, ciRunURL string) string {
+	runBit := ""
+	if ciRunURL != "" {
+		runBit = fmt.Sprintf(" · [View run](%s)", ciRunURL)
+	}
+	return fmt.Sprintf("🚀 reeve · apply starting · run #%d · [commit %s]%s\n",
+		runNumber, shortSHA(commitSHA), runBit)
+}
+
 // ApplyInput mirrors PreviewInput but carries apply-specific data.
 type ApplyInput struct {
 	RunNumber   int

@@ -115,6 +115,13 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		return nil, err
 	}
 
+	if in.VCS != nil && in.PRNumber > 0 {
+		startBody := render.ApplyStarting(in.RunNumber, in.CommitSHA, in.CIRunURL)
+		if err := in.VCS.PostComment(ctx, in.PRNumber, startBody); err != nil {
+			slog.Warn("apply starting comment failed", "err", err, "pr", in.PRNumber)
+		}
+	}
+
 	// 1. Resolve affected stacks (same pipeline as preview).
 	enum, err := in.Engine.EnumerateStacks(ctx, in.RepoRoot)
 	if err != nil {

@@ -16,6 +16,7 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
    succeeded, reeve fires `/reeve ready` automatically. Otherwise author runs it manually.
 5. Reviewers approve per configured rules.
 6. On `/reeve apply` comment → acquire locks, evaluate preconditions, run apply.
+6a. Apply posts a `🚀 apply starting` acknowledgement comment immediately on start, before any stack runs.
 7. Results update PR comment and Slack message.
 8. Audit log entry written to bucket.
 9. Locks released, queue advanced.
@@ -30,6 +31,12 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
   risk; fork PRs otherwise get dry-run-only credentials.
 - Notifications run last in the pipeline so upstream failures are captured
   accurately in the authoritative "what happened" surface.
+- SHA resolution: `apply`, `ready`, and `approved` commands resolve the commit
+  SHA from the PR HEAD via the VCS API (`GetPR`), not from `GITHUB_SHA`. This
+  ensures manifests and plan lookups use the branch tip SHA regardless of what
+  the CI runner checked out.
+- Stacks declared with `path: .` (repo root) are triggered by any changed file
+  that survives `ignore_changes` filtering.
 
 ## Out of scope (v1)
 
