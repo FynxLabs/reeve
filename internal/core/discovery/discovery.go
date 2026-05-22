@@ -146,6 +146,9 @@ func Affected(stacks []Stack, changedFiles []string, cm ChangeMapping) []Stack {
 }
 
 func intersectsPath(stackPath string, changed []string) bool {
+	if stackPath == "." || stackPath == "" {
+		return len(changed) > 0
+	}
 	prefix := stackPath + "/"
 	for _, f := range changed {
 		if f == stackPath || strings.HasPrefix(f, prefix) {
