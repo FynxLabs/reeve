@@ -42,11 +42,11 @@ signs:
 # cosign keyless - requires sigstore/cosign-installer in the release workflow
 # and OIDC-enabled GH Actions.
 - cmd: cosign
+  signature: "${artifact}.bundle"
   args:
   - sign-blob
   - "--yes"
-  - "--output-certificate=${certificate}"
-  - "--output-signature=${signature}"
+  - "--bundle=${signature}"
   - "${artifact}"
   artifacts: checksum
   output: true
