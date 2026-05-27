@@ -42,7 +42,6 @@ signs:
 # cosign keyless - requires sigstore/cosign-installer in the release workflow
 # and OIDC-enabled GH Actions.
 - cmd: cosign
-  stdin: "{{ .Env.COSIGN_PASSWORD }}"
   args:
   - sign-blob
   - "--yes"
