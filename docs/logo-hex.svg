@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" xmlns:bx="https://boxy-svg.com">
+  <polygon points="250,60 410,155 410,345 250,440 90,345 90,155" fill="none" stroke-width="6" stroke-linejoin="round" style="stroke: rgb(233, 218, 169);"></polygon>
+  <polygon points="250,85 388,168 388,332 250,415 112,332 112,168" fill="none" stroke="#e8d9a8" stroke-width="1.5" opacity="0.5" stroke-linejoin="round"></polygon>
+  <g transform="translate(0, 22)">
+    <rect x="231.819" y="153.248" width="9.273" height="175.81" stroke="#e8d9a8" fill="#e8d9a8" style="stroke-width: 1.228;"></rect>
+    <ellipse cx="217.475" cy="167.221" rx="16.268" ry="15.92" stroke="#e8d9a8" stroke-width="6" fill="none" style="stroke-width: 7.368;"></ellipse>
+    <ellipse cx="254.348" cy="167.425" rx="16.268" ry="15.92" stroke="#e8d9a8" stroke-width="6" fill="none" style="stroke-width: 7.368;"></ellipse>
+    <ellipse cx="236.089" cy="141.253" rx="12.503" ry="12.503" stroke="#e8d9a8" stroke-width="6" fill="none" style="stroke-width: 7.368;"></ellipse>
+    <ellipse cx="236.319" cy="198.452" rx="8.597" ry="8.597" stroke="#e8d9a8" fill="#e8d9a8" style="stroke-width: 1.228;"></ellipse>
+    <ellipse cx="236.319" cy="219.574" rx="6.754" ry="6.754" stroke="#e8d9a8" stroke-width="1" fill="#e8d9a8" style="stroke-width: 1.228;"></ellipse>
+    <rect x="215.903" y="292.128" width="20.086" height="8.135" stroke="#e8d9a8" fill="#e8d9a8" style="stroke-width: 1.228;"></rect>
+    <rect x="215.9" y="313.836" width="20.086" height="8.135" stroke="#e8d9a8" stroke-width="1" fill="#e8d9a8" style="stroke-width: 1.228;"></rect>
+    <rect x="215.9" y="320.675" width="7.798" height="6.872" stroke="#e8d9a8" fill="#e8d9a8" style="stroke-width: 1.228;"></rect>
+    <rect x="215.9" y="286.612" width="7.798" height="6.872" stroke="#e8d9a8" stroke-width="1" fill="#e8d9a8" style="stroke-width: 1.228;"></rect>
+    <g transform="matrix(0.185, 0, 0, -0.16, 205.233832, 329.742221)">
+      <clipPath id="rNoStem"><rect x="195" y="-80" width="520" height="860"></rect></clipPath>
+      <path clip-path="url(#rNoStem)" fill="#e9daa9" d="M130 700H264Q370 700 428.5 655.5Q487 611 487 531Q487 469 450.5 428.0Q414 387 345 373V367Q411 354 453.0 305.0Q495 256 516 184Q535 118 553.5 81.5Q572 45 594.5 29.0Q617 13 648 6V0H607Q563 0 534.5 16.0Q506 32 486.0 70.0Q466 108 448 175Q419 278 371.0 321.0Q323 364 254 364H248V382H254Q415 382 415 530Q415 676 264 676H198V0H130Z"></path>
+    </g>
+  </g>
+</svg>

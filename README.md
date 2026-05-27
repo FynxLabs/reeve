@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="reeve logo" width="160" height="160">
+</p>
+
 # reeve
 
 **PR-native, self-hosted GitOps orchestrator for Pulumi.** No control plane,

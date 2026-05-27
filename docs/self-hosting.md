@@ -234,15 +234,51 @@ reeve expects these events:
   identity.
 - Cross-repo: one App install covers many repos.
 
-Register the App with:
+#### 1. Register the App
 
+Go to **Settings → Developer settings → GitHub Apps → New GitHub App**
+(user account: `https://github.com/settings/apps/new`; org:
+`https://github.com/organizations/<ORG>/settings/apps/new`). Fill in:
+
+- **GitHub App name:** anything unique, e.g. `reeve-bot` - this is the
+  identity that posts PR comments.
+- **Homepage URL:** your repo URL (required, not otherwise used).
+- **Webhook:** uncheck **Active**. reeve is driven by GitHub Actions, not
+  by webhooks, so no callback URL is needed.
 - **Repository permissions:** Contents `read`, Issues `write`, Metadata
   `read`, Pull requests `write`, Checks `read`.
-- **Subscribe to events:** Issue comment, Pull request.
+- **Subscribe to events:** leave unchecked (webhook is off).
 - **Where can this App be installed?** Only on this account (keep it
   private unless you're publishing).
 
-Wire in `.reeve/auth.yaml`:
+Click **Create GitHub App**.
+
+#### 2. Set the App avatar (logo)
+
+On the App's settings page, scroll to **Display information** and upload
+an avatar so reeve's PR comments carry a recognizable icon. This repo
+ships brand assets in [`docs/`](.):
+
+- [`logo.svg`](logo.svg) - full badge (dark rounded square + hex + key/R).
+  Best avatar choice; the dark background reads well as a circular icon.
+- [`logo-hex.svg`](logo-hex.svg) - hex + key/R, transparent background.
+- [`logo-key.svg`](logo-key.svg) - key/R only, transparent background.
+
+GitHub avatars must be raster (PNG/JPG), so rasterize first, e.g.
+`rsvg-convert -w 512 -h 512 docs/logo.svg -o reeve.png`, then upload
+`reeve.png`.
+
+#### 3. Collect credentials
+
+- **App ID:** shown at the top of the App settings page → `GITHUB_APP_ID`.
+- **Private key:** **Generate a private key** in the App settings;
+  downloads a `.pem`. Store it as `GITHUB_APP_PRIVATE_KEY` (literal PEM,
+  file path, or base64 - see [auth.md](auth.md#github-app-github_app)).
+- **Installation ID:** **Install App** (left nav) → install on the target
+  repos/org. After installing, the URL is
+  `…/settings/installations/<INSTALLATION_ID>` → `GITHUB_APP_INSTALLATION_ID`.
+
+#### 4. Wire in `.reeve/auth.yaml`:
 
 ```yaml
 providers:
