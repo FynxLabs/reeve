@@ -1,6 +1,7 @@
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY reeve /usr/bin/reeve
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/reeve /usr/bin/reeve
 
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/bin/reeve"]

@@ -15,7 +15,6 @@ builds:
   goos:
   - linux
   - darwin
-  - windows
   goarch:
   - amd64
   - arm64
@@ -27,12 +26,9 @@ builds:
 
 archives:
 - id: default
-  builds: [ reeve ]
+  ids: [ reeve ]
   name_template: >-
     {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-  format_overrides:
-  - goos: windows
-    format: zip
   files:
   - README.md
   - LICENSE
@@ -57,7 +53,7 @@ signs:
   output: true
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-dev"
+  version_template: "{{ incpatch .Version }}-dev"
 
 changelog:
   use: github-native
@@ -76,49 +72,37 @@ release:
     PR-native, self-hosted GitOps orchestrator for Pulumi. No control plane,
     no telemetry, MIT-licensed.
 
-brews:
+homebrew_casks:
 - name: reeve
+  binaries: [ reeve ]
   repository:
     owner: thefynx
     name: homebrew-tap
-  directory: Formula
+  directory: Casks
   homepage: "https://github.com/thefynx/reeve"
   description: "PR-native, self-hosted GitOps orchestrator for Pulumi"
-  license: MIT
-  test: |
-    system "#{bin}/reeve --version"
+  # strip the quarantine xattr so the unsigned binary runs without Gatekeeper prompt
+  hooks:
+    post:
+      install: |
+        if OS.mac?
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/reeve"]
+        end
 
-dockers:
-- image_templates:
-  - "ghcr.io/thefynx/reeve:{{ .Tag }}-amd64"
-  - "ghcr.io/thefynx/reeve:v{{ .Major }}-amd64"
-  - "ghcr.io/thefynx/reeve:latest-amd64"
+dockers_v2:
+- id: reeve
+  ids: [ reeve ]
   dockerfile: Dockerfile.release
-  use: buildx
-  build_flag_templates:
-  - "--platform=linux/amd64"
-  - "--label=org.opencontainers.image.source=https://github.com/thefynx/reeve"
-  - "--label=org.opencontainers.image.version={{ .Version }}"
-  - "--label=org.opencontainers.image.licenses=MIT"
-- image_templates:
-  - "ghcr.io/thefynx/reeve:{{ .Tag }}-arm64"
-  - "ghcr.io/thefynx/reeve:v{{ .Major }}-arm64"
-  - "ghcr.io/thefynx/reeve:latest-arm64"
-  dockerfile: Dockerfile.release
-  use: buildx
-  goarch: arm64
-  build_flag_templates:
-  - "--platform=linux/arm64"
-  - "--label=org.opencontainers.image.source=https://github.com/thefynx/reeve"
-  - "--label=org.opencontainers.image.version={{ .Version }}"
-  - "--label=org.opencontainers.image.licenses=MIT"
-
-docker_manifests:
-- name_template: "ghcr.io/thefynx/reeve:{{ .Tag }}"
-  image_templates:
-  - "ghcr.io/thefynx/reeve:{{ .Tag }}-amd64"
-  - "ghcr.io/thefynx/reeve:{{ .Tag }}-arm64"
-- name_template: "ghcr.io/thefynx/reeve:latest"
-  image_templates:
-  - "ghcr.io/thefynx/reeve:latest-amd64"
-  - "ghcr.io/thefynx/reeve:latest-arm64"
+  images:
+  - "ghcr.io/thefynx/reeve"
+  tags:
+  - "{{ .Tag }}"
+  - "v{{ .Major }}"
+  - "latest"
+  platforms:
+  - linux/amd64
+  - linux/arm64
+  labels:
+    org.opencontainers.image.source: "https://github.com/thefynx/reeve"
+    org.opencontainers.image.version: "{{ .Version }}"
+    org.opencontainers.image.licenses: MIT
