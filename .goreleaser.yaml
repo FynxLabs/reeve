@@ -75,8 +75,11 @@ homebrew_casks:
 - name: reeve
   binaries: [ reeve ]
   repository:
-    owner: fynxlabs
-    name: homebrew-tap
+    owner: FynxLabs
+    name: brew-tap
+    git:
+      url: "ssh://git@github.com/FynxLabs/brew-tap.git"
+      private_key: "{{ .Env.HOMEBREW_TAP_DEPLOY_KEY }}"
   directory: Casks
   homepage: "https://github.com/fynxlabs/reeve"
   description: "PR-native, self-hosted GitOps orchestrator for Pulumi"
