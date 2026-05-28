@@ -60,7 +60,7 @@ changelog:
 
 release:
   github:
-    owner: thefynx
+    owner: fynxlabs
     name: reeve
   draft: true
   replace_existing_draft: true
@@ -75,10 +75,10 @@ homebrew_casks:
 - name: reeve
   binaries: [ reeve ]
   repository:
-    owner: thefynx
+    owner: fynxlabs
     name: homebrew-tap
   directory: Casks
-  homepage: "https://github.com/thefynx/reeve"
+  homepage: "https://github.com/fynxlabs/reeve"
   description: "PR-native, self-hosted GitOps orchestrator for Pulumi"
   # strip the quarantine xattr so the unsigned binary runs without Gatekeeper prompt
   hooks:
@@ -93,7 +93,7 @@ dockers_v2:
   ids: [ reeve ]
   dockerfile: Dockerfile.release
   images:
-  - "ghcr.io/thefynx/reeve"
+  - "ghcr.io/fynxlabs/reeve"
   tags:
   - "{{ .Tag }}"
   - "v{{ .Major }}"
@@ -102,6 +102,6 @@ dockers_v2:
   - linux/amd64
   - linux/arm64
   labels:
-    org.opencontainers.image.source: "https://github.com/thefynx/reeve"
+    org.opencontainers.image.source: "https://github.com/fynxlabs/reeve"
     org.opencontainers.image.version: "{{ .Version }}"
     org.opencontainers.image.licenses: MIT
