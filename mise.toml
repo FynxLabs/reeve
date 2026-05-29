@@ -29,6 +29,9 @@ postinstall = """
   else
     openspec update
   fi
+
+  # Pre-stage so `mise install` leaves a build-ready tree.
+  go mod download || true
 """
 
 # ── build ──────────────────────────────────────────────────────────────
@@ -119,3 +122,38 @@ description = "Bump Go toolchain + all deps to latest, tidy, and re-scan for vul
 [tasks.clean]
 run = "rm -rf bin/ dist/"
 description = "Remove build artifacts"
+
+# ── fynxlabs standard verb set ────────────────────────────────────────
+
+[tasks.format]
+depends = ["fmt"]
+description = "Format Go source (alias for `fmt`)"
+
+[tasks.start]
+description = "Build and run reeve (alias for `run`)"
+depends = ["run"]
+
+[tasks.security]
+description = "Run both Go security scanners (govulncheck + gosec)"
+depends = ["vuln", "sec"]
+
+[tasks.install]
+description = "Install reeve to ~/.local/bin (linux/macos); errors on windows"
+depends = ["build"]
+run = """
+case "$(uname -s)" in
+  Linux|Darwin)
+    mkdir -p "$HOME/.local/bin"
+    install -m755 bin/reeve "$HOME/.local/bin/reeve"
+    echo "installed: $HOME/.local/bin/reeve"
+    ;;
+  *)
+    echo "install: not implemented for $(uname -s)" >&2
+    exit 1
+    ;;
+esac
+"""
+
+[tasks.ci]
+description = "Run the full CI check locally (fmt + vet + lint + security + test)"
+depends = ["fmt", "vet", "lint", "security", "test"]
