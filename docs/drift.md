@@ -175,7 +175,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: FynxLabs/reeve@main
+      - uses: FynxLabs/reeve@master
         with:
           command: "drift run"
           extra-args: "--schedule critical"
@@ -185,7 +185,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: FynxLabs/reeve@main
+      - uses: FynxLabs/reeve@master
         with:
           command: "drift run"
           extra-args: "--schedule slow-movers"

@@ -18,9 +18,13 @@ inputs:
     required: false
     default: ""
   ref:
-    description: Git ref of FynxLabs/reeve to build from. Defaults to `master`.
+    description: >-
+      Git ref of FynxLabs/reeve to build from. Defaults to the ref the action
+      was invoked with, so `@master` builds the v0 source, `@v1.2.3` builds v1.2.3,
+      and `@master` builds master. Only set this to pin the build to a ref
+      different from the action version.
     required: false
-    default: master
+    default: ""
   root:
     description: Path to the consumer repo root (where .reeve/ lives). Defaults to $GITHUB_WORKSPACE.
     required: false
@@ -61,7 +65,10 @@ runs:
       uses: actions/checkout@v6
       with:
         repository: FynxLabs/reeve
-        ref: ${{ inputs.ref }}
+        # Build from the ref the action was called with (github.action_ref) so
+        # a pinned @master / @v1.2.3 builds that exact source. Empty action_ref
+        # (e.g. local ./ use) falls back to the default branch.
+        ref: ${{ inputs.ref != '' && inputs.ref || github.action_ref }}
         path: _reeve
         fetch-depth: 1
 
