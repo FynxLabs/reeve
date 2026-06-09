@@ -1,6 +1,7 @@
 package render
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/thefynx/reeve/internal/core/summary"
@@ -37,6 +38,42 @@ func TestApplyGolden_Mixed(t *testing.T) {
 
 func TestApplyGolden_Empty(t *testing.T) {
 	assertGolden(t, "apply_empty.md", Apply(ApplyInput{RunNumber: 1, CommitSHA: "x"}))
+}
+
+// TestApplySizeLimit_DropsFullPlan verifies Apply enforces the same
+// GitHub 65,536-char comment-size cap as Preview.
+func TestApplySizeLimit_DropsFullPlan(t *testing.T) {
+	bigPlan := strings.Repeat("x", 5*1024)
+	stacks := make([]summary.StackSummary, 18)
+	for i := range stacks {
+		stacks[i] = summary.StackSummary{
+			Project:    "platform-edge",
+			Stack:      "credova-stack-" + string(rune('a'+i)),
+			Env:        "credova",
+			Counts:     summary.Counts{Add: 1},
+			Status:     summary.StatusPlanned,
+			FullPlan:   bigPlan,
+			DurationMS: 12_000,
+		}
+	}
+	out := Apply(ApplyInput{
+		RunNumber: 5, CommitSHA: "abc",
+		CIRunURL: "https://example.com/runs/5",
+		Stacks:   stacks,
+	})
+
+	if len(out) > githubCommentMaxLen {
+		t.Fatalf("apply body %d chars exceeds limit %d", len(out), githubCommentMaxLen)
+	}
+	if strings.Contains(out, "Full apply output") {
+		t.Errorf("expected FullPlan section to be dropped")
+	}
+	if !strings.Contains(out, "Output trimmed to fit GitHub's 65,536-char comment limit") {
+		t.Errorf("expected truncation notice in apply body")
+	}
+	if !strings.Contains(out, "https://example.com/runs/5") {
+		t.Errorf("expected truncation notice to link the CI run URL")
+	}
 }
 
 func TestApplyPreviewGatesRender(t *testing.T) {
