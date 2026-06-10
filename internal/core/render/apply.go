@@ -32,8 +32,33 @@ type ApplyInput struct {
 	Style       string
 }
 
-// Apply renders the apply comment markdown.
+// Apply renders the apply comment markdown. If the body would exceed
+// GitHub's hard comment-size limit, drops per-stack FullPlan output and
+// adds a notice pointing at the CI run. Hard-truncates as a last resort.
 func Apply(in ApplyInput) string {
+	body := renderApply(in, renderOpts{includeFullPlan: true})
+	if len(body) <= githubCommentMaxLen {
+		return body
+	}
+
+	note := truncationNote(PreviewInput{CIRunURL: in.CIRunURL})
+
+	body = renderApply(in, renderOpts{
+		truncationNote: note + " (omitted: full apply output)",
+	})
+	if len(body) <= githubCommentMaxLen {
+		return body
+	}
+
+	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
+	cutoff := githubCommentMaxLen - len(tail)
+	if cutoff < 0 || cutoff > len(body) {
+		return body
+	}
+	return body[:cutoff] + tail
+}
+
+func renderApply(in ApplyInput, opts renderOpts) string {
 	var b strings.Builder
 	if in.Style == "section" {
 		b.WriteString(ApplyMarker)
@@ -59,6 +84,10 @@ func Apply(in ApplyInput) string {
 		runBit = fmt.Sprintf(" · [View run](%s)", in.CIRunURL)
 	}
 	fmt.Fprintf(&b, "**%d %s applied**%s%s\n\n", n, noun, durBit, runBit)
+
+	if opts.truncationNote != "" {
+		fmt.Fprintf(&b, "> ⚠️ %s\n\n", opts.truncationNote)
+	}
 
 	if n == 0 {
 		b.WriteString("_No stacks applied._\n")
@@ -104,7 +133,7 @@ func Apply(in ApplyInput) string {
 				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 				s.PlanSummary)
 		}
-		if s.FullPlan != "" {
+		if s.FullPlan != "" && opts.includeFullPlan {
 			b.WriteString("<details><summary>Full apply output</summary>\n\n```\n")
 			b.WriteString(s.FullPlan)
 			if !strings.HasSuffix(s.FullPlan, "\n") {

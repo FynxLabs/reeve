@@ -15,6 +15,13 @@ import (
 // The VCS adapter uses it to find-or-create on UpsertComment.
 const Marker = "<!-- reeve:pr-comment:v1 -->"
 
+// githubCommentMaxLen is GitHub's hard limit on issue/PR comment body
+// length. The 422 error returned past this is non-recoverable, so the
+// renderer must guarantee the body never exceeds it. We target a small
+// safety margin so any wrapper formatting (e.g. quote-reply prefixes some
+// VCS adapters might prepend) doesn't push us over.
+const githubCommentMaxLen = 65_000
+
 // PreviewInput is what the preview renderer consumes. Pure data - no
 // imports beyond summary and stdlib.
 type PreviewInput struct {
@@ -27,15 +34,75 @@ type PreviewInput struct {
 	SortMode    string // "status_grouped" (default), "alphabetical"
 }
 
-// Preview returns the full comment body, marker included.
+// renderOpts controls which per-stack sections the renderer emits. Used
+// internally to progressively drop content when the body would exceed
+// GitHub's comment-size limit.
+type renderOpts struct {
+	includeFullPlan bool
+	includeDiff     bool
+	truncationNote  string
+}
+
+// Preview returns the full comment body, marker included. If the body
+// would exceed GitHub's hard comment-size limit, drops the heaviest
+// per-stack content (FullPlan, then PlanDiff) and adds a notice pointing
+// at the CI run. Hard-truncates as a last resort so the body always
+// fits, even on pathological inputs.
 func Preview(in PreviewInput) string {
+	body := renderPreview(in, renderOpts{includeFullPlan: true, includeDiff: true})
+	if len(body) <= githubCommentMaxLen {
+		return body
+	}
+
+	note := truncationNote(in)
+
+	body = renderPreview(in, renderOpts{
+		includeDiff:    true,
+		truncationNote: note + " (omitted: full plan output)",
+	})
+	if len(body) <= githubCommentMaxLen {
+		return body
+	}
+
+	body = renderPreview(in, renderOpts{
+		truncationNote: note + " (omitted: full plan output, per-stack diff)",
+	})
+	if len(body) <= githubCommentMaxLen {
+		return body
+	}
+
+	// Even with both heavy sections dropped we're over budget. The table
+	// itself or stacked summaries are oversize; hard-truncate the tail so
+	// the POST still lands.
+	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
+	cutoff := githubCommentMaxLen - len(tail)
+	if cutoff < 0 || cutoff > len(body) {
+		return body
+	}
+	return body[:cutoff] + tail
+}
+
+// renderPreview builds the body honoring per-section opts. Pure
+// string-builder; called multiple times by Preview when shrinking.
+func renderPreview(in PreviewInput, opts renderOpts) string {
 	var b strings.Builder
 	b.WriteString(Marker)
 	b.WriteString("\n")
 	writeHeader(&b, in)
+	if opts.truncationNote != "" {
+		fmt.Fprintf(&b, "> ⚠️ %s\n\n", opts.truncationNote)
+	}
 	writeTable(&b, in)
-	writeSections(&b, in)
+	writeSections(&b, in, opts)
 	return b.String()
+}
+
+func truncationNote(in PreviewInput) string {
+	note := "Output trimmed to fit GitHub's 65,536-char comment limit."
+	if in.CIRunURL != "" {
+		note += fmt.Sprintf(" See the [full run output](%s) for the complete plan.", in.CIRunURL)
+	}
+	return note
 }
 
 func writeHeader(b *strings.Builder, in PreviewInput) {
@@ -86,7 +153,7 @@ func writeTable(b *strings.Builder, in PreviewInput) {
 	}
 }
 
-func writeSections(b *strings.Builder, in PreviewInput) {
+func writeSections(b *strings.Builder, in PreviewInput, opts renderOpts) {
 	ordered := sorted(in.Stacks, in.SortMode)
 	for _, s := range ordered {
 		if s.Status == summary.StatusNoOp {
@@ -108,7 +175,7 @@ func writeSections(b *strings.Builder, in PreviewInput) {
 				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 				s.PlanSummary)
 		}
-		if s.PlanDiff != "" {
+		if s.PlanDiff != "" && opts.includeDiff {
 			b.WriteString("<details><summary>Diff</summary>\n\n```diff\n")
 			b.WriteString(s.PlanDiff)
 			if !strings.HasSuffix(s.PlanDiff, "\n") {
@@ -116,7 +183,7 @@ func writeSections(b *strings.Builder, in PreviewInput) {
 			}
 			b.WriteString("```\n\n</details>\n\n")
 		}
-		if s.FullPlan != "" {
+		if s.FullPlan != "" && opts.includeFullPlan {
 			b.WriteString("<details><summary>Full plan output</summary>\n\n```\n")
 			b.WriteString(s.FullPlan)
 			if !strings.HasSuffix(s.FullPlan, "\n") {

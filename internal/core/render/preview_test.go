@@ -92,3 +92,130 @@ func TestMarkerPresent(t *testing.T) {
 		t.Fatalf("output should start with marker %q", Marker)
 	}
 }
+
+// TestPreviewSizeLimit_DropsFullPlan verifies that when the body exceeds
+// GitHub's 65,536-char comment limit, FullPlan is dropped first and a
+// truncation notice is added pointing to the CI run.
+func TestPreviewSizeLimit_DropsFullPlan(t *testing.T) {
+	// 18 stacks each with a 5KB FullPlan = 90KB, well over the limit.
+	bigPlan := strings.Repeat("x", 5*1024)
+	stacks := make([]summary.StackSummary, 18)
+	for i := range stacks {
+		stacks[i] = summary.StackSummary{
+			Project:  "platform-edge",
+			Stack:    "credova-stack-" + string(rune('a'+i)),
+			Env:      "credova",
+			Counts:   summary.Counts{Add: 1},
+			Status:   summary.StatusPlanned,
+			FullPlan: bigPlan,
+			PlanDiff: "+ resource foo\n+ resource bar",
+		}
+	}
+	in := PreviewInput{
+		Op:        "preview",
+		RunNumber: 14,
+		CommitSHA: "61964c0",
+		CIRunURL:  "https://example.com/runs/14",
+		Stacks:    stacks,
+	}
+	out := Preview(in)
+
+	if len(out) > githubCommentMaxLen {
+		t.Fatalf("body %d chars exceeds limit %d", len(out), githubCommentMaxLen)
+	}
+	if strings.Contains(out, "Full plan output") {
+		t.Errorf("expected FullPlan section to be dropped, but it appears in the output")
+	}
+	if !strings.Contains(out, "Output trimmed to fit GitHub's 65,536-char comment limit") {
+		t.Errorf("expected truncation notice in body, got:\n%s", out[:min(2000, len(out))])
+	}
+	if !strings.Contains(out, "https://example.com/runs/14") {
+		t.Errorf("expected truncation notice to link the CI run URL")
+	}
+	// Per-stack diff is lighter and should survive when only FullPlan is dropped.
+	if !strings.Contains(out, "+ resource foo") {
+		t.Errorf("expected PlanDiff to survive when only FullPlan needed to be dropped")
+	}
+}
+
+// TestPreviewSizeLimit_DropsDiffToo verifies the second tier: when even
+// dropping FullPlan isn't enough, PlanDiff is dropped as well.
+func TestPreviewSizeLimit_DropsDiffToo(t *testing.T) {
+	// 40 stacks, each with a 2KB PlanDiff: ~80KB of diff alone, plus
+	// table rows and headings push us comfortably past the limit even
+	// without FullPlan.
+	bigDiff := strings.Repeat("+ resource line\n", 128) // ~2KB
+	stacks := make([]summary.StackSummary, 40)
+	for i := range stacks {
+		stacks[i] = summary.StackSummary{
+			Project:  "platform-edge",
+			Stack:    "stack-" + strings.Repeat("x", 30) + "-" + string(rune('a'+i%26)),
+			Env:      "env",
+			Counts:   summary.Counts{Add: 1},
+			Status:   summary.StatusPlanned,
+			PlanDiff: bigDiff,
+		}
+	}
+	in := PreviewInput{
+		Op: "preview", RunNumber: 1, CommitSHA: "abc",
+		CIRunURL: "https://example.com/runs/1",
+		Stacks:   stacks,
+	}
+	out := Preview(in)
+
+	if len(out) > githubCommentMaxLen {
+		t.Fatalf("body %d chars exceeds limit %d", len(out), githubCommentMaxLen)
+	}
+	if strings.Contains(out, "<details><summary>Diff</summary>") {
+		t.Errorf("expected per-stack Diff section to be dropped at second tier")
+	}
+	if !strings.Contains(out, "omitted: full plan output, per-stack diff") {
+		t.Errorf("expected truncation notice to call out both dropped sections")
+	}
+}
+
+// TestPreviewSizeLimit_HardTruncate is the safety net: even with all
+// per-stack sections dropped, a pathologically long table must still
+// produce a body under the limit.
+func TestPreviewSizeLimit_HardTruncate(t *testing.T) {
+	// 5,000 stacks — each row is short but cumulatively past 65KB.
+	stacks := make([]summary.StackSummary, 5000)
+	for i := range stacks {
+		stacks[i] = summary.StackSummary{
+			Project: "p", Stack: "s" + string(rune('a'+i%26)),
+			Counts: summary.Counts{Add: 1},
+			Status: summary.StatusPlanned,
+		}
+	}
+	out := Preview(PreviewInput{Op: "preview", RunNumber: 1, CommitSHA: "x", Stacks: stacks})
+	if len(out) > githubCommentMaxLen {
+		t.Fatalf("hard-truncate failed: %d chars > %d", len(out), githubCommentMaxLen)
+	}
+	if !strings.Contains(out, "hard-truncated") {
+		t.Errorf("expected hard-truncation notice; got tail:\n%s", out[max(0, len(out)-300):])
+	}
+}
+
+// TestPreviewSizeLimit_UnderBudgetUnchanged verifies that bodies safely
+// under the limit are emitted verbatim (no truncation notice added).
+func TestPreviewSizeLimit_UnderBudgetUnchanged(t *testing.T) {
+	in := PreviewInput{
+		Op: "preview", RunNumber: 1, CommitSHA: "x",
+		Stacks: []summary.StackSummary{
+			{
+				Project: "p", Stack: "s", Env: "e",
+				Counts:   summary.Counts{Add: 1},
+				Status:   summary.StatusPlanned,
+				FullPlan: "small plan output",
+				PlanDiff: "+ one line",
+			},
+		},
+	}
+	out := Preview(in)
+	if strings.Contains(out, "Output trimmed") {
+		t.Errorf("under-budget body should not have a truncation notice")
+	}
+	if !strings.Contains(out, "small plan output") {
+		t.Errorf("under-budget body should contain the full plan verbatim")
+	}
+}
