@@ -45,25 +45,32 @@ type renderOpts struct {
 
 // Preview returns the full comment body, marker included. If the body
 // would exceed GitHub's hard comment-size limit, drops the heaviest
-// per-stack content (FullPlan, then PlanDiff) and adds a notice pointing
-// at the CI run. Hard-truncates as a last resort so the body always
-// fits, even on pathological inputs.
+// per-stack content (FullPlan, then PlanDiff) and -- only when actual
+// reviewer-visible content is lost -- adds a notice pointing at the
+// CI run. Hard-truncates as a last resort so the body always fits,
+// even on pathological inputs.
+//
+// FullPlan is the raw `pulumi preview --json` blob, which is hundreds
+// of KB per stack and effectively never reviewed from a PR comment
+// (run logs have it). Dropping it is silent because the diff -- which
+// IS what reviewers read -- stays intact. Only when the diff itself
+// has to be dropped, or the body still doesn't fit after both drops,
+// do we stamp the trim warning.
 func Preview(in PreviewInput) string {
 	body := renderPreview(in, renderOpts{includeFullPlan: true, includeDiff: true})
 	if len(body) <= githubCommentMaxLen {
 		return body
 	}
 
-	note := truncationNote(in)
-
-	body = renderPreview(in, renderOpts{
-		includeDiff:    true,
-		truncationNote: note + " (omitted: full plan output)",
-	})
+	// Silent drop: FullPlan was over budget but diff is still intact, so
+	// the reviewer sees everything they would have read anyway.
+	body = renderPreview(in, renderOpts{includeDiff: true})
 	if len(body) <= githubCommentMaxLen {
 		return body
 	}
 
+	// Now we're dropping content reviewers actually look at; stamp the note.
+	note := truncationNote(in)
 	body = renderPreview(in, renderOpts{
 		truncationNote: note + " (omitted: full plan output, per-stack diff)",
 	})
@@ -113,7 +120,16 @@ func writeHeader(b *strings.Builder, in PreviewInput) {
 	}
 	fmt.Fprintf(b, "## %s reeve · %s · run #%d · [commit %s]\n\n", icon, op, in.RunNumber, shortSHA(in.CommitSHA))
 
-	n := len(in.Stacks)
+	// "X stacks changed" counts only stacks that actually have planned/applied
+	// changes -- no-op stacks appear in the per-stack table for completeness
+	// but they didn't change anything, so summing them in the headline is
+	// misleading (was reading "18 stacks changed" with 15 no-ops + 3 actual).
+	n := 0
+	for _, s := range in.Stacks {
+		if s.Status != summary.StatusNoOp {
+			n++
+		}
+	}
 	noun := "stacks"
 	if n == 1 {
 		noun = "stack"

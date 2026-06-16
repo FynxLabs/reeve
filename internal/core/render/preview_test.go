@@ -94,8 +94,10 @@ func TestMarkerPresent(t *testing.T) {
 }
 
 // TestPreviewSizeLimit_DropsFullPlan verifies that when the body exceeds
-// GitHub's 65,536-char comment limit, FullPlan is dropped first and a
-// truncation notice is added pointing to the CI run.
+// GitHub's 65,536-char comment limit, FullPlan is dropped silently --
+// reviewers don't read it from the PR comment (CI logs have it), and the
+// diff -- which IS what reviewers read -- survives intact. No truncation
+// notice should fire because no reviewer-visible content was lost.
 func TestPreviewSizeLimit_DropsFullPlan(t *testing.T) {
 	// 18 stacks each with a 5KB FullPlan = 90KB, well over the limit.
 	bigPlan := strings.Repeat("x", 5*1024)
@@ -126,11 +128,9 @@ func TestPreviewSizeLimit_DropsFullPlan(t *testing.T) {
 	if strings.Contains(out, "Full plan output") {
 		t.Errorf("expected FullPlan section to be dropped, but it appears in the output")
 	}
-	if !strings.Contains(out, "Output trimmed to fit GitHub's 65,536-char comment limit") {
-		t.Errorf("expected truncation notice in body, got:\n%s", out[:min(2000, len(out))])
-	}
-	if !strings.Contains(out, "https://example.com/runs/14") {
-		t.Errorf("expected truncation notice to link the CI run URL")
+	// No truncation notice when only FullPlan is dropped -- diffs are intact.
+	if strings.Contains(out, "Output trimmed") {
+		t.Errorf("did not expect truncation notice when only FullPlan was dropped (diffs are intact)")
 	}
 	// Per-stack diff is lighter and should survive when only FullPlan is dropped.
 	if !strings.Contains(out, "+ resource foo") {
