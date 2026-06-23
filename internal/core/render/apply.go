@@ -11,15 +11,9 @@ import (
 // ApplyMarker identifies reeve's apply-specific PR comment slot.
 const ApplyMarker = "<!-- reeve:apply:v1 -->"
 
-// ApplyStarting renders the "apply is running" acknowledgement comment.
-func ApplyStarting(runNumber int, commitSHA, ciRunURL string) string {
-	runBit := ""
-	if ciRunURL != "" {
-		runBit = fmt.Sprintf(" · [View run](%s)", ciRunURL)
-	}
-	return fmt.Sprintf("🚀 reeve · apply starting · run #%d · [commit %s]%s\n",
-		runNumber, shortSHA(commitSHA), runBit)
-}
+// Apply-run progress is now reported via the accumulating timeline comment
+// (see timeline.go / run.applyTimeline) rather than a one-shot "starting"
+// comment, so the prior ApplyStarting renderer was removed.
 
 // ApplyInput mirrors PreviewInput but carries apply-specific data.
 type ApplyInput struct {
@@ -30,6 +24,7 @@ type ApplyInput struct {
 	Stacks      []summary.StackSummary
 	SortMode    string
 	Style       string
+	StackView   string // "all" (default) lists every stack; "changed" hides no-ops
 }
 
 // Apply renders the apply comment markdown. If the body would exceed
@@ -95,9 +90,10 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	}
 
 	// Table: failures first.
+	rows := tableStacks(in.Stacks, in.StackView)
 	b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |\n")
 	b.WriteString("|---|---|---|---|---|---|---|---|\n")
-	ordered := sortApply(in.Stacks, in.SortMode)
+	ordered := sortApply(rows, in.SortMode)
 	for _, s := range ordered {
 		dur := ""
 		if s.DurationMS > 0 {

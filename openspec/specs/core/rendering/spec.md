@@ -36,18 +36,34 @@ a single comment in place using the same marker (`<!-- reeve:pr-comment:v1 -->`)
 while preview keeps `<!-- reeve:pr-comment:v1 -->`, so preview and apply history
 remain distinct threads.
 
-## Apply-starting comment
+## `comments.stack_view`
 
-When apply begins, reeve immediately posts a standalone new comment before any
-stack runs:
+Controls which stacks the table lists:
+
+- `all` (default) - every declared stack, no-ops included.
+- `changed` - only stacks with planned/applied changes.
+
+Per-stack sections always skip no-ops regardless of view.
+
+## Apply timeline
+
+Each apply run owns one comment, pinned by per-run marker
+(`<!-- reeve:apply-timeline:<run-id> -->`). Events append in order, editing the
+comment in place:
 
 ```
-🚀 reeve · apply starting · run #N · [commit <sha>] · [View run](<url>)
+### 🚀 reeve · apply · run #N · [commit <sha>] · [View run](<url>)
+- 🚀 **apply starting**
+- ✅ **applied**: 2 stack(s): api/prod, worker/prod
 ```
 
-This comment is separate from the final apply result comment and is always
-appended (not upserted), so it acts as an unambiguous acknowledgement
-timestamp regardless of `comments.style`.
+- 🚀 `apply starting` - posted before any stack runs.
+- ✅ `applied` - changed stack refs.
+- 🔴 `failed` - failing stack refs.
+- 🔒 `blocked` - gate reason.
+- ⏭️ `skipped` - commit already applied.
+
+Separate from the replace-style dashboard comment.
 
 ## Safety rails
 

@@ -17,14 +17,16 @@ for all core components.
 ├── locks/
 │   └── {project}/{stack}.json
 ├── runs/
-│   └── pr-{number}/{run-id}/
-│       ├── manifest.json
-│       ├── {project}-{stack}/
-│       │   ├── preview.json
-│       │   ├── plan.bin
-│       │   ├── summary.json
-│       │   └── stdout.log
-│       └── latest -> {run-id}
+│   └── pr-{number}/
+│       ├── {run-id}/
+│       │   ├── manifest.json
+│       │   ├── {project}-{stack}/
+│       │   │   ├── preview.json
+│       │   │   ├── plan.bin
+│       │   │   ├── summary.json
+│       │   │   └── stdout.log
+│       │   └── latest -> {run-id}
+│       └── applied/{sha}.json       # written after a clean apply
 ├── drift/
 │   ├── runs/{run-id}/
 │   │   ├── manifest.json
@@ -44,9 +46,9 @@ signals "someone else got there first" - lock state machine re-reads.
 
 ## Retention
 
-Runs: 30d default (configurable). Audit: 7y default. Locks: indefinite.
-On PR close/merge, run artifacts move to `closed/` prefix with shorter
-retention.
+- `runs/` artifacts: pruned at run start, age-based. Default `720h` (1 month) via `retention.max_age`; `0`/negative disables.
+- Locks: reaped on TTL expiry, not by retention.
+- Age-based only - PR-close/merge cleanup needs VCS wiring reeve does not have.
 
 ## Failure modes
 

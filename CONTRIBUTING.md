@@ -56,6 +56,12 @@ into `openspec/specs/`.
 - AI-generated code is welcome per OpenSpec convention; note the agent
   and model in the PR description.
 
+## Docs
+
+- Nothing longer than 2 sentences; say more with less.
+- No qualifier language — state the facts.
+- Bullets over prose.
+
 ## Dev setup
 
 ```bash

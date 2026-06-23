@@ -12,6 +12,7 @@ func BuildHelpComment(autoReady bool) string {
 	b.WriteString("|---|---|\n")
 	b.WriteString("| `/reeve preview` or `/reeve plan` | Re-run plan for this PR |\n")
 	b.WriteString("| `/reeve apply` or `/reeve up` | Apply all planned stacks for this PR |\n")
+	b.WriteString("| `/reeve apply --force` | Re-apply even if this commit was already applied |\n")
 	b.WriteString("| `/reeve ready` | Mark PR as ready for approval, notify Slack |\n")
 	b.WriteString("| `/reeve help` | Show this help message |\n")
 	b.WriteString("\n")

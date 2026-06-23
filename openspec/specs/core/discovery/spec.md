@@ -26,6 +26,14 @@ per plan appendix). Revisit only if a user files a concrete need.
 5. **Map to changes** - stack is "affected" if changed files intersect its
    paths or declared dependencies.
 
+## Shared-directory change mapping
+
+One directory can hold many stacks (shared `Pulumi.yaml` + one `Pulumi.<name>.yaml` per stack). Matching is per-file:
+
+- `Pulumi.<name>.yaml` change - affects only stack `<name>`.
+- Sibling `Pulumi.<other>.yaml` - ignored for this stack.
+- Shared `Pulumi.yaml`, program code, nested files - affect every stack in the directory.
+
 ## `reeve stacks discover`
 
 Dev-time tool (not runtime). Walks the repo, clusters discovered stacks by

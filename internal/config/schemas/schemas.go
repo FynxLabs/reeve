@@ -20,9 +20,23 @@ type Shared struct {
 	Preconditions PreconditionsYAML  `yaml:"preconditions"`
 	FreezeWindows []FreezeWindowYAML `yaml:"freeze_windows"`
 	Apply         ApplyConfig        `yaml:"apply"`
+	Retention     RetentionConfig    `yaml:"retention"`
 	LogLevel      string             `yaml:"log_level"`
 	LogFormat     string             `yaml:"log_format"`
 }
+
+// RetentionConfig controls opportunistic cleanup of reeve's blob artifacts
+// (run manifests, applied-state pointers) under the "runs/" prefix.
+type RetentionConfig struct {
+	// MaxAge is a Go duration (e.g. "720h"). Blob items older than this are
+	// pruned at the start of a run. Empty -> default (DefaultRetentionMaxAge).
+	// "0" / negative disables pruning entirely.
+	MaxAge string `yaml:"max_age"`
+}
+
+// DefaultRetentionMaxAge is one month (30 days), used when retention.max_age
+// is unset.
+const DefaultRetentionMaxAge = "720h"
 
 type LockingConfig struct {
 	TTL            string        `yaml:"ttl"`             // e.g. "4h"
@@ -97,7 +111,8 @@ type CommentsConfig struct {
 	Sort              string `yaml:"sort"`               // status_grouped | alphabetical | env_priority
 	CollapseThreshold int    `yaml:"collapse_threshold"` // collapse no-op stacks above N
 	ShowGates         bool   `yaml:"show_gates"`
-	Style             string `yaml:"style"` // replace (default) | append | section
+	Style             string `yaml:"style"`      // replace (default) | append | section
+	StackView         string `yaml:"stack_view"` // all (default) | changed — whether to list no-op stacks in the table
 }
 
 // Engine is .reeve/<engine>.yaml. Phase 1 supports Pulumi stack declarations

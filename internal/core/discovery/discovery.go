@@ -134,7 +134,7 @@ func Affected(stacks []Stack, changedFiles []string, cm ChangeMapping) []Stack {
 
 	out := make([]Stack, 0, len(stacks))
 	for _, s := range stacks {
-		if intersectsPath(s.Path, filtered) {
+		if intersectsPath(s, filtered) {
 			out = append(out, s)
 			continue
 		}
@@ -145,17 +145,64 @@ func Affected(stacks []Stack, changedFiles []string, cm ChangeMapping) []Stack {
 	return out
 }
 
-func intersectsPath(stackPath string, changed []string) bool {
-	if stackPath == "." || stackPath == "" {
-		return len(changed) > 0
-	}
+// intersectsPath reports whether any changed file affects the given stack.
+//
+// A stack's path is a directory, but a single directory can hold many stacks
+// (one shared Pulumi.yaml plus a Pulumi.<name>.yaml per stack). So a change to
+// a sibling's per-stack config (Pulumi.<other>.yaml) must NOT pull this stack
+// in. Rules:
+//   - "Pulumi.<this stack name>.yaml" in the dir -> affects only this stack.
+//   - "Pulumi.<other name>.yaml" in the dir       -> belongs to a sibling; ignored.
+//   - any other file in/under the dir (program code, the shared Pulumi.yaml,
+//     nested files) -> shared, affects every stack in the dir.
+func intersectsPath(s Stack, changed []string) bool {
+	stackPath := s.Path
+	root := stackPath == "." || stackPath == ""
 	prefix := stackPath + "/"
+	if root {
+		prefix = ""
+	}
 	for _, f := range changed {
-		if f == stackPath || strings.HasPrefix(f, prefix) {
-			return true
+		if !root && f != stackPath && !strings.HasPrefix(f, prefix) {
+			continue
 		}
+		rel := f
+		if !root {
+			rel = strings.TrimPrefix(f, prefix)
+		}
+		// A per-stack config file directly in the stack dir only counts for
+		// its own stack; a sibling's config is skipped.
+		if name, ok := stackConfigName(rel); ok {
+			if name == s.Name {
+				return true
+			}
+			continue
+		}
+		return true
 	}
 	return false
+}
+
+// stackConfigName returns the stack name encoded in a "Pulumi.<name>.yaml"
+// (or .yml) file living directly in a stack directory. ok is false for the
+// shared "Pulumi.yaml"/"Pulumi.yml" or for any path with a slash (a file in a
+// subdirectory, which is shared program code rather than a stack config).
+func stackConfigName(rel string) (string, bool) {
+	if strings.Contains(rel, "/") {
+		return "", false
+	}
+	if rel == "Pulumi.yaml" || rel == "Pulumi.yml" {
+		return "", false
+	}
+	if !strings.HasPrefix(rel, "Pulumi.") {
+		return "", false
+	}
+	trimmed := strings.TrimSuffix(strings.TrimSuffix(rel, ".yml"), ".yaml")
+	trimmed = strings.TrimPrefix(trimmed, "Pulumi.")
+	if trimmed == "" || trimmed == rel {
+		return "", false
+	}
+	return trimmed, true
 }
 
 func matchesAny(patterns, files []string) bool {

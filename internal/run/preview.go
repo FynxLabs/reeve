@@ -61,6 +61,9 @@ type PreviewInput struct {
 	Comments      commentPoster // may be nil for --local
 	// Local skips change-mapping (run on all declared stacks).
 	Local bool
+	// Force re-runs even when this commit is already recorded as applied,
+	// bypassing the already-applied guard.
+	Force bool
 }
 
 // PreviewOutput bundles the artifacts from a preview run.
@@ -134,6 +137,17 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	}
 	dur := int(time.Since(start).Seconds())
 
+	// Already-applied notice: if this commit was fully applied before and the
+	// caller didn't force, flag it so reviewers know an apply re-run would be
+	// a no-op (the plan still renders; preview is read-only).
+	notice := ""
+	if !in.Force {
+		if prior, _ := readAppliedState(ctx, in.Blob, in.PRNumber, in.CommitSHA); prior != nil {
+			notice = fmt.Sprintf("Commit %s was already applied on run #%d (%s). Re-running apply is a no-op unless you comment `/reeve apply --force`.",
+				shortSHA(in.CommitSHA), prior.RunNumber, prior.AppliedAt)
+		}
+	}
+
 	body := render.Preview(render.PreviewInput{
 		Op:          "preview",
 		RunNumber:   in.RunNumber,
@@ -142,6 +156,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		CIRunURL:    in.CIRunURL,
 		Stacks:      summaries,
 		SortMode:    sort,
+		StackView:   stackView(in.Shared),
+		Notice:      notice,
 	})
 
 	if err := writeManifest(ctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA); err != nil {

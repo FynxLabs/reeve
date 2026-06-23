@@ -104,9 +104,9 @@ func TestPreviewSizeLimit_DropsFullPlan(t *testing.T) {
 	stacks := make([]summary.StackSummary, 18)
 	for i := range stacks {
 		stacks[i] = summary.StackSummary{
-			Project:  "platform-edge",
-			Stack:    "credova-stack-" + string(rune('a'+i)),
-			Env:      "credova",
+			Project:  "infra",
+			Stack:    "stack-" + string(rune('a'+i)),
+			Env:      "prod",
 			Counts:   summary.Counts{Add: 1},
 			Status:   summary.StatusPlanned,
 			FullPlan: bigPlan,
@@ -148,7 +148,7 @@ func TestPreviewSizeLimit_DropsDiffToo(t *testing.T) {
 	stacks := make([]summary.StackSummary, 40)
 	for i := range stacks {
 		stacks[i] = summary.StackSummary{
-			Project:  "platform-edge",
+			Project:  "infra",
 			Stack:    "stack-" + strings.Repeat("x", 30) + "-" + string(rune('a'+i%26)),
 			Env:      "env",
 			Counts:   summary.Counts{Add: 1},
