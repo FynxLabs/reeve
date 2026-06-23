@@ -67,6 +67,7 @@ func addPreviewFlags(cmd *cobra.Command) {
 	cmd.Flags().String("repo", "", "owner/repo (default: $GITHUB_REPOSITORY)")
 	cmd.Flags().String("token", "", "GitHub token (default: $GITHUB_TOKEN)")
 	cmd.Flags().String("root", "", "Repo root (default: cwd)")
+	cmd.Flags().Bool("force", false, "Re-run even if this commit was already applied (ignore the applied-state guard)")
 }
 
 func runPreview(cmd *cobra.Command, _ []string) error {
@@ -106,6 +107,9 @@ func runPreview(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Opportunistic blob retention: prune run artifacts older than max_age.
+	run.PruneRunArtifactsOpportunistic(ctx, store, cfg.Shared)
+
 	engineCfg := cfg.Engines[0]
 	engine := pulumi.New(engineCfg.Engine.Binary.Path)
 
@@ -138,18 +142,32 @@ func runPreview(cmd *cobra.Command, _ []string) error {
 		Annotations:   annotationEmitters,
 		Blob:          store,
 		Local:         local,
+		Force:         flagBool(cmd, "force"),
 	}
 
-	if !local && repoFull != "" && token != "" && pr > 0 {
-		parts := strings.SplitN(repoFull, "/", 2)
-		if len(parts) == 2 {
-			client, err := gh.New(ctx, token, parts[0], parts[1])
-			if err != nil {
-				return err
-			}
-			in.VCS = client
-			in.Comments = client
+	if !local {
+		// Without a VCS client, Preview falls back to running EVERY declared
+		// stack (no changed-file filtering). That is only correct in --local
+		// mode, so a non-local run with missing VCS inputs must fail loudly
+		// rather than silently planning every stack.
+		switch {
+		case repoFull == "":
+			return fmt.Errorf("non-local preview requires --repo (or GITHUB_REPOSITORY); use --local to run all declared stacks")
+		case token == "":
+			return fmt.Errorf("non-local preview requires --token (or GITHUB_TOKEN/REEVE_GITHUB_TOKEN); use --local to run all declared stacks")
+		case pr <= 0:
+			return fmt.Errorf("non-local preview requires --pr > 0; use --local to run all declared stacks")
 		}
+		parts := strings.SplitN(repoFull, "/", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return fmt.Errorf("invalid --repo %q: want owner/name", repoFull)
+		}
+		client, err := gh.New(ctx, token, parts[0], parts[1])
+		if err != nil {
+			return err
+		}
+		in.VCS = client
+		in.Comments = client
 	}
 
 	out, err := run.Preview(ctx, in)

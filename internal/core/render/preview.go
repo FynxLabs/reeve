@@ -32,6 +32,31 @@ type PreviewInput struct {
 	CIRunURL    string
 	Stacks      []summary.StackSummary
 	SortMode    string // "status_grouped" (default), "alphabetical"
+	StackView   string // "all" (default) lists every stack; "changed" hides no-ops
+	Notice      string // optional info banner (e.g. "already applied"); rendered above the table
+}
+
+// StackView values for the comment table.
+const (
+	StackViewAll     = "all"     // default: list every declared stack, no-ops included
+	StackViewChanged = "changed" // only list stacks with planned/applied changes
+)
+
+// tableStacks returns the stacks to render in the comment table, honoring the
+// view mode. "changed" drops no-ops; anything else (including "" -> default)
+// keeps every stack.
+func tableStacks(stacks []summary.StackSummary, view string) []summary.StackSummary {
+	if view != StackViewChanged {
+		return stacks
+	}
+	out := make([]summary.StackSummary, 0, len(stacks))
+	for _, s := range stacks {
+		if s.Status == summary.StatusNoOp {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // renderOpts controls which per-stack sections the renderer emits. Used
@@ -99,6 +124,9 @@ func renderPreview(in PreviewInput, opts renderOpts) string {
 	if opts.truncationNote != "" {
 		fmt.Fprintf(&b, "> ⚠️ %s\n\n", opts.truncationNote)
 	}
+	if in.Notice != "" {
+		fmt.Fprintf(&b, "> ℹ️ %s\n\n", in.Notice)
+	}
 	writeTable(&b, in)
 	writeSections(&b, in, opts)
 	return b.String()
@@ -150,9 +178,14 @@ func writeTable(b *strings.Builder, in PreviewInput) {
 		b.WriteString("_No stacks affected by this change._\n\n")
 		return
 	}
+	rows := tableStacks(in.Stacks, in.StackView)
+	if len(rows) == 0 {
+		b.WriteString("_No stacks with changes._\n\n")
+		return
+	}
 	b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Status |\n")
 	b.WriteString("|---|---|---|---|---|---|---|\n")
-	ordered := sorted(in.Stacks, in.SortMode)
+	ordered := sorted(rows, in.SortMode)
 	anyReplace := false
 	for _, s := range ordered {
 		if s.Counts.Replace > 0 {

@@ -79,6 +79,9 @@ type ApplyInput struct {
 	AuditWriter    *audit.Writer
 	OTEL           *reeveotel.Provider
 	Annotations    []annotations.Emitter
+	// Force re-applies even when this commit is already recorded as applied,
+	// bypassing the already-applied guard.
+	Force bool
 }
 
 // ApplyOutput bundles the artifacts from an apply run.
@@ -115,10 +118,19 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		return nil, err
 	}
 
-	if in.VCS != nil && in.PRNumber > 0 {
-		startBody := render.ApplyStarting(in.RunNumber, in.CommitSHA, in.CIRunURL)
-		if err := in.VCS.PostComment(ctx, in.PRNumber, startBody); err != nil {
-			slog.Warn("apply starting comment failed", "err", err, "pr", in.PRNumber)
+	timeline := newApplyTimeline(in.VCS, in.PRNumber, runID, in.RunNumber, in.CommitSHA, in.CIRunURL)
+	timeline.add(ctx, "🚀", "apply starting", "")
+
+	// Already-applied guard: if this exact commit was fully applied before and
+	// the caller didn't pass --force, there is nothing new to ship. Record it
+	// on the timeline and exit success rather than re-running side effects.
+	if !in.Force {
+		if prior, _ := readAppliedState(ctx, in.Blob, in.PRNumber, in.CommitSHA); prior != nil {
+			detail := fmt.Sprintf("commit %s was already applied on run #%d (%s). Re-run with `--force` to apply again.",
+				shortSHA(in.CommitSHA), prior.RunNumber, prior.AppliedAt)
+			timeline.add(ctx, "⏭️", "skipped", detail)
+			slog.Info("apply skipped: already applied", "sha", in.CommitSHA, "prior_run", prior.RunNumber)
+			return &ApplyOutput{RunID: runID, DurationSec: int(time.Since(start).Seconds())}, nil
 		}
 	}
 
@@ -446,11 +458,33 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		Stacks:      summaries,
 		SortMode:    sortMode,
 		Style:       commentStyle,
+		StackView:   stackView(in.Shared),
 	})
 
 	// 5. Write run manifest.
 	if err := writeApplyManifest(ctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA); err != nil {
 		return nil, fmt.Errorf("write manifest: %w", err)
+	}
+
+	// 5b. Timeline terminal event + applied-state pointer. Only a fully clean
+	// run (no failures, nothing blocked) records the applied marker, so a
+	// blocked/failed run can be safely re-run without tripping the guard.
+	finalOutcome := aggregateOutcome(summaries, anyBlocked)
+	switch finalOutcome {
+	case "failed":
+		timeline.add(ctx, "🔴", "failed", failedStacksDetail(summaries))
+	case "blocked":
+		timeline.add(ctx, "🔒", "blocked", blockedStacksDetail(summaries))
+	default:
+		timeline.add(ctx, "✅", "applied", changedStacksDetail(summaries))
+		if err := writeAppliedState(ctx, in.Blob, AppliedState{
+			CommitSHA: in.CommitSHA, RunID: runID, RunNumber: in.RunNumber,
+			AppliedAt: time.Now().UTC().Format(time.RFC3339), PR: in.PRNumber,
+		}); err != nil {
+			// Non-fatal: the apply shipped; a missing pointer only means a
+			// future re-run won't be auto-skipped.
+			slog.Warn("write applied-state failed", "err", err, "sha", in.CommitSHA)
+		}
 	}
 
 	// 6. Post PR comment.

@@ -49,6 +49,10 @@ comments:
   collapse_threshold: 10
   show_gates: true
   style: replace                   # replace (default) | append | section
+  stack_view: all                  # all (default) | changed
+
+retention:
+  max_age: 720h                    # default 720h (1 month); 0 disables pruning
 
 locking:
   ttl: 4h                          # default 4h
@@ -111,6 +115,41 @@ Controls how the apply comment relates to the preview comment.
 > **Draft PRs:** apply is always blocked on draft PRs regardless of config.
 > Convert to ready for review first. If `auto_ready: true` and a plan has succeeded,
 > reeve fires `/reeve ready` automatically when the PR converts from draft to ready for review.
+
+### `comments.stack_view`
+
+Controls which stacks the comment table lists.
+
+| Value | Behavior |
+| --- | --- |
+| `all` (default) | Lists every declared stack, no-ops included. |
+| `changed` | Lists only stacks with planned/applied changes. |
+
+### Apply timeline
+
+Each apply run owns one PR comment, pinned by a per-run marker. Events append in order:
+
+- 🚀 `apply starting`
+- ✅ `applied` — with changed stack refs
+- 🔴 `failed` — with failing stack refs
+- 🔒 `blocked` — with gate reason
+- ⏭️ `skipped` — commit already applied
+
+### Already-applied guard
+
+A fully-clean apply writes `runs/pr-<n>/applied/<sha>.json`. Re-running at the same commit:
+
+- **apply** — skips, posts the ⏭️ timeline notice, exits success.
+- **preview** — renders the plan with an "already applied" banner.
+- `--force` — bypasses the guard on both.
+
+### `retention.max_age`
+
+Run artifacts under `runs/` (manifests, applied-state pointers) are pruned at run start.
+
+- Go duration string; default `720h` (1 month).
+- `0` or negative disables pruning.
+- Age-based only — merged-PR cleanup needs VCS wiring reeve does not have, so artifacts age out.
 
 ### Approval rule merging
 
@@ -220,6 +259,12 @@ engine:
 4. **Resolve** - engine validates each remaining stack.
 5. **Map to changes** - on a PR, only stacks whose paths (or
    `extra_triggers`) intersect changed files are "affected".
+
+**Shared directories.** Many stacks can live in one directory, each with its own `Pulumi.<name>.yaml`. Change-mapping is per-file:
+
+- `Pulumi.<name>.yaml` change — affects only stack `<name>`.
+- Sibling `Pulumi.<other>.yaml` — ignored.
+- Shared `Pulumi.yaml`, program code, nested files — affect every stack in the directory.
 
 Inspect it:
 

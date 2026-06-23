@@ -16,7 +16,7 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
    succeeded, reeve fires `/reeve ready` automatically. Otherwise author runs it manually.
 5. Reviewers approve per configured rules.
 6. On `/reeve apply` comment → acquire locks, evaluate preconditions, run apply.
-6a. Apply posts a `🚀 apply starting` acknowledgement comment immediately on start, before any stack runs.
+6a. Apply posts a per-run timeline comment, starting with `🚀 apply starting` and appending each event (see rendering spec).
 7. Results update PR comment and Slack message.
 8. Audit log entry written to bucket.
 9. Locks released, queue advanced.
@@ -37,6 +37,14 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
   the CI runner checked out.
 - Stacks declared with `path: .` (repo root) are triggered by any changed file
   that survives `ignore_changes` filtering.
+
+## Already-applied guard
+
+A fully-clean apply (no failed/blocked stacks) writes `runs/pr-{n}/applied/{sha}.json`. A later run at the same commit:
+
+- **apply** - skips work, posts the ⏭️ timeline notice, exits success.
+- **preview** - renders the plan with an "already applied" banner.
+- `--force` - bypasses the guard on both; re-runs all side effects.
 
 ## Out of scope (v1)
 

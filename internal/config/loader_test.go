@@ -75,6 +75,32 @@ engine:
 	}
 }
 
+func TestStackViewAndRetentionParse(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket:
+  type: filesystem
+  name: ./.reeve-state
+comments:
+  stack_view: changed
+retention:
+  max_age: 48h
+`,
+		"pulumi.yaml": minimalPulumi(),
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Shared.Comments.StackView != "changed" {
+		t.Errorf("stack_view: got %q", cfg.Shared.Comments.StackView)
+	}
+	if cfg.Shared.Retention.MaxAge != "48h" {
+		t.Errorf("retention.max_age: got %q", cfg.Shared.Retention.MaxAge)
+	}
+}
+
 func TestUnknownFieldRejected(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": `version: 1

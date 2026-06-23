@@ -7,6 +7,7 @@ import (
 	"github.com/thefynx/reeve/internal/core/approvals"
 	"github.com/thefynx/reeve/internal/core/freeze"
 	"github.com/thefynx/reeve/internal/core/preconditions"
+	"github.com/thefynx/reeve/internal/core/render"
 )
 
 // toPreconditionsConfig extracts the preconditions gate config from shared.yaml.
@@ -28,6 +29,15 @@ func toPreconditionsConfig(s *schemas.Shared) preconditions.Config {
 		out.PreviewFreshness = d
 	}
 	return out
+}
+
+// stackView returns the comment table view mode ("all" or "changed") from
+// shared.yaml, defaulting to "all" when unset.
+func stackView(s *schemas.Shared) string {
+	if s == nil || s.Comments.StackView == "" {
+		return render.StackViewAll
+	}
+	return s.Comments.StackView
 }
 
 // ApprovalsConfigFor is the exported extractor used by `reeve rules explain`.

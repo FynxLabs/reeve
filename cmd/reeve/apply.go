@@ -76,6 +76,9 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "reaped %d expired lock(s)\n", n)
 	}
 
+	// Opportunistic blob retention: prune run artifacts older than max_age.
+	run.PruneRunArtifactsOpportunistic(ctx, store, cfg.Shared)
+
 	parts := strings.SplitN(repoFull, "/", 2)
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid --repo %q (want owner/name)", repoFull)
@@ -129,6 +132,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		Locks:          lockStore,
 		VCS:            client,
 		AuditWriter:    audit.NewWriter(store),
+		Force:          flagBool(cmd, "force"),
 	})
 	if err != nil {
 		return err
