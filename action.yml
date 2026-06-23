@@ -156,6 +156,10 @@ runs:
             COMMENT_BODY=$(jq -r .comment.body < "$GITHUB_EVENT_PATH")
             if [[ "$COMMENT_BODY" == /reeve\ apply* || "$COMMENT_BODY" == /reeve\ up* ]]; then
               CMD="apply"
+              # Allow re-applying an already-applied commit: "/reeve apply --force" or "/reeve apply force".
+              if [[ "$COMMENT_BODY" == *" --force"* || "$COMMENT_BODY" == *" force"* ]]; then
+                EXTRA="$EXTRA --force"
+              fi
             elif [[ "$COMMENT_BODY" == /reeve\ ready* ]]; then
               CMD="ready"
             elif [[ "$COMMENT_BODY" == /reeve\ preview* || "$COMMENT_BODY" == /reeve\ plan* ]]; then

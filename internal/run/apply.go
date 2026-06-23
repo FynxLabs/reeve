@@ -126,7 +126,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// on the timeline and exit success rather than re-running side effects.
 	if !in.Force {
 		if prior, _ := readAppliedState(ctx, in.Blob, in.PRNumber, in.CommitSHA); prior != nil {
-			detail := fmt.Sprintf("commit %s was already applied on run #%d (%s). Re-run with `--force` to apply again.",
+			detail := fmt.Sprintf("commit %s was already applied on run #%d (%s). Comment `/reeve apply --force` to apply again.",
 				shortSHA(in.CommitSHA), prior.RunNumber, prior.AppliedAt)
 			timeline.add(ctx, "⏭️", "skipped", detail)
 			slog.Info("apply skipped: already applied", "sha", in.CommitSHA, "prior_run", prior.RunNumber)

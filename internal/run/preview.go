@@ -143,7 +143,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	notice := ""
 	if !in.Force {
 		if prior, _ := readAppliedState(ctx, in.Blob, in.PRNumber, in.CommitSHA); prior != nil {
-			notice = fmt.Sprintf("Commit %s was already applied on run #%d (%s). Re-running apply is a no-op unless you pass `--force`.",
+			notice = fmt.Sprintf("Commit %s was already applied on run #%d (%s). Re-running apply is a no-op unless you comment `/reeve apply --force`.",
 				shortSHA(in.CommitSHA), prior.RunNumber, prior.AppliedAt)
 		}
 	}
