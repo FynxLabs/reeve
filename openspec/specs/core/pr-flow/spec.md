@@ -37,6 +37,10 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
   the CI runner checked out.
 - Stacks declared with `path: .` (repo root) are triggered by any changed file
   that survives `ignore_changes` filtering.
+- Docs/asset-only changes (skip globs) run nothing; preview/apply report
+  "Documentation/asset-only changes".
+- Files mapping to no stack broaden to all stacks under `scope: auto` (default);
+  `scope: pulumi_only` disables broadening. See discovery spec.
 
 ## Already-applied guard
 

@@ -230,8 +230,8 @@ engine:
       - stack: "*/scratch"         # or stack-ref glob
 
   change_mapping:
+    scope: auto                    # auto (default) | pulumi_only
     ignore_changes:
-      - "**/*.md"
       - "**/docs/**"
     extra_triggers:
       - project: api
@@ -257,14 +257,26 @@ engine:
    `Pulumi.<stack>.yaml` files.
 3. **Exclude** - `filters.exclude` drops entries.
 4. **Resolve** - engine validates each remaining stack.
-5. **Map to changes** - on a PR, only stacks whose paths (or
-   `extra_triggers`) intersect changed files are "affected".
+5. **Map to changes** - drop skippable files, match the rest to stacks by path
+   / `extra_triggers`; unmapped files broaden to all stacks (`scope: auto`).
 
 **Shared directories.** Many stacks can live in one directory, each with its own `Pulumi.<name>.yaml`. Change-mapping is per-file:
 
 - `Pulumi.<name>.yaml` change — affects only stack `<name>`.
 - Sibling `Pulumi.<other>.yaml` — ignored.
 - Shared `Pulumi.yaml`, program code, nested files — affect every stack in the directory.
+
+**Docs/asset-only changes.** Built-in skip globs cover non-load-bearing files: `*.md`, `*.markdown`, `*.adoc`, `*.asciidoc`, `*.rst`, `*.txt`, `LICENSE`, images (`*.png/jpg/jpeg/gif/svg/webp`). Merged with `ignore_changes`.
+
+- All changed files skippable — run nothing, post "Documentation/asset-only changes".
+- `docs/` directories are not skipped; they can hold config or program-read data.
+
+**`change_mapping.scope`.** Controls behavior when a changed file maps to no specific stack (shared lib, provider code, root `go.mod`).
+
+| Value | Behavior |
+| --- | --- |
+| `auto` (default) | Preview/apply all stacks; post a header naming the unmapped files. |
+| `pulumi_only` | Act only on files inside a stack directory; never broaden. |
 
 Inspect it:
 

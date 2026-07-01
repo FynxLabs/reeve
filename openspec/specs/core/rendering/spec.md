@@ -61,7 +61,8 @@ comment in place:
 - ✅ `applied` - changed stack refs.
 - 🔴 `failed` - failing stack refs.
 - 🔒 `blocked` - gate reason.
-- ⏭️ `skipped` - commit already applied.
+- ⏭️ `skipped` - commit already applied, or docs/asset-only changes.
+- 📡 `scope broadened` - unmapped files; applying all stacks.
 
 Separate from the replace-style dashboard comment.
 

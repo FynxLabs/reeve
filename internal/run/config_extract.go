@@ -1,14 +1,45 @@
 package run
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/approvals"
+	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/core/freeze"
 	"github.com/thefynx/reeve/internal/core/preconditions"
 	"github.com/thefynx/reeve/internal/core/render"
 )
+
+// mappingNoticeFor returns a PR-comment banner explaining a non-normal
+// change-mapping outcome, or "" for the normal matched case.
+func mappingNoticeFor(res discovery.AffectedResult) string {
+	switch res.Reason {
+	case discovery.ReasonDocsOnly:
+		return "Documentation/asset-only changes detected — no Pulumi stacks affected."
+	case discovery.ReasonBroadened:
+		shown := res.Unmapped
+		if len(shown) > 5 {
+			shown = append(append([]string{}, shown[:5]...), fmt.Sprintf("…and %d more", len(res.Unmapped)-5))
+		}
+		return fmt.Sprintf("Previewing all stacks: changed files map to no specific stack (e.g. shared/provider code): %s. Set `change_mapping.scope: pulumi_only` to disable.",
+			strings.Join(shown, ", "))
+	}
+	return ""
+}
+
+// joinNotices concatenates two non-empty notice strings with a separator.
+func joinNotices(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "\n>\n> " + b
+}
 
 // toPreconditionsConfig extracts the preconditions gate config from shared.yaml.
 func toPreconditionsConfig(s *schemas.Shared) preconditions.Config {

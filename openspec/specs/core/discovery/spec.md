@@ -23,8 +23,23 @@ per plan appendix). Revisit only if a user files a concrete need.
 2. **Include** - if any include rules exist, only matching entries pass.
 3. **Exclude** - drop matching entries.
 4. **Resolve** - engine verifies each remaining stack exists.
-5. **Map to changes** - stack is "affected" if changed files intersect its
-   paths or declared dependencies.
+5. **Map to changes** - drop skippable files, match the rest to stacks; unmapped
+   files broaden to all stacks under `scope: auto`.
+
+## Change-mapping order
+
+1. **Skip** - drop files matching default skip globs + `ignore_changes`.
+2. **Docs-only** - if nothing remains, run nothing; report "Documentation/asset-only changes".
+3. **Match** - remaining files map to stacks by path / per-stack config / `extra_triggers`.
+4. **Broaden** - files matching no stack are "unmapped". `scope: auto` (default) previews/applies all stacks and reports why; `scope: pulumi_only` ignores them.
+
+## Default skip globs
+
+Non-load-bearing files, merged with `ignore_changes`:
+
+- `*.md`, `*.markdown`, `*.adoc`, `*.asciidoc`, `*.rst`, `*.txt`, `LICENSE`.
+- Images: `*.png`, `*.jpg`, `*.jpeg`, `*.gif`, `*.svg`, `*.webp`.
+- `docs/` directories are NOT skipped - they can hold config or program-read data.
 
 ## Shared-directory change mapping
 

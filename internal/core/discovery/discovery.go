@@ -41,6 +41,53 @@ type Filter struct {
 type ChangeMapping struct {
 	IgnoreChanges []string            // globs of paths to ignore entirely
 	ExtraTriggers map[string][]string // project -> extra path patterns that trigger it
+	// Scope: "auto" (default) previews all stacks when a changed file maps to
+	// no specific stack; "pulumi_only" never broadens.
+	Scope string
+}
+
+// Change-mapping scope values (mirrored in config schema).
+const (
+	ScopeAuto       = "auto"
+	ScopePulumiOnly = "pulumi_only"
+)
+
+// DefaultSkipGlobs are non-load-bearing file types that never affect a Pulumi
+// run: docs and image assets. A change touching ONLY these is reported as
+// docs-only and runs nothing. Merged with user IgnoreChanges. Deliberately
+// excludes docs/ directories - those can hold config or program-read data.
+var DefaultSkipGlobs = []string{
+	"**/*.md", "*.md",
+	"**/*.markdown", "*.markdown",
+	"**/*.adoc", "*.adoc",
+	"**/*.asciidoc", "*.asciidoc",
+	"**/*.rst", "*.rst",
+	"**/*.txt", "*.txt",
+	"**/LICENSE", "LICENSE",
+	"**/*.png", "**/*.jpg", "**/*.jpeg", "**/*.gif", "**/*.svg", "**/*.webp",
+}
+
+// AffectReason explains why Affected returned the set it did, so callers can
+// surface context in the PR comment.
+type AffectReason int
+
+const (
+	// ReasonMatched: changed files mapped to specific stacks (normal path).
+	ReasonMatched AffectReason = iota
+	// ReasonDocsOnly: every changed file was skippable (docs/images); no run.
+	ReasonDocsOnly
+	// ReasonBroadened: a changed file mapped to no stack and scope=auto, so
+	// every declared stack is previewed.
+	ReasonBroadened
+)
+
+// AffectedResult bundles the affected stacks with the reason.
+type AffectedResult struct {
+	Stacks []Stack
+	Reason AffectReason
+	// Unmapped lists changed files (post-skip) that matched no stack; only
+	// populated when Reason == ReasonBroadened, for the explanation header.
+	Unmapped []string
 }
 
 // Resolve expands declarations into concrete stacks and applies filters.
@@ -111,38 +158,77 @@ func containsStack(list []string, name string) bool {
 }
 
 // Affected returns the subset of stacks whose paths (or ExtraTriggers)
-// intersect the given changed files, honoring IgnoreChanges.
+// intersect the given changed files. Thin wrapper over AffectedDetailed for
+// callers that only need the stack list.
 func Affected(stacks []Stack, changedFiles []string, cm ChangeMapping) []Stack {
-	// Drop ignored files first.
+	return AffectedDetailed(stacks, changedFiles, cm).Stacks
+}
+
+// AffectedDetailed maps changed files to stacks and explains the result.
+//
+// Order:
+//  1. Drop skippable files (DefaultSkipGlobs + IgnoreChanges).
+//  2. If nothing remains -> ReasonDocsOnly, no stacks.
+//  3. Match remaining files to specific stacks (path / per-stack config /
+//     ExtraTriggers).
+//  4. Files that matched no stack are "unmapped". With Scope=auto (default)
+//     and at least one unmapped file -> ReasonBroadened, preview every stack.
+//     With Scope=pulumi_only, unmapped files are ignored.
+func AffectedDetailed(stacks []Stack, changedFiles []string, cm ChangeMapping) AffectedResult {
+	skip := append(append([]string{}, DefaultSkipGlobs...), cm.IgnoreChanges...)
 	filtered := make([]string, 0, len(changedFiles))
 	for _, f := range changedFiles {
-		ignore := false
-		for _, g := range cm.IgnoreChanges {
-			if ok, _ := doublestar.PathMatch(g, f); ok {
-				ignore = true
-				break
-			}
+		if matchesAny(skip, []string{f}) {
+			continue
 		}
-		if !ignore {
-			filtered = append(filtered, f)
-		}
+		filtered = append(filtered, f)
 	}
 
 	if len(filtered) == 0 {
-		return nil
+		return AffectedResult{Reason: ReasonDocsOnly}
 	}
 
 	out := make([]Stack, 0, len(stacks))
+	matchedFiles := map[string]bool{}
 	for _, s := range stacks {
+		hit := false
 		if intersectsPath(s, filtered) {
-			out = append(out, s)
-			continue
+			hit = true
+		} else if triggers, ok := cm.ExtraTriggers[s.Project]; ok && matchesAny(triggers, filtered) {
+			hit = true
 		}
-		if triggers, ok := cm.ExtraTriggers[s.Project]; ok && matchesAny(triggers, filtered) {
+		if hit {
 			out = append(out, s)
+			markMatched(matchedFiles, s, filtered, cm)
 		}
 	}
-	return out
+
+	// Unmapped: post-skip files that no stack claimed.
+	var unmapped []string
+	for _, f := range filtered {
+		if !matchedFiles[f] {
+			unmapped = append(unmapped, f)
+		}
+	}
+
+	if len(unmapped) > 0 && cm.Scope != ScopePulumiOnly {
+		return AffectedResult{Stacks: stacks, Reason: ReasonBroadened, Unmapped: unmapped}
+	}
+	return AffectedResult{Stacks: out, Reason: ReasonMatched}
+}
+
+// markMatched records which filtered files caused stack s to be selected, so
+// the caller can compute the unmapped remainder.
+func markMatched(matched map[string]bool, s Stack, filtered []string, cm ChangeMapping) {
+	for _, f := range filtered {
+		if fileMatchesStack(s, f) {
+			matched[f] = true
+			continue
+		}
+		if triggers, ok := cm.ExtraTriggers[s.Project]; ok && matchesAny(triggers, []string{f}) {
+			matched[f] = true
+		}
+	}
 }
 
 // intersectsPath reports whether any changed file affects the given stack.
@@ -156,31 +242,36 @@ func Affected(stacks []Stack, changedFiles []string, cm ChangeMapping) []Stack {
 //   - any other file in/under the dir (program code, the shared Pulumi.yaml,
 //     nested files) -> shared, affects every stack in the dir.
 func intersectsPath(s Stack, changed []string) bool {
+	for _, f := range changed {
+		if fileMatchesStack(s, f) {
+			return true
+		}
+	}
+	return false
+}
+
+// fileMatchesStack reports whether a single changed file affects stack s by
+// path. Per-stack config files (Pulumi.<name>.yaml) count only for their own
+// stack; shared dir files (program code, Pulumi.yaml, nested) count for all
+// stacks in the dir.
+func fileMatchesStack(s Stack, f string) bool {
 	stackPath := s.Path
 	root := stackPath == "." || stackPath == ""
 	prefix := stackPath + "/"
 	if root {
 		prefix = ""
 	}
-	for _, f := range changed {
-		if !root && f != stackPath && !strings.HasPrefix(f, prefix) {
-			continue
-		}
-		rel := f
-		if !root {
-			rel = strings.TrimPrefix(f, prefix)
-		}
-		// A per-stack config file directly in the stack dir only counts for
-		// its own stack; a sibling's config is skipped.
-		if name, ok := stackConfigName(rel); ok {
-			if name == s.Name {
-				return true
-			}
-			continue
-		}
-		return true
+	if !root && f != stackPath && !strings.HasPrefix(f, prefix) {
+		return false
 	}
-	return false
+	rel := f
+	if !root {
+		rel = strings.TrimPrefix(f, prefix)
+	}
+	if name, ok := stackConfigName(rel); ok {
+		return name == s.Name
+	}
+	return true
 }
 
 // stackConfigName returns the stack name encoded in a "Pulumi.<name>.yaml"
