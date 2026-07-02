@@ -133,6 +133,60 @@ func TestAffectedSharedDirNestedFile(t *testing.T) {
 	}
 }
 
+func TestAffectedDocsOnlySkip(t *testing.T) {
+	stacks := []Stack{{Project: "api", Path: "projects/api", Name: "prod"}}
+	for _, f := range []string{"README.md", "docs/guide.adoc", "NOTES.txt", "x.rst", "logo.png", "LICENSE"} {
+		res := AffectedDetailed(stacks, []string{f}, ChangeMapping{})
+		if res.Reason != ReasonDocsOnly || len(res.Stacks) != 0 {
+			t.Errorf("%s: want docs-only/no stacks, got reason=%v stacks=%v", f, res.Reason, res.Stacks)
+		}
+	}
+}
+
+func TestAffectedMixedDocsAndCodeStillMatches(t *testing.T) {
+	stacks := []Stack{{Project: "api", Path: "projects/api", Name: "prod"}}
+	res := AffectedDetailed(stacks, []string{"README.md", "projects/api/main.go"}, ChangeMapping{})
+	if res.Reason != ReasonMatched || len(res.Stacks) != 1 {
+		t.Fatalf("md dropped, code matches api: reason=%v stacks=%v", res.Reason, res.Stacks)
+	}
+}
+
+func TestAffectedBroadenOnUnmapped(t *testing.T) {
+	stacks := []Stack{
+		{Project: "api", Path: "projects/api", Name: "prod"},
+		{Project: "web", Path: "projects/web", Name: "prod"},
+	}
+	// Shared lib outside any stack dir -> preview all (auto default).
+	res := AffectedDetailed(stacks, []string{"shared/provider/aws.go"}, ChangeMapping{})
+	if res.Reason != ReasonBroadened || len(res.Stacks) != 2 {
+		t.Fatalf("unmapped code should broaden to all: reason=%v stacks=%v", res.Reason, res.Stacks)
+	}
+	if len(res.Unmapped) != 1 || res.Unmapped[0] != "shared/provider/aws.go" {
+		t.Errorf("unmapped list wrong: %v", res.Unmapped)
+	}
+}
+
+func TestAffectedPulumiOnlyNoBroaden(t *testing.T) {
+	stacks := []Stack{{Project: "api", Path: "projects/api", Name: "prod"}}
+	res := AffectedDetailed(stacks, []string{"shared/provider/aws.go"},
+		ChangeMapping{Scope: ScopePulumiOnly})
+	if res.Reason != ReasonMatched || len(res.Stacks) != 0 {
+		t.Fatalf("pulumi_only must not broaden: reason=%v stacks=%v", res.Reason, res.Stacks)
+	}
+}
+
+func TestAffectedMappedCodeDoesNotBroaden(t *testing.T) {
+	stacks := []Stack{
+		{Project: "api", Path: "projects/api", Name: "prod"},
+		{Project: "web", Path: "projects/web", Name: "prod"},
+	}
+	// Change is in api's dir -> only api, no broaden.
+	res := AffectedDetailed(stacks, []string{"projects/api/main.go"}, ChangeMapping{})
+	if res.Reason != ReasonMatched || len(res.Stacks) != 1 || res.Stacks[0].Project != "api" {
+		t.Fatalf("mapped code must not broaden: reason=%v stacks=%v", res.Reason, res.Stacks)
+	}
+}
+
 func TestAffectedNoChangesAllIgnored(t *testing.T) {
 	stacks := []Stack{{Project: "api", Path: "projects/api", Name: "prod"}}
 	changed := []string{"README.md", "docs/x.md"}

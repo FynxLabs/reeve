@@ -105,6 +105,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	declared := discovery.Resolve(enum, decls, filter)
 
 	var target []discovery.Stack
+	mappingNotice := ""
 	if in.Local || in.VCS == nil {
 		target = declared
 		slog.Debug("preview target: all declared stacks", "count", len(target))
@@ -115,8 +116,10 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		}
 		slog.Debug("changed files", "count", len(changed), "files", changed)
 		cm := changeMappingFromConfig(in.Config)
-		target = discovery.Affected(declared, changed, cm)
-		slog.Debug("preview target: affected stacks", "count", len(target))
+		res := discovery.AffectedDetailed(declared, changed, cm)
+		target = res.Stacks
+		mappingNotice = mappingNoticeFor(res)
+		slog.Debug("preview target: affected stacks", "count", len(target), "reason", res.Reason)
 	}
 	for _, s := range target {
 		slog.Debug("target stack", "ref", s.Ref(), "path", s.Path)
@@ -140,11 +143,12 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	// Already-applied notice: if this commit was fully applied before and the
 	// caller didn't force, flag it so reviewers know an apply re-run would be
 	// a no-op (the plan still renders; preview is read-only).
-	notice := ""
+	notice := mappingNotice
 	if !in.Force {
 		if prior, _ := readAppliedState(ctx, in.Blob, in.PRNumber, in.CommitSHA); prior != nil {
-			notice = fmt.Sprintf("Commit %s was already applied on run #%d (%s). Re-running apply is a no-op unless you comment `/reeve apply --force`.",
+			appliedNote := fmt.Sprintf("Commit %s was already applied on run #%d (%s). Re-running apply is a no-op unless you comment `/reeve apply --force`.",
 				shortSHA(in.CommitSHA), prior.RunNumber, prior.AppliedAt)
+			notice = joinNotices(notice, appliedNote)
 		}
 	}
 
@@ -310,6 +314,7 @@ func changeMappingFromConfig(e *schemas.Engine) discovery.ChangeMapping {
 	}
 	cm := discovery.ChangeMapping{
 		IgnoreChanges: e.Engine.ChangeMapping.IgnoreChanges,
+		Scope:         e.Engine.ChangeMapping.Scope,
 	}
 	if len(e.Engine.ChangeMapping.ExtraTriggers) > 0 {
 		cm.ExtraTriggers = map[string][]string{}

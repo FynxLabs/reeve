@@ -148,10 +148,21 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	}
 	slog.Debug("changed files", "count", len(changed), "files", changed)
 	cm := changeMappingFromConfig(in.Config)
-	target := discovery.Affected(declared, changed, cm)
-	slog.Debug("apply target stacks", "count", len(target))
+	mapRes := discovery.AffectedDetailed(declared, changed, cm)
+	target := mapRes.Stacks
+	slog.Debug("apply target stacks", "count", len(target), "reason", mapRes.Reason)
 	for _, s := range target {
 		slog.Debug("target stack", "ref", s.Ref(), "path", s.Path)
+	}
+
+	// Docs/asset-only change: nothing to apply. Record on the timeline and exit.
+	if mapRes.Reason == discovery.ReasonDocsOnly {
+		timeline.add(ctx, "⏭️", "skipped", "documentation/asset-only changes — no Pulumi stacks affected")
+		slog.Info("apply skipped: docs-only changes")
+		return &ApplyOutput{RunID: runID, DurationSec: int(time.Since(start).Seconds())}, nil
+	}
+	if mapRes.Reason == discovery.ReasonBroadened {
+		timeline.add(ctx, "📡", "scope broadened", "changed files map to no specific stack; applying all stacks")
 	}
 
 	// 2. Per-stack context: PR + checks + upstream-commits + approvals + CODEOWNERS.

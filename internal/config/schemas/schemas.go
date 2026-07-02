@@ -189,7 +189,19 @@ type ExcludeRule struct {
 type ChangeMap struct {
 	IgnoreChanges []string       `yaml:"ignore_changes"`
 	ExtraTriggers []ExtraTrigger `yaml:"extra_triggers"`
+	// Scope controls behavior when a changed file maps to no specific stack:
+	//   auto (default) - Pulumi-relevant source outside any stack dir previews
+	//                    every declared stack.
+	//   pulumi_only    - act only on files inside a stack dir (Pulumi.yaml
+	//                    present); never broaden to all stacks.
+	Scope string `yaml:"scope"`
 }
+
+// Change-mapping scope values.
+const (
+	ScopeAuto       = "auto" // default
+	ScopePulumiOnly = "pulumi_only"
+)
 
 type ExtraTrigger struct {
 	Project string   `yaml:"project"`

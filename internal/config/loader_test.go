@@ -101,6 +101,35 @@ retention:
 	}
 }
 
+func TestChangeMappingScopeParse(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket: {type: filesystem, name: x}
+`,
+		"pulumi.yaml": `version: 1
+config_type: engine
+engine:
+  type: pulumi
+  binary:
+    path: pulumi
+  stacks:
+    - project: api
+      path: projects/api
+      stacks: [prod]
+  change_mapping:
+    scope: pulumi_only
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Engines[0].Engine.ChangeMapping.Scope != "pulumi_only" {
+		t.Errorf("scope: got %q", cfg.Engines[0].Engine.ChangeMapping.Scope)
+	}
+}
+
 func TestUnknownFieldRejected(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": `version: 1
