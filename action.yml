@@ -17,14 +17,6 @@ inputs:
       "locks list", etc. Omit to auto-detect from the GitHub event context.
     required: false
     default: ""
-  ref:
-    description: >-
-      Git ref of FynxLabs/reeve to build from. Defaults to the ref the action
-      was invoked with, so `@master` builds the v0 source, `@v1.2.3` builds v1.2.3,
-      and `@master` builds master. Only set this to pin the build to a ref
-      different from the action version.
-    required: false
-    default: ""
   root:
     description: Path to the consumer repo root (where .reeve/ lives). Defaults to $GITHUB_WORKSPACE.
     required: false
@@ -61,30 +53,34 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Checkout reeve source
-      uses: actions/checkout@v6
-      with:
-        repository: FynxLabs/reeve
-        # Build from the ref the action was called with (github.action_ref) so
-        # a pinned @master / @v1.2.3 builds that exact source. Empty action_ref
-        # (e.g. local ./ use) falls back to the default branch.
-        ref: ${{ inputs.ref != '' && inputs.ref || github.action_ref }}
-        path: _reeve
-        fetch-depth: 1
+    # reeve's own source is already on disk at github.action_path - it's the
+    # tree GHA checked out for the @ref this action was pinned with (@v1, @master,
+    # @v1.2.3). Build from there directly: no re-clone, no ref resolution, so the
+    # binary always matches the pinned action version.
+    - name: Hash reeve source
+      id: reeve-hash
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        HASH=$(find "$ACTION_PATH" \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -type f \
+          -exec sha256sum {} + | sort | sha256sum | cut -d' ' -f1)
+        echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
     - name: Restore reeve binary cache
       id: reeve-cache
       uses: actions/cache@v5
       with:
         path: ${{ runner.temp }}/reeve-bin/reeve
-        key: reeve-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('_reeve/go.sum', '_reeve/**/*.go') }}
+        key: reeve-${{ runner.os }}-${{ runner.arch }}-${{ steps.reeve-hash.outputs.hash }}
 
     - name: Set up Go (from reeve's go.mod)
       if: steps.reeve-cache.outputs.cache-hit != 'true'
       uses: actions/setup-go@v6
       with:
-        go-version-file: _reeve/go.mod
-        cache-dependency-path: _reeve/go.sum
+        go-version-file: ${{ github.action_path }}/go.mod
+        cache-dependency-path: ${{ github.action_path }}/go.sum
 
     - name: Build reeve
       if: steps.reeve-cache.outputs.cache-hit != 'true'
@@ -93,7 +89,7 @@ runs:
         set -euo pipefail
         mkdir -p "$RUNNER_TEMP/reeve-bin"
         go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/reeve-bin/reeve" ./cmd/reeve
-      working-directory: _reeve
+      working-directory: ${{ github.action_path }}
 
     - name: Add reeve to PATH
       shell: bash
