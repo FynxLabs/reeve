@@ -15,6 +15,7 @@
 package log
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -56,25 +57,62 @@ func ParseFormat(name string) Format {
 	return FormatText
 }
 
-// Install builds a handler at the given level/format writing to w (typically
-// os.Stderr) and installs it as slog.Default(). Returns the installed logger
-// for callers that want to pass it explicitly instead of relying on the
-// default.
+// Install builds a handler at the given level/format and installs it as
+// slog.Default(). Returns the installed logger for callers that want to pass it
+// explicitly instead of relying on the default.
+//
+// When w is nil, records split by level: Debug/Info -> stdout, Warn/Error ->
+// stderr. This matters under GitHub Actions, which renders ANY stderr line as a
+// red "Error:" - routing normal logs to stdout stops debug traces from looking
+// like failures. When w is non-nil (tests), everything goes to w.
 func Install(w io.Writer, level slog.Level, format Format) *slog.Logger {
-	if w == nil {
-		w = os.Stderr
-	}
 	opts := &slog.HandlerOptions{Level: level}
 	var h slog.Handler
-	switch format {
-	case FormatJSON:
-		h = slog.NewJSONHandler(w, opts)
-	default:
-		h = slog.NewTextHandler(w, opts)
+	if w != nil {
+		h = newHandler(w, format, opts)
+	} else {
+		h = &splitHandler{
+			out: newHandler(os.Stdout, format, opts),
+			err: newHandler(os.Stderr, format, opts),
+		}
 	}
 	logger := slog.New(h)
 	slog.SetDefault(logger)
 	return logger
+}
+
+func newHandler(w io.Writer, format Format, opts *slog.HandlerOptions) slog.Handler {
+	if format == FormatJSON {
+		return slog.NewJSONHandler(w, opts)
+	}
+	return slog.NewTextHandler(w, opts)
+}
+
+// splitHandler routes Warn/Error to err and everything below to out. Both
+// wrapped handlers share the same level threshold, so Enabled/attrs/groups
+// delegate to either (out) consistently.
+type splitHandler struct {
+	out slog.Handler
+	err slog.Handler
+}
+
+func (s *splitHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return s.out.Enabled(ctx, l)
+}
+
+func (s *splitHandler) Handle(ctx context.Context, r slog.Record) error {
+	if r.Level >= slog.LevelWarn {
+		return s.err.Handle(ctx, r)
+	}
+	return s.out.Handle(ctx, r)
+}
+
+func (s *splitHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &splitHandler{out: s.out.WithAttrs(attrs), err: s.err.WithAttrs(attrs)}
+}
+
+func (s *splitHandler) WithGroup(name string) slog.Handler {
+	return &splitHandler{out: s.out.WithGroup(name), err: s.err.WithGroup(name)}
 }
 
 // FromEnv installs a logger from REEVE_LOG_LEVEL and REEVE_LOG_FORMAT,
@@ -101,5 +139,6 @@ func FromConfig(levelFlag, formatFlag, cfgLevel, cfgFormat string) *slog.Logger 
 	if format == "" {
 		format = cfgFormat
 	}
-	return Install(os.Stderr, Level(level), ParseFormat(format))
+	// nil writer -> level-split (Debug/Info to stdout, Warn/Error to stderr).
+	return Install(nil, Level(level), ParseFormat(format))
 }
