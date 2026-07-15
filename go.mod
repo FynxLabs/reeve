@@ -1,6 +1,6 @@
 module github.com/thefynx/reeve
 
-go 1.26.4
+go 1.26
 
 require (
 	cloud.google.com/go/storage v1.63.0
