@@ -111,7 +111,7 @@ runs:
 
     - name: Install Pulumi CLI
       if: ${{ inputs.pulumi-version != '' }}
-      uses: pulumi/actions@v6
+      uses: pulumi/actions@v7
       with:
         pulumi-version: ${{ inputs.pulumi-version }}
 
