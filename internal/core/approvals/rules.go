@@ -234,28 +234,34 @@ func names(aa []Approval) []string {
 	return out
 }
 
+// intersect returns the distinct approvers eligible under the allow-list:
+// listed directly, or a member of any listed team slug. GitHub counts
+// humans, not list entries - required_approvals=2 with a single team in
+// approvers passes once two team members approve.
 func intersect(approvers, required []string, teams map[string][]string) []string {
-	set := map[string]struct{}{}
-	for _, a := range approvers {
-		set[strings.TrimPrefix(a, "@")] = struct{}{}
-	}
-	var hits []string
+	eligible := map[string]struct{}{}
 	for _, r := range required {
 		r = strings.TrimPrefix(r, "@")
-		if _, ok := set[r]; ok {
-			hits = append(hits, r)
-			continue
-		}
-		// Team slug ("org/team"): expand via the pre-resolved map and check
-		// whether any expanded member is in the approver set.
 		if isTeamSlug(r) {
 			for _, member := range teams[r] {
-				if _, ok := set[strings.TrimPrefix(member, "@")]; ok {
-					hits = append(hits, r)
-					break
-				}
+				eligible[strings.TrimPrefix(member, "@")] = struct{}{}
 			}
+			continue
 		}
+		eligible[r] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	var hits []string
+	for _, a := range approvers {
+		a = strings.TrimPrefix(a, "@")
+		if _, ok := eligible[a]; !ok {
+			continue
+		}
+		if _, dup := seen[a]; dup {
+			continue
+		}
+		seen[a] = struct{}{}
+		hits = append(hits, a)
 	}
 	return hits
 }

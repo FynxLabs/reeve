@@ -130,6 +130,31 @@ func TestEvaluateTeamSlugExpansion(t *testing.T) {
 	}
 }
 
+func TestEvaluateRequiredApprovalsCountsTeamMembers(t *testing.T) {
+	// required_approvals counts humans, not allow-list entries: two members
+	// of a single listed team must satisfy required_approvals=2. Previously
+	// each entry could contribute at most one hit, so this could never pass.
+	rules := Rules{
+		RequiredApprovals: 2,
+		Approvers:         []string{"@org/infra-reviewers"},
+		TeamMembers:       map[string][]string{"org/infra-reviewers": {"alice", "bob", "carol"}},
+	}
+	pr := PR{Number: 7, HeadSHA: "sha1", Author: "dave"}
+	res := Evaluate(rules, []Approval{{Approver: "alice"}}, pr, nil, "dave")
+	if res.Satisfied {
+		t.Fatalf("one approval must not satisfy required_approvals=2: %+v", res)
+	}
+	res = Evaluate(rules, []Approval{{Approver: "alice"}, {Approver: "bob"}}, pr, nil, "dave")
+	if !res.Satisfied {
+		t.Fatalf("two team members must satisfy required_approvals=2: %+v", res)
+	}
+	// Duplicate approvals from the same person count once.
+	res = Evaluate(rules, []Approval{{Approver: "alice"}, {Approver: "alice"}}, pr, nil, "dave")
+	if res.Satisfied {
+		t.Fatalf("duplicate approver must count once: %+v", res)
+	}
+}
+
 func TestEvaluateInputApprovalsNotMutated(t *testing.T) {
 	// The previous Evaluate aliased the input slice via approvals[:0] and
 	// patched it back, silently corrupting the caller's slice header.

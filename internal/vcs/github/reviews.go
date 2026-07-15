@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	gh "github.com/google/go-github/v66/github"
@@ -214,12 +215,18 @@ func (c *Client) CompareBranches(ctx context.Context, base, head string) (int, e
 }
 
 // FetchCodeowners returns the raw CODEOWNERS file contents from the
-// repo's default branch. Returns "" and nil error if absent.
+// repo's default branch. Returns "" and nil error if absent. Only a 404
+// is treated as absence - auth/transport/rate-limit errors propagate so
+// the codeowners gate fails closed instead of silently evaluating with no
+// owners.
 func (c *Client) FetchCodeowners(ctx context.Context) (string, error) {
 	for _, path := range []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"} {
-		f, _, _, err := c.gh.Repositories.GetContents(ctx, c.owner, c.repo, path, nil)
+		f, _, resp, err := c.gh.Repositories.GetContents(ctx, c.owner, c.repo, path, nil)
 		if err != nil {
-			continue
+			if resp != nil && resp.StatusCode == http.StatusNotFound {
+				continue
+			}
+			return "", fmt.Errorf("get %s: %w", path, err)
 		}
 		if f == nil {
 			continue
