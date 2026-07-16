@@ -10,6 +10,8 @@
 | worker/prod | prod | 0 | 3 | 0 | 1 | ✅ planned |
 | noop/dev | dev | 0 | 0 | 0 | 0 | · no-op |
 
+<sub>Legend: `+` create · `~` update in place · `-` delete · `±` replace (delete & recreate)</sub>
+
 ⚠️ Replacements detected - review carefully.
 
 ---

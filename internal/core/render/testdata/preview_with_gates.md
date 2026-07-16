@@ -7,6 +7,8 @@
 |---|---|---|---|---|---|---|
 | api/prod | prod | 1 | 0 | 0 | 0 | ✅ planned |
 
+<sub>Legend: `+` create · `~` update in place · `-` delete · `±` replace (delete & recreate)</sub>
+
 ---
 
 ### api/prod · prod · ✅ planned
