@@ -197,6 +197,7 @@ func writeTable(b *strings.Builder, in PreviewInput) {
 			statusCell(s))
 	}
 	b.WriteString("\n")
+	b.WriteString("<sub>Legend: `+` create · `~` update in place · `-` delete · `±` replace (delete & recreate)</sub>\n\n")
 	if anyReplace {
 		b.WriteString("⚠️ Replacements detected - review carefully.\n\n")
 	}

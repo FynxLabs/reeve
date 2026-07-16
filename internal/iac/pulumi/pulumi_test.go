@@ -76,8 +76,54 @@ func TestParsePreviewFromFixture(t *testing.T) {
 	if short == "" {
 		t.Fatal("expected non-empty summary")
 	}
-	if want := "+ aws:s3/bucket:Bucket  logs-2026"; !contains(short, want) {
+	if want := "+ logs-2026  (aws:Bucket)"; !contains(short, want) {
 		t.Fatalf("summary missing %q: %s", want, short)
+	}
+}
+
+func TestParsePreviewGroupedSummary(t *testing.T) {
+	json := []byte(`{
+		"changeSummary": {"create": 1, "update": 1, "same": 3},
+		"steps": [
+			{"op":"same","urn":"urn:pulumi:prod::api::pulumi:pulumi:Stack::api-prod"},
+			{"op":"create",
+			 "urn":"urn:pulumi:prod::api::cloudflare:index/zeroTrustTunnelCloudflaredConfig:ZeroTrustTunnelCloudflaredConfig::Apple Pay Abel-config",
+			 "newState":{
+				"type":"cloudflare:index/zeroTrustTunnelCloudflaredConfig:ZeroTrustTunnelCloudflaredConfig",
+				"inputs":{
+					"accountId":"0fdf4fa7c335d942f6ec062a4433addf",
+					"tunnelId":"74aa6dbe-a42f-4551-921b-e6adc39a6151",
+					"config":{"ingresses":[{"hostname":"applepay-dev1.stg.credova.com","service":"http://localhost:3000"},{"service":"http_status:404"}]},
+					"token":{"4dabf18193072939515e22adb298388d":"1b47061264138c4ac30d75fd1eb44270","ciphertext":"AAAA"}
+				}}},
+			{"op":"update",
+			 "urn":"urn:pulumi:prod::api::aws:ec2/instance:Instance::web",
+			 "type":"aws:ec2/instance:Instance",
+			 "detailedDiff":{"instanceType":{"kind":"update"},"tags.env":{"kind":"add"}},
+			 "oldState":{"inputs":{"instanceType":"t3.small","tags":{}}},
+			 "newState":{"inputs":{"instanceType":"t3.large","tags":{"env":"prod"}}}}
+		]
+	}`)
+	_, short, _, err := parsePreview(json)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"+ Apple Pay Abel-config  (cloudflare:ZeroTrustTunnelCloudflaredConfig)",
+		`+     accountId: "0fdf4fa7c335d942f6ec062a4433addf"`,
+		`+     config: {ingresses: [{hostname: "applepay-dev1.stg.credova.com", service: "http://localhost:3000"}, {service: "http_status:404"}]}`,
+		"+     token: [secret]",
+		"~ web  (aws:Instance)",
+		`~     instanceType: "t3.small" => "t3.large"`,
+		`+     tags.env: "prod"`,
+	} {
+		if !contains(short, want) {
+			t.Fatalf("summary missing %q:\n%s", want, short)
+		}
+	}
+	// The stack "same" step must not appear.
+	if contains(short, "api-prod") {
+		t.Fatalf("same step leaked into summary:\n%s", short)
 	}
 }
 
