@@ -209,10 +209,71 @@ func TestEvaluateTeamWithCodeowners(t *testing.T) {
 	}
 }
 
-func TestEvaluateNoGatesConfiguredPasses(t *testing.T) {
-	// No rules configured → open PR repo, no gate requirements → pass.
+func TestEvaluateNoGatesConfiguredFailsClosed(t *testing.T) {
+	// No rules configured must NOT auto-pass: a repo with only a bucket set
+	// would otherwise let anyone's /reeve apply run with zero approvals. The
+	// safety default injects required_approvals=1.
 	res := Evaluate(Rules{}, nil, PR{HeadSHA: "x"}, nil, "dave")
+	if res.Satisfied {
+		t.Fatalf("expected no-gates to fail closed: %+v", res)
+	}
+	// One non-author approval then satisfies the default gate.
+	res = Evaluate(Rules{}, []Approval{{Approver: "alice"}}, PR{HeadSHA: "x"}, nil, "dave")
 	if !res.Satisfied {
-		t.Fatalf("expected no-gates to pass: %+v", res)
+		t.Fatalf("expected one approval to satisfy the default gate: %+v", res)
+	}
+	// Author's own approval does not count.
+	res = Evaluate(Rules{}, []Approval{{Approver: "dave"}}, PR{HeadSHA: "x"}, nil, "dave")
+	if res.Satisfied {
+		t.Fatalf("self-approval must not satisfy the default gate: %+v", res)
+	}
+}
+
+func TestEvaluateRequiredApprovalsEmptyAllowListCountsAnyApprover(t *testing.T) {
+	// required_approvals=2 with no approvers list is a valid GitHub-style
+	// "require N approvals" gate, not an unsatisfiable one: any 2 distinct
+	// non-author approvers satisfy it.
+	rules := Rules{RequiredApprovals: 2}
+	pr := PR{Number: 1, HeadSHA: "sha1", Author: "dave"}
+	res := Evaluate(rules, []Approval{{Approver: "alice"}}, pr, nil, "dave")
+	if res.Satisfied {
+		t.Fatalf("one approval must not satisfy required_approvals=2: %+v", res)
+	}
+	res = Evaluate(rules, []Approval{{Approver: "alice"}, {Approver: "bob"}}, pr, nil, "dave")
+	if !res.Satisfied {
+		t.Fatalf("two distinct approvers must satisfy required_approvals=2: %+v", res)
+	}
+	// Duplicate approvals from one person count once.
+	res = Evaluate(rules, []Approval{{Approver: "alice"}, {Approver: "alice"}}, pr, nil, "dave")
+	if res.Satisfied {
+		t.Fatalf("duplicate approver must count once: %+v", res)
+	}
+}
+
+func TestResolveMoreSpecificPatternWins(t *testing.T) {
+	// The more-specific pattern (prod/payments) must override the broader one
+	// (prod/*) for numeric fields, regardless of config order. A previously
+	// inverted sort let prod/* win, silently lowering the payments gate.
+	cfg := Config{
+		Stacks: []StackRule{
+			{
+				Pattern: "prod/*",
+				Rules:   Rules{RequiredApprovals: 1},
+				Present: map[string]bool{"required_approvals": true},
+			},
+			{
+				Pattern: "prod/payments",
+				Rules:   Rules{RequiredApprovals: 3},
+				Present: map[string]bool{"required_approvals": true},
+			},
+		},
+	}
+	if got := Resolve(cfg, "prod/payments").RequiredApprovals; got != 3 {
+		t.Fatalf("more-specific prod/payments must win: got required_approvals=%d, want 3", got)
+	}
+	// Order in config must not change the outcome.
+	cfg.Stacks[0], cfg.Stacks[1] = cfg.Stacks[1], cfg.Stacks[0]
+	if got := Resolve(cfg, "prod/payments").RequiredApprovals; got != 3 {
+		t.Fatalf("more-specific prod/payments must win regardless of order: got %d, want 3", got)
 	}
 }
