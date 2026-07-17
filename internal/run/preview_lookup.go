@@ -24,6 +24,10 @@ type PreviewStatus struct {
 	HasChanges   bool
 	ErrorMessage string
 	RunID        string
+	// Plan is the stored preview StackSummary for this stack (plan body,
+	// counts, summary). Policy hooks evaluate this at apply time - the plan
+	// that will actually be applied - rather than an empty pre-apply summary.
+	Plan *summary.StackSummary
 }
 
 // PlanSucceededForPR returns true if the most recent preview manifest for the
@@ -149,6 +153,8 @@ func FindPreviewForStack(ctx context.Context, store blob.Store, prNumber int, co
 		if ss.Counts.Total() > 0 {
 			st.HasChanges = true
 		}
+		plan := ss
+		st.Plan = &plan
 		return st, nil
 	}
 	// Manifest exists for this SHA but doesn't cover this stack - treat as

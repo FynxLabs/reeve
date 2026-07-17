@@ -55,3 +55,19 @@ func TestInvalidCronBubblesError(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+func TestActiveForBadCronFailsClosed(t *testing.T) {
+	// A window covering the stack with an unparseable cron must return an
+	// error (the caller fails closed on it) rather than silently reporting
+	// "not in freeze".
+	cfg := Config{Windows: []Window{
+		{Name: "bad", Cron: "not a cron", Duration: time.Hour}, // empty Stacks = all
+	}}
+	_, active, err := ActiveFor(cfg, "prod/api", time.Now())
+	if err == nil {
+		t.Fatal("expected error for bad cron, got nil (would fail open)")
+	}
+	if active {
+		t.Fatal("active must be false when evaluation errored")
+	}
+}

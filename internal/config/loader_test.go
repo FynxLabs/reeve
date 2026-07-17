@@ -196,3 +196,16 @@ engine:
   binary: {path: pulumi}
 `
 }
+
+func TestLogSettingsNilShared(t *testing.T) {
+	// The panic guard: commands call LogSettings() before Validate(), so it
+	// must not dereference a nil Shared (missing .reeve/shared.yaml).
+	var c *Config
+	if lvl, fmtt := c.LogSettings(); lvl != "" || fmtt != "" {
+		t.Fatalf("nil Config should yield empty settings, got %q/%q", lvl, fmtt)
+	}
+	c2 := &Config{Shared: nil}
+	if lvl, fmtt := c2.LogSettings(); lvl != "" || fmtt != "" {
+		t.Fatalf("nil Shared should yield empty settings, got %q/%q", lvl, fmtt)
+	}
+}
