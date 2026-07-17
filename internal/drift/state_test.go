@@ -31,6 +31,41 @@ func TestClassifyOngoingSilent(t *testing.T) {
 	}
 }
 
+// TestClassifyErrorPreservesDrift verifies a transient check error does not
+// erase the fact that we were drifting: after drift->error, a re-detected
+// drift stays "ongoing" (no duplicate detection, drift age intact) and a
+// recovery to no_drift still emits resolved.
+func TestClassifyErrorPreservesDrift(t *testing.T) {
+	drift := State{LastOutcome: OutcomeDriftDetected, OngoingSince: t0.Add(-time.Hour), Fingerprint: "fp1"}
+
+	// drift -> error: last decisive outcome preserved, error counted.
+	evErr, afterErr := Classify(drift, Result{Outcome: OutcomeError, CheckedAt: t0, ErrorMessage: "boom"})
+	if evErr != EventCheckFailed {
+		t.Fatalf("expected check_failed, got %s", evErr)
+	}
+	if afterErr.LastOutcome != OutcomeDriftDetected {
+		t.Fatalf("error must preserve last decisive outcome, got %s", afterErr.LastOutcome)
+	}
+	if afterErr.OngoingSince != drift.OngoingSince {
+		t.Fatalf("ongoing_since must survive an error blip: %v", afterErr.OngoingSince)
+	}
+	if afterErr.ConsecutiveErrors != 1 {
+		t.Fatalf("consecutive_errors should be 1, got %d", afterErr.ConsecutiveErrors)
+	}
+
+	// error -> drift (same fingerprint): ongoing, NOT a duplicate detection.
+	evReDrift, _ := Classify(afterErr, Result{Outcome: OutcomeDriftDetected, CheckedAt: t0.Add(time.Hour), Fingerprint: "fp1"})
+	if evReDrift != EventDriftOngoing {
+		t.Fatalf("drift->error->drift must be ongoing, got %s", evReDrift)
+	}
+
+	// error -> no_drift: must still emit resolved (paged incident must close).
+	evResolved, _ := Classify(afterErr, Result{Outcome: OutcomeNoDrift, CheckedAt: t0.Add(time.Hour)})
+	if evResolved != EventDriftResolved {
+		t.Fatalf("drift->error->no_drift must resolve, got %s", evResolved)
+	}
+}
+
 func TestClassifyResolved(t *testing.T) {
 	prev := State{LastOutcome: OutcomeDriftDetected, OngoingSince: t0.Add(-time.Hour), Fingerprint: "fp1"}
 	cur := Result{Outcome: OutcomeNoDrift, CheckedAt: t0}
