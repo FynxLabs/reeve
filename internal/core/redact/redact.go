@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // MinSecretLength is the shortest literal string AddSecret will accept.
@@ -17,10 +18,15 @@ import (
 // register a regex via AddRule with anchoring context instead.
 const MinSecretLength = 8
 
-// Redactor wraps a set of rules. Immutable once constructed.
+// Redactor wraps a set of rules. Rules and replacement are set at
+// construction; the secrets set may be updated concurrently (the drift
+// runner registers credentials from parallel per-stack goroutines while
+// other goroutines redact), so access to it is guarded by mu.
 type Redactor struct {
 	rules       []*regexp.Regexp
 	replacement string
+	// mu guards secrets. AddSecret writes; sortedSecrets (via Redact) reads.
+	mu sync.RWMutex
 	// Known string values to replace (exact-match). Populated by
 	// AddSecret - used when callers know the secret value (e.g. from
 	// Pulumi's --show-secrets=false or from an auth credential).
@@ -74,6 +80,8 @@ func (r *Redactor) AddSecret(s string) {
 	if len(s) < MinSecretLength {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.secrets[s] = struct{}{}
 }
 
@@ -101,10 +109,12 @@ func (r *Redactor) Redact(s string) string {
 // iteration is otherwise unordered, which made redaction non-deterministic
 // (and unsafe when one secret was a substring of another).
 func (r *Redactor) sortedSecrets() []string {
+	r.mu.RLock()
 	out := make([]string, 0, len(r.secrets))
 	for sec := range r.secrets {
 		out = append(out, sec)
 	}
+	r.mu.RUnlock()
 	sort.Slice(out, func(i, j int) bool {
 		if len(out[i]) != len(out[j]) {
 			return len(out[i]) > len(out[j])
