@@ -176,6 +176,17 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// LogSettings returns the configured log level and format, safely handling a
+// missing shared config (nil Shared). Commands call this before Validate to
+// initialise logging without risking a nil-pointer panic when .reeve/ lacks
+// shared.yaml.
+func (c *Config) LogSettings() (level, format string) {
+	if c == nil || c.Shared == nil {
+		return "", ""
+	}
+	return c.Shared.LogLevel, c.Shared.LogFormat
+}
+
 func strictDecode(data []byte, out any) error {
 	dec := yaml.NewDecoder(bytesReader(data))
 	dec.KnownFields(true)

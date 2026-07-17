@@ -155,10 +155,13 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGre
 				logger.Debug("check_run skipped: self by name", "name", name)
 				continue
 			}
-			// Skip all in-progress/queued/waiting checks - they haven't
-			// finished yet, so they don't carry a verdict.
-			if status == "in_progress" || status == "queued" || status == "waiting" {
-				logger.Debug("check_run skipped: not yet concluded", "name", name, "status", status)
+			// A check that hasn't concluded is pending, not passing. GitHub's
+			// own required-checks gate blocks on pending; skipping these let
+			// an apply pass while a failing-destined check was still running
+			// (reeve's own current run is already skipped above).
+			if status != "completed" {
+				logger.Debug("check_run pending: not yet concluded", "name", name, "status", status)
+				failing = append(failing, name+":"+status)
 				continue
 			}
 			switch conclusion {

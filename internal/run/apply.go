@@ -338,25 +338,17 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		// the gate's failure reason can identify which window blocked.
 		inFreeze := false
 		freezeName := ""
-		if name, active, ferr := freezeActiveFor(freezeCfg, s.Ref(), now); ferr == nil && active {
+		if name, active, ferr := freezeActiveFor(freezeCfg, s.Ref(), now); ferr != nil {
+			// Fail closed: if a window covering this stack can't be evaluated
+			// (e.g. a bad cron expression), block rather than silently apply
+			// through a freeze we couldn't check. Only the stacks that window
+			// covers are affected.
+			slog.Warn("freeze evaluation failed; blocking stack", "stack", s.Ref(), "err", ferr)
+			inFreeze = true
+			freezeName = "freeze evaluation failed: " + ferr.Error()
+		} else if active {
 			inFreeze = true
 			freezeName = name
-		} else if ferr != nil {
-			slog.Warn("freeze evaluation failed", "stack", s.Ref(), "err", ferr)
-		}
-
-		// Run policy hooks against the stack's current summary.
-		redactor := BuildRedactor(in.Shared)
-		hooks := HooksFromEngine(in.Config)
-		policyPassed, policyResults, _ := RunPolicyForStack(ctx, hooks, s, ss, redactor)
-		var policyPtr *bool
-		if len(hooks) > 0 {
-			policyPtr = &policyPassed
-		}
-		if len(policyResults) > 0 {
-			// Attach policy rendering into the PR comment via FullPlan
-			// suffix - renderer will collapse it with other output.
-			ss.FullPlan = ss.FullPlan + policyRender(policyResults)
 		}
 
 		// Look up the prior preview manifest from blob for this SHA + stack.
@@ -367,6 +359,37 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			prev = PreviewStatus{}
 		}
 		slog.Debug("preview status", "stack", s.Ref(), "found", prev.Found, "succeeded", prev.Succeeded, "age", prev.Age)
+
+		// Run policy hooks against the PREVIEW plan - the plan that will be
+		// applied - not the still-empty pre-apply summary (which has no
+		// counts or plan body yet, so any plan-content rule always passed).
+		redactor := BuildRedactor(in.Shared)
+		hooks := HooksFromEngine(in.Config)
+		var policyPtr *bool
+		if len(hooks) > 0 {
+			policyTarget := ss
+			if prev.Plan != nil {
+				policyTarget = *prev.Plan
+			}
+			policyPassed, policyResults, policyErr := RunPolicyForStack(ctx, hooks, s, policyTarget, redactor)
+			// Fail closed: if hooks are configured but there is no preview
+			// plan to evaluate, or a hook failed to execute, the gate must
+			// not pass. Applying with policy unevaluated defeats the gate.
+			if prev.Plan == nil || policyErr != nil {
+				if policyErr != nil {
+					slog.Warn("policy execution failed", "stack", s.Ref(), "err", policyErr)
+				} else {
+					slog.Warn("policy skipped: no preview plan to evaluate", "stack", s.Ref())
+				}
+				policyPassed = false
+			}
+			policyPtr = &policyPassed
+			if len(policyResults) > 0 {
+				// Attach policy rendering into the PR comment via FullPlan
+				// suffix - renderer will collapse it with other output.
+				ss.FullPlan = ss.FullPlan + policyRender(policyResults)
+			}
+		}
 
 		// Evaluate preconditions.
 		pcInputs := preconditions.Inputs{

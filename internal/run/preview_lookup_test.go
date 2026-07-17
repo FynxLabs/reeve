@@ -45,6 +45,14 @@ func TestFindPreviewForStack_MatchingManifest(t *testing.T) {
 	if !got.Found || !got.Succeeded || !got.HasChanges {
 		t.Fatalf("api/prod: unexpected: %+v", got)
 	}
+	// Plan must carry the stored preview summary so policy hooks evaluate the
+	// real plan at apply time rather than an empty pre-apply summary.
+	if got.Plan == nil {
+		t.Fatal("api/prod: expected Plan to be populated")
+	}
+	if got.Plan.Counts.Add != 2 || got.Plan.Counts.Change != 1 {
+		t.Fatalf("api/prod: Plan counts not preserved: %+v", got.Plan.Counts)
+	}
 
 	// Hit for worker/prod → found but not succeeded.
 	got, err = FindPreviewForStack(ctx, store, 42, "abc1234xyz", "worker/prod")

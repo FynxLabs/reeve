@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
 	authfac "github.com/thefynx/reeve/internal/auth/factory"
@@ -26,13 +28,28 @@ func newLintCmd() *cobra.Command {
 			if err := cfg.Validate(); err != nil {
 				return err
 			}
+			// Freeze windows: reject unparseable cron or duration here so a
+			// typo fails the CI gate instead of silently disabling the freeze.
+			for _, w := range cfg.Shared.FreezeWindows {
+				if _, err := cron.ParseStandard(w.Cron); err != nil {
+					return fmt.Errorf("freeze window %q: invalid cron %q: %w", w.Name, w.Cron, err)
+				}
+				if w.Duration != "" {
+					if _, err := time.ParseDuration(w.Duration); err != nil {
+						return fmt.Errorf("freeze window %q: invalid duration %q (Go duration, e.g. 48h not 2d): %w", w.Name, w.Duration, err)
+					}
+				}
+			}
 			// Auth lint: surfaces conflicts and dangerous providers.
 			if cfg.Auth != nil {
 				// Collect declared stack refs for the conflict check.
 				var stacks []string
 				engineCfg := cfg.Engines[0]
 				engine := pulumi.New(engineCfg.Engine.Binary.Path)
-				enum, _ := engine.EnumerateStacks(context.Background(), root)
+				enum, err := engine.EnumerateStacks(context.Background(), root)
+				if err != nil {
+					return fmt.Errorf("enumerate stacks (is pulumi installed and the project valid?): %w", err)
+				}
 				decls := make([]discovery.Declaration, 0, len(engineCfg.Engine.Stacks))
 				for _, s := range engineCfg.Engine.Stacks {
 					decls = append(decls, discovery.Declaration{

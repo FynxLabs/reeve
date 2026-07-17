@@ -62,7 +62,7 @@ func loadDriftCtx(cmd *cobra.Command) (context.Context, *config.Config, string, 
 	if err != nil {
 		return nil, nil, "", err
 	}
-	applyLogConfig(cfg.Shared.LogLevel, cfg.Shared.LogFormat)
+	applyLogConfig(cfg.LogSettings())
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, "", err
 	}
