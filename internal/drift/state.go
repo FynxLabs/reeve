@@ -73,6 +73,13 @@ func Classify(prev State, cur Result) (Event, State) {
 
 	switch cur.Outcome {
 	case OutcomeError:
+		// A check error is transient and must not overwrite the last decisive
+		// outcome. Preserve prev.LastOutcome (and OngoingSince/Fingerprint) so
+		// that after a blip the next real check transitions from where we
+		// actually were: drift->error->drift stays "ongoing" (no duplicate
+		// detection, drift age intact), and drift->error->no_drift still emits
+		// resolved. Only the error bookkeeping advances.
+		next.LastOutcome = prev.LastOutcome
 		next.ConsecutiveErrors = prev.ConsecutiveErrors + 1
 		return EventCheckFailed, next
 
