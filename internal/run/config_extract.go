@@ -80,6 +80,14 @@ func toApprovalsConfig(s *schemas.Shared) approvals.Config {
 		return approvals.Config{}
 	}
 	cfg := approvals.Config{Default: toApprovalRule(s.Approvals.Default, nil)}
+	// Secure default: dismiss prior approvals when a new commit is pushed
+	// unless explicitly disabled. An approval is for the reviewed code, not
+	// for whatever is pushed afterward; leaving this off let a reviewer
+	// approve a benign commit and an attacker push a malicious one under the
+	// same approval.
+	if s.Approvals.Default.DismissOnNewCommit == nil {
+		cfg.Default.DismissOnNewCommit = true
+	}
 	for _, src := range s.Approvals.Sources {
 		cfg.Sources = append(cfg.Sources, approvals.SourceConfig{
 			Type: src.Type, Enabled: src.Enabled, Command: src.Command,
