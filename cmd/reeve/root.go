@@ -4,12 +4,22 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/thefynx/reeve/internal/log"
 )
 
-const version = "0.0.0-dev"
+// Build metadata, overridden at link time by goreleaser via
+// -X main.version / -X main.commit / -X main.date. These MUST be vars (not
+// consts) or the -X flags are silently ignored and every build reports the
+// default. See .goreleaser.yaml.
+var (
+	version = "0.0.0-dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 // rootLogLevel and rootLogFormat hold the flag values from the root command
 // so subcommands can re-apply logging after loading shared.yaml config.
@@ -28,7 +38,7 @@ func NewRootCmd() *cobra.Command {
 		Short: "PR-native, self-hosted GitOps orchestrator for Pulumi",
 		Long: `reeve is a single-binary GitOps orchestrator that runs inside your CI.
 No control plane, no SaaS backend, no telemetry, no account. The user owns all state.`,
-		Version:       version,
+		Version:       fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
