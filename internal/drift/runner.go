@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -253,7 +252,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 	// Bootstrap guard: first run with require_manual → refuse.
 	if prev.LastCheckedAt.IsZero() && opts.BootstrapMode == "require_manual" {
 		item.Outcome = OutcomeError
-		item.Error = "first run with bootstrap=require_manual (run `reeve drift bootstrap`)"
+		item.Error = "first run with state_bootstrap.mode=require_manual; run `reeve drift bootstrap` to record the baseline"
 		return item, EventCheckFailed, false, ""
 	}
 
@@ -273,7 +272,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 	}
 
 	start := time.Now()
-	res, _ := opts.Engine.DriftCheck(ctx, s, iac.PreviewOpts{
+	res, checkErr := opts.Engine.DriftCheck(ctx, s, iac.PreviewOpts{
 		Cwd: opts.RepoRoot + "/" + s.Path,
 		Env: env,
 	}, opts.RefreshFirst)
@@ -282,17 +281,23 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 	item.Counts.PlanSummary = opts.Redactor.Redact(res.PlanSummary)
 	item.Counts.FullPlan = opts.Redactor.Redact(res.FullPlan)
 
-	if res.Error != "" {
+	// A failed check (non-nil error, or an Error string) is NEVER "no drift".
+	// Treating an empty/failed result as no-drift would falsely resolve an
+	// active drift alert, so classify it as an error and fail closed.
+	switch {
+	case checkErr != nil || res.Error != "":
 		item.Outcome = OutcomeError
-		item.Error = opts.Redactor.Redact(res.Error)
-	} else if res.Counts.Total() > 0 {
-		item.Outcome = OutcomeDriftDetected
-		item.Fingerprint = Fingerprint(extractURNs(res.FullPlan))
-		// Bootstrap mode: first run with baseline = silent.
-		if prev.LastCheckedAt.IsZero() && opts.BootstrapMode == "baseline" {
-			item.Outcome = OutcomeNoDrift // record as baseline, no event
+		if res.Error != "" {
+			item.Error = opts.Redactor.Redact(res.Error)
+		} else {
+			item.Error = opts.Redactor.Redact(checkErr.Error())
 		}
-	} else {
+	case res.Counts.Total() > 0:
+		item.Outcome = OutcomeDriftDetected
+		// Fingerprint only the drifted resources so a change in *which*
+		// resources drift re-fires the alert (see Classify fingerprint check).
+		item.Fingerprint = Fingerprint(res.DriftedURNs)
+	default:
 		item.Outcome = OutcomeNoDrift
 	}
 
@@ -302,6 +307,16 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		CheckedAt: now, ErrorMessage: item.Error,
 	}
 	ev, next := Classify(prev, result)
+
+	// Baseline bootstrap: on the first-ever check, accept whatever state we
+	// find (including pre-existing drift) as the baseline and stay silent.
+	// The state - fingerprint included - is still persisted, so only *new*
+	// drift beyond the baseline alerts on later runs. Previously this
+	// recorded no_drift and dropped the fingerprint, so identical drift
+	// re-fired as a fresh detection on the second run.
+	if prev.LastCheckedAt.IsZero() && opts.BootstrapMode == "baseline" && ev != EventCheckFailed {
+		ev = EventNone
+	}
 	item.Event = ev
 	if opts.StateStore != nil {
 		_ = opts.StateStore.Save(ctx, next)
@@ -345,28 +360,6 @@ outer:
 		out = append(out, s)
 	}
 	return out
-}
-
-// extractURNs pulls Pulumi URNs from a plan output for fingerprinting.
-// Best-effort - pattern matches `"urn":"urn:pulumi:...::...::...::name"`.
-func extractURNs(plan string) []string {
-	var urns []string
-	for _, marker := range []string{`"urn":"urn:`, `"urn": "urn:`} {
-		for i := 0; i < len(plan); {
-			idx := strings.Index(plan[i:], marker)
-			if idx < 0 {
-				break
-			}
-			start := i + idx + len(marker) - len("urn:") // include "urn:"
-			end := strings.IndexByte(plan[start:], '"')
-			if end < 0 {
-				break
-			}
-			urns = append(urns, plan[start:start+end])
-			i = start + end + 1
-		}
-	}
-	return urns
 }
 
 // --- artifact writing ---

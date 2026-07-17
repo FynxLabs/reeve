@@ -27,6 +27,10 @@ type PreviewResult struct {
 	PlanDiff    string // pulumi preview --diff output
 	FullPlan    string // raw JSON preview output, redacted upstream
 	Error       string // non-empty if preview failed for this stack
+	// DriftedURNs lists the URNs of resources that actually changed (drift
+	// path only; excludes unchanged "same" steps). Used to fingerprint the
+	// drifted set so a change in *which* resources drift re-fires an alert.
+	DriftedURNs []string
 }
 
 // Previewer runs a preview for a single stack.

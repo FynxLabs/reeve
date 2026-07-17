@@ -14,34 +14,70 @@ import (
 	"github.com/thefynx/reeve/internal/vcs"
 )
 
-// ListApprovals returns APPROVED reviews for the PR. It filters out
-// review comments and CHANGES_REQUESTED. Submission time and commit SHA
-// are preserved so dismiss_on_new_commit can be evaluated.
+// ListApprovals returns the reviewers whose current stance is APPROVED.
+// GitHub keeps every historical review, so a reviewer who approves and later
+// requests changes still has an APPROVED record on the PR; counting it would
+// let a withdrawn approval satisfy the gate. Only a reviewer's most recent
+// decisive review counts - see latestApprovals. Submission time and commit
+// SHA are preserved so dismiss_on_new_commit can be evaluated.
 func (c *Client) ListApprovals(ctx context.Context, pr approvals.PR) ([]approvals.Approval, error) {
-	var out []approvals.Approval
+	var revs []*gh.PullRequestReview
 	opt := &gh.ListOptions{PerPage: 100}
 	for {
-		revs, resp, err := c.gh.PullRequests.ListReviews(ctx, c.owner, c.repo, pr.Number, opt)
+		page, resp, err := c.gh.PullRequests.ListReviews(ctx, c.owner, c.repo, pr.Number, opt)
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range revs {
-			if r.GetState() != "APPROVED" {
-				continue
-			}
-			out = append(out, approvals.Approval{
-				Source:      "pr_review",
-				Approver:    r.GetUser().GetLogin(),
-				SubmittedAt: r.GetSubmittedAt().Time,
-				CommitSHA:   r.GetCommitID(),
-			})
-		}
+		revs = append(revs, page...)
 		if resp.NextPage == 0 {
 			break
 		}
 		opt.Page = resp.NextPage
 	}
-	return out, nil
+	return latestApprovals(revs), nil
+}
+
+// latestApprovals reduces a chronologically-ordered review list (GitHub
+// returns reviews oldest-first) to the reviewers whose most recent decisive
+// review is APPROVED. APPROVED / CHANGES_REQUESTED / DISMISSED are decisive;
+// COMMENTED and PENDING reviews do not change a reviewer's stance and are
+// ignored. Later reviews by the same user supersede earlier ones.
+func latestApprovals(revs []*gh.PullRequestReview) []approvals.Approval {
+	type entry struct {
+		state string
+		appr  approvals.Approval
+	}
+	latest := map[string]*entry{}
+	var order []string
+	for _, r := range revs {
+		state := r.GetState()
+		if state == "COMMENTED" || state == "PENDING" {
+			continue
+		}
+		login := r.GetUser().GetLogin()
+		if login == "" {
+			continue
+		}
+		if _, ok := latest[login]; !ok {
+			order = append(order, login)
+		}
+		latest[login] = &entry{
+			state: state,
+			appr: approvals.Approval{
+				Source:      "pr_review",
+				Approver:    login,
+				SubmittedAt: r.GetSubmittedAt().Time,
+				CommitSHA:   r.GetCommitID(),
+			},
+		}
+	}
+	var out []approvals.Approval
+	for _, login := range order {
+		if latest[login].state == "APPROVED" {
+			out = append(out, latest[login].appr)
+		}
+	}
+	return out
 }
 
 func (*Client) Name() string { return "pr_review" }

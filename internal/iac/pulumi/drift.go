@@ -3,8 +3,11 @@ package pulumi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/thefynx/reeve/internal/core/discovery"
@@ -34,13 +37,16 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 		}
 		var rstderr bytes.Buffer
 		refresh.Stderr = &rstderr
-		// Ignore refresh errors - treat as run-level failure in the caller
-		// by returning the error. Successful refresh is silent.
+		// A refresh failure is a check failure, not "no drift". Return a
+		// non-nil error AND a non-empty Error so the caller classifies it as
+		// a failed check rather than silently treating an empty result as
+		// resolved drift.
 		if err := refresh.Run(); err != nil {
+			msg := failureMessage(rstderr.String(), err)
 			return iac.PreviewResult{
-				Error:    rstderr.String(),
+				Error:    msg,
 				FullPlan: rstderr.String(),
-			}, nil
+			}, fmt.Errorf("pulumi refresh failed: %s", msg)
 		}
 	}
 
@@ -65,7 +71,13 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	_ = cmd.Run() // non-zero is OK - indicates drift
+	// `preview --expect-no-changes` exits non-zero when drift exists, which
+	// is expected here - but a non-zero exit ALSO covers genuine failures
+	// (timeout kill, missing binary, auth error, crash). The exit code alone
+	// is ambiguous, so we treat parseable JSON on stdout as the authoritative
+	// signal: JSON present => the check ran and its counts are trustworthy
+	// regardless of exit code; no parseable JSON => the check failed.
+	runErr := cmd.Run()
 	out := stdout.Bytes()
 
 	if len(bytes.TrimSpace(out)) > 0 && out[0] == '{' {
@@ -76,11 +88,56 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 				PlanSummary: short,
 				FullPlan:    stderr.String() + string(out),
 				Error:       diagErr,
+				DriftedURNs: driftedURNsFromJSON(out),
 			}, nil
 		}
 	}
+
+	// No parseable plan: the check did not produce a verdict. Fail closed
+	// with a non-empty Error and a non-nil error so the caller records a
+	// failed check instead of misreading an empty result as "no drift"
+	// (which would falsely resolve an active drift alert).
+	msg := failureMessage(stderr.String(), runErr)
 	return iac.PreviewResult{
-		Error:    stderr.String(),
+		Error:    msg,
 		FullPlan: stderr.String() + string(out),
-	}, nil
+	}, fmt.Errorf("pulumi drift check produced no plan: %s", msg)
+}
+
+// failureMessage builds a non-empty error string from stderr, falling back
+// to the process error (e.g. a timeout kill or missing binary leaves stderr
+// empty). Never returns "".
+func failureMessage(stderr string, err error) string {
+	stderr = strings.TrimSpace(stderr)
+	switch {
+	case stderr != "" && err != nil:
+		return stderr + " (" + err.Error() + ")"
+	case stderr != "":
+		return stderr
+	case err != nil:
+		return err.Error()
+	default:
+		return "drift check failed with no output"
+	}
+}
+
+// driftedURNsFromJSON returns the URNs of resources that actually changed,
+// excluding unchanged "same" (and "read") steps. Used to fingerprint the
+// drifted set. Best-effort: returns nil on unparseable input.
+func driftedURNsFromJSON(stdout []byte) []string {
+	var p previewJSON
+	if err := json.Unmarshal(stdout, &p); err != nil {
+		return nil
+	}
+	var urns []string
+	for _, s := range p.Steps {
+		switch s.Op {
+		case "create", "import", "update", "delete",
+			"replace", "create-replacement", "delete-replaced":
+			if s.URN != "" {
+				urns = append(urns, s.URN)
+			}
+		}
+	}
+	return urns
 }

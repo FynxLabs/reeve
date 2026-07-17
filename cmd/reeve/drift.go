@@ -31,6 +31,11 @@ func newDriftCmd() *cobra.Command {
 	runSub.Flags().Bool("if-stale", false, "Skip stacks checked within freshness window")
 	runSub.Flags().String("root", "", "Repo root (default: cwd)")
 
+	bootstrapSub := &cobra.Command{Use: "bootstrap", Short: "Record current stack state as the drift baseline (no events)", RunE: driftBootstrap}
+	bootstrapSub.Flags().String("pattern", "", "Restrict to stacks matching this pattern")
+	bootstrapSub.Flags().String("schedule", "", "Run a named schedule from drift.yaml")
+	bootstrapSub.Flags().String("root", "", "Repo root (default: cwd)")
+
 	statusSub := &cobra.Command{Use: "status", Short: "Read last drift run results", RunE: driftStatus}
 	statusSub.Flags().String("stack", "", "Limit to a single project/stack")
 
@@ -47,7 +52,7 @@ func newDriftCmd() *cobra.Command {
 		&cobra.Command{Use: "clear <project/stack>", Args: cobra.ExactArgs(1), Short: "Clear a suppression", RunE: driftSuppressClear},
 	)
 
-	cmd.AddCommand(runSub, statusSub, reportSub, suppress)
+	cmd.AddCommand(runSub, bootstrapSub, statusSub, reportSub, suppress)
 	return cmd
 }
 
@@ -69,7 +74,15 @@ func loadDriftCtx(cmd *cobra.Command) (context.Context, *config.Config, string, 
 	return context.Background(), cfg, root, nil
 }
 
-func driftRun(cmd *cobra.Command, _ []string) error {
+func driftRun(cmd *cobra.Command, _ []string) error { return runDrift(cmd, false) }
+
+// driftBootstrap records the current state of every stack as the drift
+// baseline without emitting any events. Required to unblock
+// state_bootstrap.mode=require_manual (whose first real run refuses until a
+// baseline exists), and useful to silently seed state in any mode.
+func driftBootstrap(cmd *cobra.Command, _ []string) error { return runDrift(cmd, true) }
+
+func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	ctx, cfg, root, err := loadDriftCtx(cmd)
 	if err != nil {
 		return err
@@ -159,6 +172,14 @@ func driftRun(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	if bootstrap {
+		// Force baseline recording: bypass the require_manual refusal, accept
+		// current state (including pre-existing drift) silently, and always
+		// check (ignore freshness) so every stack gets a baseline.
+		opts.BootstrapMode = "baseline"
+		opts.FreshnessWindow = 0
+	}
+
 	out, err := drift.Run(ctx, opts)
 	if err != nil {
 		return err
@@ -175,6 +196,13 @@ func driftRun(cmd *cobra.Command, _ []string) error {
 	// the runner's own reader.
 	if p := os.Getenv("GITHUB_STEP_SUMMARY"); p != "" {
 		_ = os.WriteFile(p, []byte(report), 0o644) // #nosec G306
+	}
+
+	// Bootstrap is silent by design: state is recorded, no sinks fire.
+	if bootstrap {
+		fmt.Fprintf(cmd.OutOrStdout(), "baseline recorded for %d stack(s); drift runs will now compare against it\n", len(out.Items))
+		fmt.Fprintln(cmd.OutOrStdout(), report)
+		return nil
 	}
 
 	// Dispatch to configured drift sinks.

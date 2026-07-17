@@ -154,18 +154,41 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 
 	approvers := names(effective)
 
-	// Count simple required_approvals (any approver in the allow list).
+	// Safety default: a stack with no effective gate still requires one
+	// approval. Previously this path passed with zero approvals, so a repo
+	// configured with only a bucket let anyone's `/reeve apply` run with live
+	// cloud credentials and no human sign-off. Fail closed instead.
+	noNumericGate := rules.RequiredApprovals == 0
+	noGroupGate := !rules.RequireAllGroups || len(rules.Approvers) == 0
+	noOwnerGate := !rules.Codeowners || len(codeowners) == 0
+	if noNumericGate && noGroupGate && noOwnerGate {
+		rules.RequiredApprovals = 1
+		res.Trace = append(res.Trace, "no approval policy configured; requiring 1 approval by default")
+	}
+
+	// Count simple required_approvals. With an allow list, only listed
+	// approvers (or their team members) count; with no allow list, any
+	// distinct non-author approver counts - GitHub's "require N approvals"
+	// semantics, and never an unsatisfiable gate.
 	if rules.RequiredApprovals > 0 {
-		hits := intersect(approvers, rules.Approvers, rules.TeamMembers)
+		var hits []string
+		if len(rules.Approvers) == 0 {
+			hits = distinct(approvers)
+		} else {
+			hits = intersect(approvers, rules.Approvers, rules.TeamMembers)
+		}
 		res.Trace = append(res.Trace, fmt.Sprintf("required_approvals=%d, matched=%d (%s)",
 			rules.RequiredApprovals, len(hits), strings.Join(hits, ",")))
 		res.Got += len(hits)
 		res.TotalNeeded += rules.RequiredApprovals
 		if len(hits) < rules.RequiredApprovals {
-			res.Missing = append(res.Missing,
-				fmt.Sprintf("%d more approval(s) from %s",
-					rules.RequiredApprovals-len(hits),
-					strings.Join(rules.Approvers, "|")))
+			need := rules.RequiredApprovals - len(hits)
+			if len(rules.Approvers) == 0 {
+				res.Missing = append(res.Missing, fmt.Sprintf("%d more approval(s)", need))
+			} else {
+				res.Missing = append(res.Missing,
+					fmt.Sprintf("%d more approval(s) from %s", need, strings.Join(rules.Approvers, "|")))
+			}
 		}
 	}
 
@@ -206,12 +229,10 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 		}
 	}
 
+	// A stack always has at least one gate here (the safety default above
+	// injects required_approvals=1 when nothing else applies), so TotalNeeded
+	// > 0 always holds and an unconfigured stack fails closed.
 	res.Satisfied = len(res.Missing) == 0 && res.TotalNeeded > 0
-	// Baseline: if no gates were configured, treat as unsatisfied (explicit
-	// default of 1 via Rules.Default keeps this from triggering in practice).
-	if rules.RequiredApprovals == 0 && !rules.RequireAllGroups && (!rules.Codeowners || len(codeowners) <= 0) {
-		res.Satisfied = true // no gates configured → pass
-	}
 
 	res.Ref = pr.ToRef()
 	return res
@@ -266,6 +287,22 @@ func intersect(approvers, required []string, teams map[string][]string) []string
 	return hits
 }
 
+// distinct returns the unique approver logins (leading @ trimmed). Used when
+// required_approvals has no allow list, so any non-author approval counts.
+func distinct(approvers []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, a := range approvers {
+		a = strings.TrimPrefix(a, "@")
+		if _, dup := seen[a]; dup {
+			continue
+		}
+		seen[a] = struct{}{}
+		out = append(out, a)
+	}
+	return out
+}
+
 // matchesOne returns true if any approver matches g, where g may be a user
 // login or a team slug ("org/team"). Team slugs are resolved via the
 // pre-populated teams map; an unknown slug falls back to literal match.
@@ -307,11 +344,12 @@ func unionStrings(a, b []string) []string {
 }
 
 // sortBySpecificity orders so that broader patterns come first, more
-// specific patterns override. Specificity = count of non-wildcard chars
-// (rough but good enough for v1).
+// specific patterns last. Resolve applies matches in order and later wins,
+// so the most-specific pattern must sort last to override. Specificity =
+// count of non-wildcard chars (rough but good enough for v1).
 func sortBySpecificity(rules []StackRule) {
 	for i := 1; i < len(rules); i++ {
-		for j := i; j > 0 && specificity(rules[j].Pattern) > specificity(rules[j-1].Pattern); j-- {
+		for j := i; j > 0 && specificity(rules[j].Pattern) < specificity(rules[j-1].Pattern); j-- {
 			rules[j], rules[j-1] = rules[j-1], rules[j]
 		}
 	}
