@@ -160,9 +160,23 @@ Run artifacts under `runs/` (manifests, applied-state pointers) are pruned at ru
   `dismiss_on_new_commit`, `freshness`) on a pattern **override** the
   default.
 - `approvers` lists **union** (deduplicated).
-- Patterns with more literal characters win specificity ties.
+- Patterns with more literal characters win specificity ties, and the
+  more-specific pattern's scalar fields override the broader one's.
 - `require_all_groups: true` changes semantics: every listed approver
   group must contribute one approval, regardless of `required_approvals`.
+
+**Secure defaults.** reeve fails closed on approvals:
+
+- A stack with **no matching approval policy** still requires **one**
+  non-author approval — it does not auto-pass.
+- `required_approvals: N` with **no `approvers` list** counts any `N`
+  distinct non-author approvals (GitHub's "require N approvals" behavior),
+  rather than being unsatisfiable.
+- `dismiss_on_new_commit` defaults to **`true`**: pushing a new commit
+  invalidates prior approvals. Set it to `false` explicitly to opt out.
+- Only a reviewer's **most recent** review counts. A reviewer who approves
+  and later requests changes (or whose approval is dismissed) no longer
+  counts toward the gate.
 
 ### CODEOWNERS resolution
 
