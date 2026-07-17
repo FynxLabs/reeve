@@ -65,16 +65,19 @@ func (m *Migrator) migrateOne(path string, dryRun bool) error {
 		return err
 	}
 	// Extract header without strict unmarshal so old files still parse.
-	header := headerRE.FindSubmatch(data)
-	if len(header) < 3 {
+	// Match the two keys independently so any order and interleaved comments
+	// or blank lines are tolerated (the loader accepts them, so migrate must
+	// too).
+	vm := versionRE.FindSubmatch(data)
+	ctm := configTypeRE.FindSubmatch(data)
+	if vm == nil || ctm == nil {
 		return fmt.Errorf("cannot find version + config_type header")
 	}
-	// header submatches: 1=version, 2=config_type
 	fromVer := 0
-	if _, err := fmt.Sscanf(string(header[1]), "%d", &fromVer); err != nil {
+	if _, err := fmt.Sscanf(string(vm[1]), "%d", &fromVer); err != nil {
 		return err
 	}
-	configType := string(header[2])
+	configType := string(ctm[1])
 
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
@@ -116,7 +119,10 @@ func (m *Migrator) migrateOne(path string, dryRun bool) error {
 	return os.WriteFile(path, out, 0o600)
 }
 
-var headerRE = regexp.MustCompile(`(?m)^version:\s*(\d+)\s*\n.*?^config_type:\s*([a-z]+)`)
+var (
+	versionRE    = regexp.MustCompile(`(?m)^version:\s*(\d+)\s*$`)
+	configTypeRE = regexp.MustCompile(`(?m)^config_type:\s*([a-z_]+)\s*$`)
+)
 
 func setScalarField(root *yaml.Node, key, value string) error {
 	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {

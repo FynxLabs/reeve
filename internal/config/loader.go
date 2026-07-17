@@ -155,6 +155,10 @@ func Load(root string) (*Config, error) {
 		}
 	}
 
+	// Resolve ${env:NAME} references across every field before use, so
+	// credentials and endpoints can be supplied via environment variables.
+	cfg.ExpandEnv()
+
 	if cfg.Shared != nil {
 		slog.Info("config loaded", "dir", dir, "log_level", cfg.Shared.LogLevel, "log_format", cfg.Shared.LogFormat)
 	}
@@ -190,7 +194,16 @@ func (c *Config) LogSettings() (level, format string) {
 func strictDecode(data []byte, out any) error {
 	dec := yaml.NewDecoder(bytesReader(data))
 	dec.KnownFields(true)
-	return dec.Decode(out)
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	// A second YAML document ("---") was silently ignored before, so any keys
+	// in it never took effect - a real footgun for a supposedly strict loader.
+	var extra any
+	if err := dec.Decode(&extra); err == nil {
+		return fmt.Errorf("multiple YAML documents in one file are not supported (found a second document)")
+	}
+	return nil
 }
 
 func nonStrictDecode(data []byte, out any) error {

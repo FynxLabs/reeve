@@ -96,7 +96,11 @@ runs:
       run: echo "$RUNNER_TEMP/reeve-bin" >> "$GITHUB_PATH"
 
     - name: Checkout PR HEAD
-      if: ${{ github.event.pull_request.number != '' || github.event.issue.number != '' }}
+      # Only check out a PR head when the event is actually about a PR. A
+      # comment on a plain (non-PR) issue has issue.number set but no
+      # refs/pull/<n>/head, so keying on issue.number made the job fail red.
+      # issue.pull_request is present only when the issue is a PR.
+      if: ${{ github.event.pull_request.number || github.event.issue.pull_request }}
       uses: actions/checkout@v6
       with:
         ref: refs/pull/${{ github.event.pull_request.number || github.event.issue.number }}/head
@@ -150,22 +154,30 @@ runs:
             fi
           elif [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
             COMMENT_BODY=$(jq -r .comment.body < "$GITHUB_EVENT_PATH")
-            if [[ "$COMMENT_BODY" == /reeve\ apply* || "$COMMENT_BODY" == /reeve\ up* ]]; then
-              CMD="apply"
-              # Allow re-applying an already-applied commit: "/reeve apply --force" or "/reeve apply force".
-              if [[ "$COMMENT_BODY" == *" --force"* || "$COMMENT_BODY" == *" force"* ]]; then
-                EXTRA="$EXTRA --force"
-              fi
-            elif [[ "$COMMENT_BODY" == /reeve\ ready* ]]; then
-              CMD="ready"
-            elif [[ "$COMMENT_BODY" == /reeve\ preview* || "$COMMENT_BODY" == /reeve\ plan* ]]; then
-              CMD="preview"
-            elif [[ "$COMMENT_BODY" == /reeve\ help* ]]; then
-              CMD="pr-help"
-            else
+            # Parse the first line into tokens and match the VERB exactly, so
+            # "/reeve update the docs?" is NOT treated as apply (the old
+            # "/reeve up*" prefix match did exactly that).
+            read -r PREFIX VERB REST <<< "$(printf '%s' "$COMMENT_BODY" | head -n1)"
+            if [[ "$PREFIX" != "/reeve" ]]; then
               echo "Not a reeve command, skipping."
               exit 0
             fi
+            case "$VERB" in
+              apply|up)
+                CMD="apply"
+                # Re-apply an already-applied commit: "--force" or "force" as a token.
+                if [[ " $REST " == *" --force "* || " $REST " == *" force "* ]]; then
+                  EXTRA="$EXTRA --force"
+                fi
+                ;;
+              ready)         CMD="ready" ;;
+              preview|plan)  CMD="preview" ;;
+              help)          CMD="pr-help" ;;
+              *)
+                echo "Unknown reeve command '${VERB:-}', skipping."
+                exit 0
+                ;;
+            esac
           else
             echo "Not a reeve event ($GITHUB_EVENT_NAME), skipping."
             exit 0
