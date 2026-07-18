@@ -45,6 +45,13 @@ inputs:
     description: Additional args passed verbatim to the reeve subcommand.
     required: false
     default: ""
+  allowed-associations:
+    description: >-
+      Comma-separated author_association values allowed to trigger comment
+      commands (/reeve ...). Commenters outside this list are skipped before
+      any command dispatch. The approvals gate still applies afterwards.
+    required: false
+    default: "OWNER,MEMBER,COLLABORATOR"
   log-level:
     description: Log level for reeve (debug, info, warn, error).
     required: false
@@ -160,6 +167,24 @@ runs:
             read -r PREFIX VERB REST <<< "$(printf '%s' "$COMMENT_BODY" | head -n1)"
             if [[ "$PREFIX" != "/reeve" ]]; then
               echo "Not a reeve command, skipping."
+              exit 0
+            fi
+            # Authorization gate: dispatch used to be purely on comment text,
+            # so on a public repo anyone who could comment could start a run
+            # with live federated credentials. Require the commenter's
+            # author_association to be in the allowlist before ANY verb.
+            ASSOC=$(jq -r '.comment.author_association // "NONE"' < "$GITHUB_EVENT_PATH")
+            AUTHORIZED=false
+            IFS=',' read -ra ALLOWED <<< "${{ inputs.allowed-associations }}"
+            for A in "${ALLOWED[@]}"; do
+              A=$(printf '%s' "$A" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')
+              if [[ -n "$A" && "$A" == "$ASSOC" ]]; then
+                AUTHORIZED=true
+                break
+              fi
+            done
+            if [[ "$AUTHORIZED" != true ]]; then
+              echo "Commenter not authorized to run reeve commands (association: $ASSOC) - skipping."
               exit 0
             fi
             case "$VERB" in
