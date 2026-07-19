@@ -35,7 +35,11 @@ func ResolveAuthEnv(ctx context.Context, cfg *schemas.Auth, registry *auth.Regis
 			Override:     b.Override,
 		})
 	}
-	names := auth.Resolve(bindings, stackRef, mode)
+	decls := make(map[string]auth.ProviderDecl, len(cfg.Providers))
+	for n, p := range cfg.Providers {
+		decls[n] = auth.ProviderDecl{Name: n, Type: p.Type}
+	}
+	names := auth.ResolveWithDecls(bindings, decls, stackRef, mode)
 	if len(names) == 0 {
 		return nil, noop, nil
 	}

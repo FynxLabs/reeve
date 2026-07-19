@@ -25,10 +25,23 @@ type ProviderDecl struct {
 
 // Resolve returns the ordered, deduplicated list of provider names to
 // activate for (stackRef, mode). Override lists replace earlier entries
-// of the same name; Providers lists union.
+// of the same scope; Providers lists union.
+//
+// Without provider declarations, scope falls back to a provider-name
+// prefix approximation. Prefer ResolveWithDecls, which derives scope from
+// the declared provider Type.
+func Resolve(bindings []Binding, stackRef string, mode Mode) []string {
+	return ResolveWithDecls(bindings, nil, stackRef, mode)
+}
+
+// ResolveWithDecls is Resolve with the provider declarations available so
+// Override replaces earlier-matched providers of the same declared
+// credential scope (e.g. every aws_* provider), not merely those sharing a
+// name prefix. Names missing from decls fall back to the prefix
+// approximation.
 //
 // Pure logic: actual credential acquisition lives in internal/auth/providers.
-func Resolve(bindings []Binding, stackRef string, mode Mode) []string {
+func ResolveWithDecls(bindings []Binding, decls map[string]ProviderDecl, stackRef string, mode Mode) []string {
 	// Sort bindings: general → specific. "More specific" = longer pattern
 	// with fewer wildcards, plus mode-matched bindings override mode-agnostic.
 	sorted := append([]Binding{}, bindings...)
@@ -42,10 +55,8 @@ func Resolve(bindings []Binding, stackRef string, mode Mode) []string {
 		}
 		if len(b.Override) > 0 {
 			// Override replaces everything from the same logical scope.
-			// Phase 4 approximation: clear the entire set of providers
-			// from the "scope" (same provider-name prefix).
 			for _, repl := range b.Override {
-				out, seen = replaceScope(out, seen, repl)
+				out, seen = replaceScope(out, seen, repl, decls)
 			}
 		}
 		for _, p := range b.Providers {
@@ -65,7 +76,7 @@ func Resolve(bindings []Binding, stackRef string, mode Mode) []string {
 func Validate(bindings []Binding, declsByName map[string]ProviderDecl, stacks []string) error {
 	for _, stack := range stacks {
 		for _, mode := range []Mode{ModePreview, ModeApply, ModeDrift} {
-			names := Resolve(bindings, stack, mode)
+			names := ResolveWithDecls(bindings, declsByName, stack, mode)
 			typeSeen := map[string]string{}
 			for _, n := range names {
 				d, ok := declsByName[n]
@@ -145,14 +156,10 @@ func specificity(p string) int {
 	return score
 }
 
-func replaceScope(list []string, seen map[string]bool, repl string) ([]string, map[string]bool) {
-	// Very coarse: remove any existing provider whose name shares the
-	// first '-' segment with the replacement. e.g. aws-prod replaces
-	// aws-prod-readonly but not cloudflare-token. This is good enough
-	// for v1; auth.yaml schema will formalize scopes later.
+func replaceScope(list []string, seen map[string]bool, repl string, decls map[string]ProviderDecl) ([]string, map[string]bool) {
 	out := list[:0]
 	for _, x := range list {
-		if sameScope(x, repl) {
+		if sameScope(x, repl, decls) {
 			delete(seen, x)
 			continue
 		}
@@ -165,7 +172,18 @@ func replaceScope(list []string, seen map[string]bool, repl string) ([]string, m
 	return out, seen
 }
 
-func sameScope(a, b string) bool {
+// sameScope reports whether providers a and b occupy the same credential
+// scope. When both are declared, scope comes from the declared Type via
+// scopeOfType - an override of an aws_oidc provider replaces every other
+// AWS-scoped provider regardless of naming. When declarations are missing,
+// fall back to comparing the first '-' segment of the names (e.g. aws-prod
+// vs aws-prod-readonly), the historical v1 approximation.
+func sameScope(a, b string, decls map[string]ProviderDecl) bool {
+	da, okA := decls[a]
+	db, okB := decls[b]
+	if okA && okB {
+		return scopeOfType(da.Type) == scopeOfType(db.Type)
+	}
 	aRoot := a
 	if idx := strings.Index(a, "-"); idx > 0 {
 		aRoot = a[:idx]

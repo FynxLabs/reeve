@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -126,7 +128,10 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		}
 	}
 
-	include, exclude := buildScope(cfg, cmd)
+	include, exclude, err := buildScope(cfg, cmd)
+	if err != nil {
+		return err
+	}
 
 	otelProvider, _ := run.BuildOTEL(ctx, cfg.Observability)
 	defer func() {
@@ -244,21 +249,39 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	return nil
 }
 
-func buildScope(cfg *config.Config, cmd *cobra.Command) (include, exclude []string) {
+func buildScope(cfg *config.Config, cmd *cobra.Command) (include, exclude []string, err error) {
 	if cfg.Drift != nil {
 		include = append(include, cfg.Drift.Scope.IncludePatterns...)
 		exclude = append(exclude, cfg.Drift.Scope.ExcludePatterns...)
 	}
-	if sched := flagStringOrDefault(cmd, "schedule", ""); sched != "" && cfg.Drift != nil {
-		if s, ok := cfg.Drift.Schedules[sched]; ok {
-			include = append([]string{}, s.Patterns...)
-			exclude = append([]string{}, s.ExcludePatterns...)
+	if sched := flagStringOrDefault(cmd, "schedule", ""); sched != "" {
+		// An unknown schedule name must not silently fall back to the
+		// global scope - a typo would run drift against every stack.
+		var s schemas.Schedule
+		ok := false
+		if cfg.Drift != nil {
+			s, ok = cfg.Drift.Schedules[sched]
 		}
+		if !ok {
+			names := make([]string, 0)
+			if cfg.Drift != nil {
+				for n := range cfg.Drift.Schedules {
+					names = append(names, n)
+				}
+			}
+			sort.Strings(names)
+			if len(names) == 0 {
+				return nil, nil, fmt.Errorf("unknown schedule %q: no schedules configured in drift.yaml", sched)
+			}
+			return nil, nil, fmt.Errorf("unknown schedule %q: configured schedules are %s", sched, strings.Join(names, ", "))
+		}
+		include = append([]string{}, s.Patterns...)
+		exclude = append([]string{}, s.ExcludePatterns...)
 	}
 	if pat := flagStringOrDefault(cmd, "pattern", ""); pat != "" {
 		include = []string{pat}
 	}
-	return
+	return include, exclude, nil
 }
 
 func driftStatus(cmd *cobra.Command, _ []string) error {
@@ -308,30 +331,15 @@ func driftReport(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	// Render latest report.md from drift/runs/ (latest = alphabetically
-	// last run-id; run IDs include timestamps so this is chronological).
-	keys, err := store.List(ctx, "drift/runs")
+	body, err := drift.StoredReport(ctx, store, flagStringOrDefault(cmd, "format", "markdown"))
 	if err != nil {
-		return err
-	}
-	var latest string
-	for _, k := range keys {
-		if strings.HasSuffix(k, "/report.md") && k > latest {
-			latest = k
+		if errors.Is(err, drift.ErrNoRuns) {
+			fmt.Fprintln(cmd.OutOrStdout(), "no drift runs found")
+			return nil
 		}
-	}
-	if latest == "" {
-		fmt.Fprintln(cmd.OutOrStdout(), "no drift runs found")
-		return nil
-	}
-	rc, _, err := store.Get(ctx, latest)
-	if err != nil {
 		return err
 	}
-	defer rc.Close()
-	buf := make([]byte, 64*1024)
-	n, _ := rc.Read(buf)
-	fmt.Fprint(cmd.OutOrStdout(), string(buf[:n]))
+	fmt.Fprintln(cmd.OutOrStdout(), strings.TrimRight(body, "\n"))
 	return nil
 }
 
@@ -344,7 +352,7 @@ func driftSuppressAdd(cmd *cobra.Command, args []string) error {
 	if parts == nil {
 		return fmt.Errorf("expected project/stack, got %q", args[0])
 	}
-	dur, err := time.ParseDuration(flagStringOrDefault(cmd, "until", "24h"))
+	dur, err := parseDurationExtended(flagStringOrDefault(cmd, "until", "24h"))
 	if err != nil {
 		return err
 	}

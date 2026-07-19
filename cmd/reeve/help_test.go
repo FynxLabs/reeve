@@ -13,6 +13,7 @@ func TestBuildHelpComment_ContainsCommands(t *testing.T) {
 		"<!-- reeve:help -->",
 		"/reeve apply",
 		"/reeve ready",
+		"/reeve unlock",
 		"/reeve help",
 	} {
 		if !strings.Contains(body, want) {

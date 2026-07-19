@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 
 	"github.com/thefynx/reeve/internal/blob"
@@ -144,19 +146,22 @@ func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	return out, nil
 }
 
+// isPreconditionFailed classifies a GCS conditional-write failure so the
+// caller's mutate loop re-reads and retries instead of aborting. GCS
+// returns 412 (conditionNotMet) when an If-Generation-Match precondition
+// misses, and 409 on some paths when concurrent writers race on the same
+// generation; both mean "lost the CAS race".
 func isPreconditionFailed(err error) bool {
-	var ge *googleAPIError
+	var ge *googleapi.Error
 	if errors.As(err, &ge) {
-		return ge.Code == 412
+		return ge.Code == http.StatusPreconditionFailed || ge.Code == http.StatusConflict
 	}
+	// Fallback for code paths that stringify the API error instead of
+	// wrapping it. Deliberately narrow: no bare "412" substring match,
+	// which also fired on unrelated errors that merely contained it.
 	s := err.Error()
-	return strings.Contains(s, "conditionNotMet") || strings.Contains(s, "Precondition Failed") || strings.Contains(s, "412")
+	return strings.Contains(s, "conditionNotMet") || strings.Contains(s, "Precondition Failed")
 }
-
-// googleAPIError is the subset we need from googleapi.Error.
-type googleAPIError struct{ Code int }
-
-func (e *googleAPIError) Error() string { return fmt.Sprintf("googleapi error %d", e.Code) }
 
 // compile-time check
 var _ blob.Store = (*Store)(nil)
