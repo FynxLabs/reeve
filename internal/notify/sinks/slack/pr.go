@@ -117,7 +117,7 @@ func stackMatchesAnyRule(rules []schemas.SlackNotifyRule, s notify.StackResult) 
 	return false
 }
 
-func (s *Sink) sendOrUpdate(ctx context.Context, in notify.PRPayload, state *prState, etag string, ev notify.Event, color string) error {
+func (s *Sink) sendOrUpdate(ctx context.Context, in notify.PRPayload, state *PRState, etag string, ev notify.Event, color string) error {
 	blocks := s.buildMainBlocks(in, ev)
 	text := mainFallbackText(in.RepoFull, in.PR, ev)
 
@@ -147,19 +147,24 @@ func (s *Sink) sendOrUpdate(ctx context.Context, in notify.PRPayload, state *prS
 	state.Channel = res.Channel
 	state.MainTS = res.TS
 
-	// Thread: first timeline entry initialises the thread; subsequent events append.
-	ch := state.Channel
-	if ch == "" {
-		ch = s.channel
-	}
-	timelineText := timelineEntry(ev, in.CommitSHA, in.RunURL)
-	tr, terr := s.client.PostThread(ctx, ch, res.TS, timelineText, nil)
-	if terr != nil {
-		// Thread post is a courtesy update on the main message; failure is
-		// non-fatal but should be visible in operator logs.
-		slog.Warn("slack thread post failed", "err", terr, "pr", in.PR, "channel", ch)
-	} else if state.ThreadTS == "" {
-		state.ThreadTS = tr.TS
+	// Thread: first timeline entry initialises the thread; subsequent events
+	// append. When a timeline sink owns the thread (state.ThreadOwner), the
+	// dashboard suppresses its courtesy entries - the timeline's richer
+	// entries are the only replies.
+	if state.ThreadOwner == "" {
+		ch := state.Channel
+		if ch == "" {
+			ch = s.channel
+		}
+		timelineText := timelineEntry(ev, in.CommitSHA, in.RunURL)
+		tr, terr := s.client.PostThread(ctx, ch, res.TS, timelineText, nil)
+		if terr != nil {
+			// Thread post is a courtesy update on the main message; failure is
+			// non-fatal but should be visible in operator logs.
+			slog.Warn("slack thread post failed", "err", terr, "pr", in.PR, "channel", ch)
+		} else if state.ThreadTS == "" {
+			state.ThreadTS = tr.TS
+		}
 	}
 
 	return s.savePRState(ctx, in.PR, state, etag)
@@ -242,6 +247,10 @@ func (s *Sink) buildMainBlocks(in notify.PRPayload, ev notify.Event) []slack.Blo
 
 func statusEmoji(ev notify.Event) string {
 	switch ev {
+	case notify.EventPlanning:
+		return ":mag:"
+	case notify.EventBreakGlass:
+		return ":rotating_light:"
 	case notify.EventPlan, notify.EventReady:
 		return ":large_orange_circle:"
 	case notify.EventApproved:
@@ -298,6 +307,10 @@ func (s *Sink) icon(kind, defaultEmoji string) string {
 
 func eventTitle(ev notify.Event) string {
 	switch ev {
+	case notify.EventPlanning:
+		return "Preview Running..."
+	case notify.EventBreakGlass:
+		return "Break-Glass Override :rotating_light:"
 	case notify.EventPlan:
 		return "Planned - Pending Approval"
 	case notify.EventReady:
@@ -340,6 +353,10 @@ func timelineEntry(ev notify.Event, sha, runURL string) string {
 		run = fmt.Sprintf(" · <%s|View Run>", runURL)
 	}
 	switch ev {
+	case notify.EventPlanning:
+		return fmt.Sprintf(":mag: *Preview started* · %s%s%s", ts, commit, run)
+	case notify.EventBreakGlass:
+		return fmt.Sprintf(":rotating_light: *Break-glass override* · %s%s%s", ts, commit, run)
 	case notify.EventPlan:
 		return fmt.Sprintf(":clipboard: *Plan ready* · %s%s%s", ts, commit, run)
 	case notify.EventReady:

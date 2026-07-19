@@ -304,11 +304,11 @@ func TestPRStateCASConflictKeepsFirstWriter(t *testing.T) {
 
 	// Simulate a concurrent run winning the race after our load: state gets
 	// created (with a different message TS) between load and save.
-	_, err := store.Put(context.Background(), prStateKey(7), strings.NewReader(`{"channel":"C1","main_ts":"other-ts"}`))
+	_, err := store.Put(context.Background(), PRStateKey(7), strings.NewReader(`{"channel":"C1","main_ts":"other-ts"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := &prState{Channel: "C1", MainTS: "our-ts"}
+	st := &PRState{Channel: "C1", MainTS: "our-ts"}
 	err = s.savePRState(context.Background(), 7, st, "") // we loaded before it existed
 	if err == nil || !strings.Contains(err.Error(), "concurrent") {
 		t.Fatalf("want conflict error, got %v", err)
@@ -324,14 +324,37 @@ func TestPRStateCASRetriesOverSameMessage(t *testing.T) {
 	store := newMemStore()
 	s := testSink(&fakeClient{}, store, "")
 	// Remote state exists with the SAME main ts (concurrent thread update).
-	_, _ = store.Put(context.Background(), prStateKey(7), strings.NewReader(`{"channel":"C1","main_ts":"ts-1","thread_ts":"th-9"}`))
-	st := &prState{Channel: "C1", MainTS: "ts-1"}
+	_, _ = store.Put(context.Background(), PRStateKey(7), strings.NewReader(`{"channel":"C1","main_ts":"ts-1","thread_ts":"th-9"}`))
+	st := &PRState{Channel: "C1", MainTS: "ts-1"}
 	if err := s.savePRState(context.Background(), 7, st, "stale-etag"); err != nil {
 		t.Fatalf("want retry to succeed, got %v", err)
 	}
 	remote, _, _ := s.loadPRState(context.Background(), 7)
 	if remote.ThreadTS != "th-9" {
 		t.Fatalf("thread ts not preserved: %+v", remote)
+	}
+}
+
+func TestPROwnedThreadSuppressesCourtesyEntries(t *testing.T) {
+	// When a timeline sink owns the thread (state.ThreadOwner), the dashboard
+	// still updates the main message but must not double-post thread entries.
+	fc := &fakeClient{}
+	store := newMemStore()
+	s := testSink(fc, store, schemas.SlackTriggerPlan)
+	_, err := store.Put(context.Background(), PRStateKey(7),
+		strings.NewReader(`{"channel":"C1","main_ts":"ts-1","thread_owner":"timeline"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Deliver(context.Background(), prPayload(notify.EventApplying)); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if len(fc.calls) != 1 || fc.calls[0].method != "update" {
+		t.Fatalf("want main update only, no thread post: %+v", fc.calls)
+	}
+	st, _, _ := s.loadPRState(context.Background(), 7)
+	if st.ThreadOwner != "timeline" {
+		t.Fatalf("owner must survive the save: %+v", st)
 	}
 }
 

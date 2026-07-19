@@ -45,7 +45,7 @@ type Client interface {
 // (drift.yaml sinks read SLACK_BOT_TOKEN); with no token the sink is
 // skipped, matching the previous factory behavior.
 func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
-	token := expandEnvRef(cfg.AuthToken)
+	token := ExpandEnvRef(cfg.AuthToken)
 	if token == "" {
 		token = deps.SlackToken
 	}
@@ -99,10 +99,10 @@ func defaultPREvents(trigger schemas.SlackTrigger) []notify.Event {
 	return order[idx:]
 }
 
-// expandEnvRef unwraps "${env:NAME}"; other strings pass through. Config
+// ExpandEnvRef unwraps "${env:NAME}"; other strings pass through. Config
 // loading already expands these, but sinks may be built from configs that
 // skipped that pass.
-func expandEnvRef(s string) string {
+func ExpandEnvRef(s string) string {
 	if strings.HasPrefix(s, "${env:") && strings.HasSuffix(s, "}") {
 		return os.Getenv(strings.TrimSuffix(strings.TrimPrefix(s, "${env:"), "}"))
 	}
