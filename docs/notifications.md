@@ -12,7 +12,7 @@ receive drift alerts, and a webhook can be pointed at both.
 
 ## Declaring channels
 
-Channels are declared in `.reeve/notifications.yaml` (v2 shape) as a generic
+Channels are declared in `.reeve/notifications.yaml` as a generic
 list — `type` picks the adapter, `on:` picks the events:
 
 ```yaml
@@ -41,10 +41,10 @@ channels:
 ```
 
 Drift-only channels can also live in `drift.yaml` under `channels:` (same shape,
-same adapters) — that file remains fully supported. drift.yaml's pre-v0.3
-spelling `sinks:` is still accepted as a deprecated alias (`reeve
-migrate-config` rewrites it; declaring both keys is an error). See
-[drift.md](drift.md#channels) for the drift-specific rendering of each type.
+same adapters). drift.yaml's original spelling `sinks:` no longer loads —
+`reeve migrate-config` renames it (see "Converting from the original
+config" below). See [drift.md](drift.md#channels) for the drift-specific
+rendering of each type.
 
 ### Events
 
@@ -160,10 +160,18 @@ concurrent runs merge instead of overwriting each other.
 - Notifications run last in the pipeline, so upstream failures are
   captured accurately.
 
-## Legacy shape (v1)
+## Converting from the original config
 
-The pre-v0.3 shape — a single `slack:` block — keeps working unchanged and
-is mapped onto the channel model internally (`slack.events` becomes `on:`):
+reeve is early alpha and the config shape changed: the original single
+`slack:` block (and drift.yaml's `sinks:` key) no longer load — reeve
+errors and points you here. Convert with one command:
+
+```bash
+reeve migrate-config            # rewrites in place; originals backed up as *.bak
+reeve migrate-config --dry-run  # preview the rewrite first
+```
+
+That turns the original
 
 ```yaml
 version: 1
@@ -177,9 +185,9 @@ slack:
   events: [plan, applied, failed]
 ```
 
-Run `reeve migrate-config` to rewrite it to the v2 `channels:` shape
-(originals are backed up as `*.bak`; `--dry-run` previews). Migration is
-optional — v1 files load forever.
+into the equivalent `channels:` entry (`events:` becomes `on:`; trigger,
+icons, and rules carry over), and renames drift.yaml's `sinks:` key to
+`channels:`. Hand-editing to the same shape works just as well.
 
 `comments.*` in `shared.yaml` (PR comment rendering) is unchanged and
 unrelated to channels.

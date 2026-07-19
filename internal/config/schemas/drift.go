@@ -10,7 +10,7 @@ type Drift struct {
 	Schedules             map[string]Schedule `yaml:"schedules"`
 	PermanentSuppressions []SuppressionYAML   `yaml:"permanent_suppressions"`
 	Channels              []ChannelYAML       `yaml:"channels"`
-	// DeprecatedSinks is the pre-v0.3 spelling of Channels. drift.yaml's
+	// DeprecatedSinks is the original spelling of Channels. drift.yaml's
 	// `sinks:` key shipped in v0.2.0, so the loader keeps accepting it as a
 	// deprecated alias: it is mapped onto Channels at load time (with a
 	// deprecation warning), and setting both keys is an error.

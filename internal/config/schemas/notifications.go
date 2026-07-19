@@ -1,46 +1,15 @@
 package schemas
 
-// Notifications is .reeve/notifications.yaml.
+// Notifications is .reeve/notifications.yaml: a generic `channels:` list
+// (type + settings + `on:` subscriptions).
 //
-// Two shapes are supported:
-//   - v1 (legacy): a single `slack:` block. Still accepted; it is mapped
-//     onto the channel model internally (see EffectiveChannels).
-//   - v2: a generic `channels:` list (type + settings + `on:` subscriptions).
-//
-// `reeve migrate-config` rewrites v1 files to v2.
+// The original single `slack:` block is no longer loaded — the field exists
+// only so the loader can reject it with a pointer at `reeve migrate-config`,
+// which converts it to a channels: entry.
 type Notifications struct {
 	Header   `yaml:",inline"`
 	Slack    *SlackConfig  `yaml:"slack,omitempty"`
 	Channels []ChannelYAML `yaml:"channels,omitempty"`
-}
-
-// EffectiveChannels returns the declared channels with the legacy `slack:` block
-// mapped onto the generic channel model. Old configs keep working unchanged:
-// slack.events maps to `on:` and trigger/icons/rules carry over.
-func (n *Notifications) EffectiveChannels() []ChannelYAML {
-	if n == nil {
-		return nil
-	}
-	out := make([]ChannelYAML, 0, len(n.Channels)+1)
-	out = append(out, n.Channels...)
-	if n.Slack != nil {
-		enabled := n.Slack.Enabled
-		on := make([]string, 0, len(n.Slack.Events))
-		for _, e := range n.Slack.Events {
-			on = append(on, string(e))
-		}
-		out = append(out, ChannelYAML{
-			Type:      "slack",
-			Enabled:   &enabled,
-			On:        on,
-			Channel:   n.Slack.Channel,
-			AuthToken: n.Slack.AuthToken,
-			Trigger:   n.Slack.Trigger,
-			Icons:     n.Slack.Icons,
-			Rules:     n.Slack.Rules,
-		})
-	}
-	return out
 }
 
 // SlackTrigger controls when the first Slack message is created.
