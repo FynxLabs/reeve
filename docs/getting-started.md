@@ -158,6 +158,7 @@ That's it. The action auto-detects the command from the event:
 | `pull_request` (any other action: labeled, ...)    | silent no-op             |
 | `/reeve ready` comment                             | `reeve run ready`        |
 | `/reeve apply` comment                             | `reeve run apply`        |
+| `/reeve unlock [project/stack]` comment            | frees this PR's locks    |
 | `/reeve help` comment                              | posts available commands |
 | Any other comment, or any bot-authored comment     | silent no-op             |
 

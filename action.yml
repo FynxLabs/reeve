@@ -255,6 +255,17 @@ runs:
                 ;;
               ready)         CMD="ready" ;;
               preview|plan)  CMD="preview" ;;
+              unlock)
+                CMD="unlock"
+                # Optional "project/stack" token scopes the unlock to one
+                # lock; bare "/reeve unlock" frees everything this PR holds
+                # or is queued on. Only this PR's entries are ever touched.
+                UNLOCK_REF=""
+                read -r FIRST _ <<< "$REST"
+                if [[ -n "$FIRST" && "$FIRST" != -* && "$FIRST" == */* ]]; then
+                  UNLOCK_REF="$FIRST"
+                fi
+                ;;
               help)          CMD="pr-help" ;;
               *)
                 echo "Unknown reeve command '${VERB:-}', skipping."
@@ -290,6 +301,13 @@ runs:
           apply|"run apply")
             PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
             "$REEVE_BIN" run apply --pr "$PR_NUMBER" $EXTRA
+            ;;
+          unlock)
+            # PR-scoped lock cleanup: removes this PR from lock holders and
+            # queues (one stack, or all of them). Never touches other PRs'
+            # locks - admin force-unlock stays CLI-only.
+            PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
+            "$REEVE_BIN" locks unlock ${UNLOCK_REF:+"$UNLOCK_REF"} --pr "$PR_NUMBER" $EXTRA
             ;;
           pr-help|"run pr-help")
             PR_NUMBER=$(jq -r '.issue.number // 0' < "$GITHUB_EVENT_PATH")

@@ -143,12 +143,16 @@ func locksReap(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// locksUnlock is the admin override. Without --pr it force-clears the
-// holder of one lock and promotes the queue. With --pr N it removes that
-// PR from the holder/queue instead - the escape hatch for PRs closed or
-// merged while still holding or queued, without which an abandoned PR
-// could be promoted to holder and block everyone until TTL. Both paths go
-// through the same locking.admin_override gate.
+// locksUnlock is lock cleanup. Without --pr it is the admin override:
+// force-clear the holder of one lock (or every lock, when the stack is
+// omitted) and promote the queue - gated by locking.admin_override.
+// With --pr N it removes that PR from the holder/queue instead - the
+// escape hatch for PRs closed or merged while still holding or queued,
+// without which an abandoned PR could be promoted to holder and block
+// everyone until TTL. The --pr path is NOT admin-gated: it only ever
+// touches that PR's own entries (parity with what a finishing apply
+// does automatically), and it is what "/reeve unlock" PR comments
+// dispatch - those are already gated by allowed-associations upstream.
 func locksUnlock(cmd *cobra.Command, args []string) error {
 	pr := flagInt(cmd, "pr")
 
@@ -163,14 +167,18 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 		actor = os.Getenv("USER")
 	}
 
-	// Admin gate: shared.yaml locking.admin_override
-	admin := cfg.Shared.Locking.AdminOverride
-	if admin.RequiresReason && reason == "" {
-		return fmt.Errorf("locks unlock: --reason is required (shared.yaml locking.admin_override.requires_reason=true)")
-	}
-	if len(admin.Allowed) > 0 {
-		if !actorAllowed(actor, admin.Allowed) {
-			return fmt.Errorf("locks unlock: actor %q is not in locking.admin_override.allowed", actor)
+	if pr <= 0 {
+		// Admin gate: shared.yaml locking.admin_override. Force-clearing
+		// other PRs' holders is the dangerous path; PR-scoped removal
+		// below is not.
+		admin := cfg.Shared.Locking.AdminOverride
+		if admin.RequiresReason && reason == "" {
+			return fmt.Errorf("locks unlock: --reason is required (shared.yaml locking.admin_override.requires_reason=true)")
+		}
+		if len(admin.Allowed) > 0 {
+			if !actorAllowed(actor, admin.Allowed) {
+				return fmt.Errorf("locks unlock: actor %q is not in locking.admin_override.allowed", actor)
+			}
 		}
 	}
 
