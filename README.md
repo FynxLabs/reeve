@@ -58,7 +58,15 @@ go build -o bin/reeve ./cmd/reeve
 
 ## Configure
 
-Create `.reeve/` in your repo:
+Scaffold `.reeve/` in your repo - `reeve init` discovers your Pulumi stacks
+and walks you through approvals, freeze windows, and notifications (use
+`--non-interactive` for a zero-prompt safe baseline):
+
+```bash
+reeve init
+```
+
+Or write the two files by hand:
 
 ```yaml
 # .reeve/shared.yaml

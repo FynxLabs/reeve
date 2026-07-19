@@ -30,9 +30,37 @@ go build -o ./bin/reeve ./cmd/reeve
 
 Put `./bin/reeve` on your `$PATH` or invoke it directly.
 
-## 2. Create `.reeve/`
+## 2. Create `.reeve/` with `reeve init`
 
-At the repo root, create two files.
+At the repo root, run:
+
+```bash
+reeve init
+```
+
+`reeve init` scans the repo for Pulumi projects (the same scan as
+`reeve stacks discover`), shows what it found, and walks you through a short
+wizard: approvals (CODEOWNERS-based or an explicit approver list), an
+optional commented freeze-window example, an optional Slack notification
+sink, and an approval-freshness window. Everything you skip is written as a
+commented best-practice example you can enable later.
+
+Running in a script or CI (or passing `--non-interactive` / `-n`) skips all
+prompts and writes a safe baseline: engine detected from repo files, stacks
+pre-filled, every optional gate off. Existing `.reeve/` files are never
+overwritten - `init` only fills in missing config types unless you pass
+`--force` (which keeps `*.bak` backups).
+
+Then check the result:
+
+```bash
+reeve lint
+```
+
+### What it wrote
+
+Two files (plus `notifications.yaml` if you configured Slack). You can also
+write these by hand - `reeve init` is just a shortcut.
 
 **`.reeve/shared.yaml`** - bucket, approvals, preconditions:
 
