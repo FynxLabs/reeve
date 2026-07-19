@@ -33,7 +33,7 @@ type rewriteFn func(*yaml.Node) (bool, error)
 // NewMigrator returns a Migrator with the built-in migrations registered.
 func NewMigrator() *Migrator {
 	m := &Migrator{registry: map[migrationKey]migrationFn{}, rewrites: map[string]rewriteFn{}}
-	m.registry[migrationKey{ConfigType: "notifications", From: 1}] = migrateNotificationsV1ToV2
+	m.registry[migrationKey{ConfigType: "notifications", From: 1}] = migrateLegacySlackToChannels
 	m.rewrites["drift"] = rewriteDriftSinksToChannels
 	return m
 }
@@ -71,7 +71,7 @@ func rewriteDriftSinksToChannels(root *yaml.Node) (bool, error) {
 	return true, nil
 }
 
-// migrateNotificationsV1ToV2 rewrites the legacy `slack:` block into an
+// migrateLegacySlackToChannels rewrites the legacy `slack:` block into an
 // entry of the generic `channels:` list:
 //
 //	slack:                      channels:
@@ -83,8 +83,8 @@ func rewriteDriftSinksToChannels(root *yaml.Node) (bool, error) {
 // All other keys (auth_token, trigger, icons, rules) carry over verbatim;
 // `events` is renamed to `on`. Value nodes are reused so comments and
 // styles survive. A file without a `slack:` block only gets its version
-// bumped. The runtime keeps accepting v1, so running this is optional.
-func migrateNotificationsV1ToV2(root *yaml.Node) error {
+// bumped. The runtime keeps accepting the legacy block, so running this is optional.
+func migrateLegacySlackToChannels(root *yaml.Node) error {
 	m := docMapping(root)
 	if m == nil {
 		return fmt.Errorf("notifications: expected a mapping document")
@@ -120,7 +120,7 @@ func migrateNotificationsV1ToV2(root *yaml.Node) error {
 	}
 
 	if channelsIdx >= 0 {
-		// A channels list already exists (mixed v1 file): append the converted
+		// A channels list already exists (mixed legacy file): append the converted
 		// slack entry and drop the slack key.
 		seq := m.Content[channelsIdx+1]
 		if seq.Kind != yaml.SequenceNode {

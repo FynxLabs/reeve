@@ -286,10 +286,10 @@ dispatch. One channel implementation serves both producers — see
 guarantees (concurrent dispatch, timeouts, retry with backoff), and how
 to add a destination.
 
-> **Deprecated alias:** drift.yaml's list was called `sinks:` before
-> v0.3. That spelling still loads (with a deprecation warning) as long as
-> `channels:` is not also set — setting both is an error. Run
-> `reeve migrate-config` to rewrite `sinks:` to `channels:` in place.
+> **Renamed key:** drift.yaml's list was originally called `sinks:`.
+> That spelling no longer loads — reeve errors with a pointer at
+> `reeve migrate-config`, which renames it to `channels:` in place
+> (or just rename the key by hand).
 
 Every channel declares which events it wants via `on:`. The drift events are
 `drift_detected`, `drift_ongoing`, `drift_resolved`, and `check_failed` -

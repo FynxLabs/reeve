@@ -125,6 +125,11 @@ func Load(root string) (*Config, error) {
 			if err := strictDecode(data, &n); err != nil {
 				return nil, fmt.Errorf("%s: %w", f, err)
 			}
+			// The original single slack: block predates channels:. Alpha
+			// rule: no silent compat - reject with the conversion pointer.
+			if n.Slack != nil {
+				return nil, fmt.Errorf("%s: the slack: block was replaced by channels: - run `reeve migrate-config` to convert the file (see docs/notifications.md)", f)
+			}
 			cfg.Notifications = &n
 		case "drift":
 			if prev, ok := seenType["drift"]; ok {
@@ -135,15 +140,10 @@ func Load(root string) (*Config, error) {
 			if err := strictDecode(data, &d); err != nil {
 				return nil, fmt.Errorf("%s: %w", f, err)
 			}
-			// `sinks:` shipped in v0.2.0 and remains a deprecated alias for
-			// `channels:`. Prefer `channels:`; both at once is ambiguous.
+			// `sinks:` was the original spelling of `channels:`. Alpha rule:
+			// no silent compat - reject with the conversion pointer.
 			if len(d.DeprecatedSinks) > 0 {
-				if len(d.Channels) > 0 {
-					return nil, fmt.Errorf("%s: both channels: and sinks: are set; sinks: is a deprecated alias of channels: - merge everything under the channels: key", f)
-				}
-				slog.Warn("drift.yaml sinks: is deprecated; rename it to channels: (or run `reeve migrate-config`)", "file", f)
-				d.Channels = d.DeprecatedSinks
-				d.DeprecatedSinks = nil
+				return nil, fmt.Errorf("%s: sinks: was renamed to channels: - run `reeve migrate-config` to convert the file, or rename the key", f)
 			}
 			cfg.Drift = &d
 		case "observability":
@@ -179,9 +179,9 @@ func Load(root string) (*Config, error) {
 }
 
 // maxSchemaVersion returns the highest supported schema version for a
-// config_type. notifications gained v2 (generic `channels:` list) - v1 (the
-// legacy `slack:` block) remains fully supported and is mapped onto the
-// channel model internally. `reeve migrate-config` rewrites v1 to v2.
+// config_type. notifications is at 2 (the generic `channels:` list); the
+// original version-1 `slack:` block is rejected at load with a pointer at
+// `reeve migrate-config`.
 func maxSchemaVersion(configType string) int {
 	if configType == "notifications" {
 		return 2
@@ -210,8 +210,6 @@ func (c *Config) Validate() error {
 // validateChannels checks every channel declaration (notifications.yaml `channels:`
 // and drift.yaml `channels:`): `on:` entries must be known event names, and an
 // empty subscription list draws a warning because the channel will never fire.
-// (The legacy notifications `slack:` block is exempt from the empty-`on`
-// warning - it defaults to all events at or after its trigger.)
 func (c *Config) validateChannels() error {
 	check := func(file string, channels []schemas.ChannelYAML) error {
 		for _, s := range channels {
@@ -234,14 +232,6 @@ func (c *Config) validateChannels() error {
 	if c.Notifications != nil {
 		if err := check("notifications.yaml", c.Notifications.Channels); err != nil {
 			return err
-		}
-		if c.Notifications.Slack != nil {
-			for _, ev := range c.Notifications.Slack.Events {
-				if !schemas.IsValidChannelEvent(string(ev)) {
-					return fmt.Errorf("notifications.yaml: slack.events: unknown event %q (valid: %s)",
-						ev, strings.Join(schemas.ValidChannelEvents, ", "))
-				}
-			}
 		}
 	}
 	if c.Drift != nil {

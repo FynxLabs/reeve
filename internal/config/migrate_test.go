@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestMigrateNotificationsV1ToV2(t *testing.T) {
+func TestMigrateLegacySlackToChannels(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": sharedYAMLMin,
 		"pulumi.yaml": engineYAMLMin,
@@ -62,7 +62,7 @@ slack:
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate after migrate: %v", err)
 	}
-	channels := cfg.Notifications.EffectiveChannels()
+	channels := cfg.Notifications.Channels
 	if len(channels) != 1 {
 		t.Fatalf("channels: %+v", channels)
 	}
