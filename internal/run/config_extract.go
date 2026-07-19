@@ -7,6 +7,7 @@ import (
 
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/approvals"
+	"github.com/thefynx/reeve/internal/core/breakglass"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/core/freeze"
 	"github.com/thefynx/reeve/internal/core/preconditions"
@@ -139,6 +140,30 @@ func toApprovalRule(r schemas.ApprovalRuleYAML, present map[string]bool) approva
 		}
 	}
 	_ = present
+	return out
+}
+
+// toBreakGlassConfig extracts the opt-in break_glass block. A nil block
+// yields Configured=false, which makes core/breakglass fail closed with a
+// polite "not configured" error. override_freeze defaults to TRUE when the
+// block exists but the key is omitted.
+func toBreakGlassConfig(s *schemas.Shared) breakglass.Config {
+	if s == nil || s.BreakGlass == nil {
+		return breakglass.Config{}
+	}
+	bg := s.BreakGlass
+	out := breakglass.Config{
+		Configured:     true,
+		InternalList:   bg.Authorized.InternalList,
+		Codeowners:     bg.Authorized.Codeowners,
+		Anyone:         bg.Authorized.Anyone,
+		VCSBypass:      bg.Authorized.VCSBypass,
+		Groups:         bg.Authorized.Groups,
+		OverrideFreeze: true,
+	}
+	if bg.OverrideFreeze != nil {
+		out.OverrideFreeze = *bg.OverrideFreeze
+	}
 	return out
 }
 

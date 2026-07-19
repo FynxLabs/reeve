@@ -196,6 +196,15 @@ runs:
                 fi
                 ;;
               ready)         CMD="ready" ;;
+              breakglass)
+                # /reeve breakglass "<justification>" apply — the CLI does the
+                # strict parse (and posts a helpful comment when malformed);
+                # the raw comment body travels via env, never shell-expanded.
+                CMD="apply"
+                EXTRA="$EXTRA --break-glass"
+                REEVE_BREAK_GLASS_COMMENT="$COMMENT_BODY"
+                export REEVE_BREAK_GLASS_COMMENT
+                ;;
               preview|plan)  CMD="preview" ;;
               help)          CMD="pr-help" ;;
               *)

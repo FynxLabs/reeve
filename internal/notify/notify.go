@@ -26,8 +26,8 @@ const (
 	EventApplied  Event = schemas.SinkEventApplied  // apply finished successfully
 	EventFailed   Event = schemas.SinkEventFailed   // apply errored
 	EventBlocked  Event = schemas.SinkEventBlocked  // apply blocked (gates/locks)
-	// EventBreakGlass is reserved for emergency-override runs: a valid
-	// subscription (the deployment timeline renders it) with no producer yet.
+	// EventBreakGlass fires when an emergency-override (break-glass) apply
+	// is authorized; run.Apply emits it in place of EventApproved.
 	EventBreakGlass Event = schemas.SinkEventBreakGlass
 
 	// Drift events (produced by the drift runner).

@@ -60,9 +60,8 @@ const (
 	SinkEventApplied  = "applied"  // apply finished successfully
 	SinkEventFailed   = "failed"   // apply errored
 	SinkEventBlocked  = "blocked"  // apply blocked (gates/locks)
-	// SinkEventBreakGlass is reserved for emergency-override runs. It is a
-	// valid subscription (the deployment timeline renders it) but no producer
-	// emits it yet.
+	// SinkEventBreakGlass fires when an emergency-override (break-glass)
+	// apply is authorized; the run pipeline emits it in place of approved.
 	SinkEventBreakGlass = "break_glass"
 
 	// Drift events.
