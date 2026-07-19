@@ -90,7 +90,7 @@ func runReady(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	sinks := run.BuildNotifySinks(ctx, cfg.Notifications, store)
+	sinks := run.BuildNotifySinks(ctx, cfg.Notifications, store, client)
 	if err := run.NotifyPREvent(ctx, sinks, notify.EventReady, run.PRNotifyInput{
 		PR: pr, CommitSHA: sha, RunURL: runURL,
 		PRTitle: prMeta.Title, PRAuthor: prMeta.Author,

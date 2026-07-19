@@ -35,14 +35,16 @@ func PulumiLogin(ctx context.Context, cfg *schemas.Engine) error {
 // BuildNotifySinks resolves the configured notification sinks (generic
 // `sinks:` list plus the legacy `slack:` block mapped onto it) through the
 // notify registry. Returns nil when nothing is configured. Build errors are
-// logged, not fatal - notifications never abort a run.
-func BuildNotifySinks(ctx context.Context, cfg *schemas.Notifications, store blob.Store) []notify.Sink {
+// logged, not fatal - notifications never abort a run. comments backs the
+// timeline_github sink and may be nil (the sink is then skipped).
+func BuildNotifySinks(ctx context.Context, cfg *schemas.Notifications, store blob.Store, comments notify.CommentClient) []notify.Sink {
 	cfgs := cfg.EffectiveSinks()
 	if len(cfgs) == 0 {
 		return nil
 	}
 	sinks, err := notify.Build(ctx, cfgs, notify.Deps{
 		Blob:       store,
+		Comments:   comments,
 		SlackToken: os.Getenv("SLACK_BOT_TOKEN"),
 		RepoFull:   os.Getenv("GITHUB_REPOSITORY"),
 	})

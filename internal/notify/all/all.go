@@ -9,5 +9,6 @@ import (
 	_ "github.com/thefynx/reeve/internal/notify/sinks/otel"
 	_ "github.com/thefynx/reeve/internal/notify/sinks/pagerduty"
 	_ "github.com/thefynx/reeve/internal/notify/sinks/slack"
+	_ "github.com/thefynx/reeve/internal/notify/sinks/timeline"
 	_ "github.com/thefynx/reeve/internal/notify/sinks/webhook"
 )

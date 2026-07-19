@@ -280,7 +280,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// Notify approved + applying before the loop (creates the message on
 	// the apply trigger path).
 	if in.PRNumber > 0 && in.Notifications != nil {
-		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob)
+		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob, in.VCS)
 		preSummaries := make([]summary.StackSummary, 0, len(target))
 		for _, s := range target {
 			preSummaries = append(preSummaries, summary.StackSummary{
@@ -545,7 +545,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// already shipped at this point; a notification failure must not abort
 	// the run.
 	if in.PRNumber > 0 && in.Notifications != nil {
-		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob)
+		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob, in.VCS)
 		ev := ApplyOutcomeEvent(summaries, anyBlocked)
 		if err := NotifyPREvent(ctx, sinks, ev, PRNotifyInput{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,

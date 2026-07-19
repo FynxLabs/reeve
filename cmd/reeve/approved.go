@@ -85,7 +85,7 @@ func runApproved(cmd *cobra.Command, _ []string) error {
 		sha = prMeta.HeadSHA
 	}
 
-	sinks := run.BuildNotifySinks(ctx, cfg.Notifications, store)
+	sinks := run.BuildNotifySinks(ctx, cfg.Notifications, store, client)
 	if err := run.NotifyPREvent(ctx, sinks, notify.EventApproved, run.PRNotifyInput{
 		PR: pr, CommitSHA: sha, RunURL: runURL,
 		PRTitle: prMeta.Title, PRAuthor: prMeta.Author,
