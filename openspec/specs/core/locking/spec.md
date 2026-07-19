@@ -44,10 +44,14 @@ No control plane.
 - Apply finished → the finishing run releases per stack, then removes its PR from
   every lock its PR still appears in (holder or queue) so the PR does
   not linger in queues for stacks it no longer needs.
-- PR merged / closed unmerged → `reeve locks unlock [project/stack] --pr N`
-  removes the PR from holder/queue (all locks when the stack is omitted).
+- PR merged / closed unmerged → `/reeve unlock [project/stack]` PR comment
+  or `reeve locks unlock [project/stack] --pr N` removes the PR from
+  holder/queue (all locks when the stack is omitted). PR-scoped removal
+  only touches that PR's own entries and is not admin-gated.
 - TTL expiry (opportunistic reaper).
-- Manual `/reeve unlock` (admin per `shared.yaml` `locking.admin_override`).
+- Manual force-unlock: `reeve locks unlock [project/stack]` (no `--pr`)
+  clears holders regardless of PR - gated by `shared.yaml`
+  `locking.admin_override`.
 
 ## Fairness
 

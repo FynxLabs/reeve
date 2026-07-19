@@ -38,7 +38,7 @@ func newLocksCmd() *cobra.Command {
 
 	unlock := &cobra.Command{
 		Use:   "unlock [project/stack]",
-		Short: "Admin-override unlock: clear the holder and promote the queue (every lock when the stack is omitted); --pr N removes that PR from holder/queue instead",
+		Short: "Admin-override unlock: clear a stack's holder and promote its queue; --pr N instead removes that PR from its locks (all of them when the stack is omitted)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  locksUnlock,
 	}
@@ -187,15 +187,11 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 
 	if pr <= 0 {
-		// Force-unlock: one stack's holder, or every holder in the
-		// bucket when no stack is given.
+		// Force-unlock one stack's holder. There is deliberately no
+		// bucket-wide force-unlock: "unlock everything" only exists
+		// PR-scoped (--pr / "/reeve unlock"), never for the whole bucket.
 		if len(args) == 0 {
-			n, err := s.ForceUnlockAll(ctx, ttl)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(w, "unlocked %d lock(s) by actor=%s reason=%q\n", n, actor, reason)
-			return nil
+			return fmt.Errorf("locks unlock: <project/stack> is required (or pass --pr N to remove a PR from its locks)")
 		}
 		parts := splitRef(args[0])
 		if parts == nil {

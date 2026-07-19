@@ -58,9 +58,9 @@ locking:
   ttl: 4h                          # default 4h; also bounds the lease of holders promoted from the queue
   queue: fifo                      # v1: fifo (only option)
   reaper_interval: 15m             # informational; reaper is opportunistic
-  admin_override:
-    allowed: ["@org/sre-leads"]
-    requires_reason: true
+  admin_override:                  # gates force-unlock (locks unlock without --pr);
+    allowed: ["@org/sre-leads"]    # PR-scoped removal (--pr / "/reeve unlock") is
+    requires_reason: true          # self-service and not gated here
 
 approvals:
   sources:
