@@ -35,6 +35,28 @@ const (
 	EventNone          Event = "" // silent - no sink delivery
 )
 
+// KnownEventNames lists the event names a sink's `on:` list may subscribe
+// to. Used by lint and the sink factory to reject/flag typos instead of
+// silently dropping them.
+func KnownEventNames() []string {
+	return []string{
+		string(EventDriftDetected),
+		string(EventDriftOngoing),
+		string(EventDriftResolved),
+		string(EventCheckFailed),
+	}
+}
+
+// ParseEventName maps a config string to an Event. ok is false for
+// unknown names (including the empty string).
+func ParseEventName(s string) (Event, bool) {
+	switch Event(s) {
+	case EventDriftDetected, EventDriftOngoing, EventDriftResolved, EventCheckFailed:
+		return Event(s), true
+	}
+	return EventNone, false
+}
+
 // State is the per-stack persisted state at drift/state/{project}/{stack}.json.
 type State struct {
 	Project          string    `json:"project"`
