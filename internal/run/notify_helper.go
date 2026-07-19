@@ -32,13 +32,16 @@ func PulumiLogin(ctx context.Context, cfg *schemas.Engine) error {
 	return nil
 }
 
-// BuildNotifyChannels resolves the configured notification channels (generic
-// `channels:` list plus the legacy `slack:` block mapped onto it) through the
-// notify registry. Returns nil when nothing is configured. Build errors are
-// logged, not fatal - notifications never abort a run. comments backs the
-// timeline_github channel and may be nil (the channel is then skipped).
+// BuildNotifyChannels resolves the configured notification channels
+// (the `channels:` list) through the notify registry. Returns nil when
+// nothing is configured. Build errors are logged, not fatal -
+// notifications never abort a run. comments backs the timeline_github
+// channel and may be nil (the channel is then skipped).
 func BuildNotifyChannels(ctx context.Context, cfg *schemas.Notifications, store blob.Store, comments notify.CommentClient) []notify.Channel {
-	cfgs := cfg.EffectiveChannels()
+	var cfgs []schemas.ChannelYAML
+	if cfg != nil {
+		cfgs = cfg.Channels
+	}
 	if len(cfgs) == 0 {
 		return nil
 	}

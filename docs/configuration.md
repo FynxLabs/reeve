@@ -407,12 +407,13 @@ per event (SHA, timestamp, per-run CI link) — thread replies in Slack, one
 comment per commit SHA on GitHub. See
 [notifications.md](notifications.md#the-deployment-timeline).
 
-### Legacy shape (v1)
+### Converting from the original config
 
-The single `slack:` block from before v0.3 keeps working unchanged — it
-is mapped onto the channel model internally (`slack.events` maps to `on:`).
-`reeve migrate-config` rewrites it to the v2 `channels:` shape (originals
-backed up as `*.bak`; `--dry-run` previews).
+The original single `slack:` block (and drift.yaml's `sinks:` key) no
+longer load — reeve errors with a conversion pointer. Run
+`reeve migrate-config` to rewrite them to the `channels:` shape
+(originals backed up as `*.bak`; `--dry-run` previews), or hand-edit —
+see [notifications.md](notifications.md#converting-from-the-original-config).
 
 ```yaml
 version: 1
