@@ -352,7 +352,19 @@ sinks:
     name: audit-feed
     url: https://example.internal/hooks/reeve
     on: [applied, failed, drift_detected]
+
+  # Deployment timeline (append-only activity heartbeat, default off):
+  - type: timeline_slack
+    channel: "#infra-deploys"
+    auth_token: ${env:SLACK_BOT_TOKEN}
+  - type: timeline_github
 ```
+
+The `timeline_*` sinks complement the dashboard surfaces above: the status
+comment/message is the edited-in-place snapshot; the timeline is one entry
+per event (SHA, timestamp, per-run CI link) — thread replies in Slack, one
+comment per commit SHA on GitHub. See
+[notifications.md](notifications.md#the-deployment-timeline).
 
 ### Legacy shape (v1)
 
@@ -426,6 +438,9 @@ states show "Waiting for approval." instead.
 
 The first message opens a Slack thread. Each event appends a timestamped
 timeline entry (planned, ready, approved, applying, applied, failed).
+When a `timeline_slack` sink is enabled it takes over the thread with
+richer entries (per-stack outcomes, per-run CI links) and these courtesy
+entries are suppressed.
 
 No plan output is sent to Slack. Full output is in the GitHub Actions run log.
 
