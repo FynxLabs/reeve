@@ -389,6 +389,13 @@ The sidebar color and status field update at each stage:
 **Error rule:** if no message exists yet and apply fails, no message is created.
 Errors only update an existing message.
 
+> The Approved update can also fire the moment a PR review is approved
+> (`reeve run approved`), but only if the GitHub Action is configured with
+> `run-on-approval: "true"` and the workflow subscribes to
+> `pull_request_review` events. By default that dispatch is skipped - the
+> apply gate re-checks approvals anyway - so Slack flips to approved at
+> apply time instead.
+
 **`/reeve apply` hint** only appears when status is `approved`. Pending-approval
 states show "Waiting for approval." instead.
 

@@ -218,12 +218,19 @@ permissions:
 
 reeve expects these events:
 
-- `pull_request` (`opened`, `synchronize`, `reopened`) - fires `preview`
+- `pull_request` (`opened`, `reopened`, `synchronize`) - fires `preview`
 - `pull_request` (`ready_for_review`) - fires `ready` (if `auto_ready: true` and plan succeeded)
-- `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update)
-- `issue_comment` (`created`, body starts with `/reeve apply` (or `/reeve up`), `/reeve ready`, `/reeve preview` (or `/reeve plan`), or `/reeve help`) - fires respective command
+- `pull_request` (any other action, e.g. `labeled`, `assigned`, `edited`) - no-op
+- `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update), **only** when the action input `run-on-approval` is `"true"`; skipped by default since the apply gate re-checks approvals anyway
+- `issue_comment` (`created`, first word matches a `command-prefix` entry - default `/reeve` or `@reeve` - followed by `apply` (or `up`), `ready`, `preview` (or `plan`), or `help`) - fires respective command; comments authored by bots (user type `Bot` or login ending in `[bot]`) are always skipped to prevent self-trigger loops
 - `schedule` - fires `drift run`
 - `workflow_dispatch` - manual re-runs
+
+For run coalescing, use a `concurrency` group keyed per PR with
+`cancel-in-progress` limited to preview runs: previews never take apply
+locks, so cancelling one loses nothing, while an apply holds per-stack locks
+that only the run itself releases - never cancel an apply mid-run. See the
+workflow in [getting-started](getting-started.md#4-add-the-github-actions-workflow).
 
 ### GitHub App (optional but recommended for multi-repo)
 
