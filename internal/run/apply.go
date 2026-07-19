@@ -531,10 +531,12 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		// targets, plus the just-released holders as no-ops). RunID-scoped,
 		// so a different live run of the same PR keeps its holds.
 		if in.Locks != nil && in.PRNumber > 0 {
-			if n, err := in.Locks.UnlockPRAll(ctx, in.PRNumber, runID, ttl); err != nil {
-				slog.Warn("lock leave sweep failed", "pr", in.PRNumber, "err", err)
+			// force=true: this is the finishing run clearing its own
+			// runID-scoped entries; its lease may still look active.
+			if n, _, err := in.Locks.UnlockPRAll(ctx, in.PRNumber, runID, ttl, true); err != nil {
+				slog.Warn("lock unlock sweep failed", "pr", in.PRNumber, "err", err)
 			} else if n > 0 {
-				slog.Info("left lock entries after successful apply", "pr", in.PRNumber, "locks", n)
+				slog.Info("removed lock entries after successful apply", "pr", in.PRNumber, "locks", n)
 			}
 		}
 		if err := writeAppliedState(ctx, in.Blob, AppliedState{

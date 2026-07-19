@@ -81,28 +81,54 @@ func (s *Store) Release(ctx context.Context, project, stack string, pr int, runI
 	return l, err
 }
 
+// ErrHolderActive is returned (force=false) when the PR holds the lock
+// with an unexpired lease - most likely an apply still running. Callers
+// surface a "re-run with --force" hint instead of clearing the holder.
+var ErrHolderActive = errors.New("pr holds this lock with an active lease")
+
+// holderActive reports whether pr (optionally scoped to runID) is the
+// current holder with an unexpired lease.
+func holderActive(l corelocks.Lock, pr int, runID string, now time.Time) bool {
+	if l.Holder == nil || l.Holder.PR != pr {
+		return false
+	}
+	if runID != "" && l.Holder.RunID != runID {
+		return false
+	}
+	exp, err := time.Parse(time.RFC3339, l.Holder.ExpiresAt)
+	return err == nil && now.Before(exp)
+}
+
 // UnlockPR removes pr from holder or queue across a stack. Silent if absent.
 // Intended for PR merge/close cleanup. runID "" matches any run of the pr;
 // a non-empty runID skips a holder from a different live run of the same
-// pr untouched. ttl bounds the promoted holder's lease.
-func (s *Store) UnlockPR(ctx context.Context, project, stack string, pr int, runID string, ttl time.Duration) (corelocks.Lock, error) {
+// pr untouched. ttl bounds the promoted holder's lease. force=false refuses
+// (ErrHolderActive) to clear a holder whose lease is still active.
+func (s *Store) UnlockPR(ctx context.Context, project, stack string, pr int, runID string, ttl time.Duration, force bool) (corelocks.Lock, error) {
 	l, _, err := s.mutate(ctx, project, stack, func(cur corelocks.Lock) (corelocks.Lock, bool, error) {
+		if !force && holderActive(cur, pr, runID, s.Now()) {
+			return cur, false, ErrHolderActive
+		}
 		return corelocks.UnlockPR(cur, pr, runID, ttl, s.Now()), false, nil
 	})
 	return l, err
 }
 
-// UnlockPRAll removes pr from holder/queue across every stored lock. Returns
-// the number of locks the pr appeared in. Called by a finishing apply run
-// (runID-scoped) so the PR does not linger in queues for stacks it no
-// longer needs, and by `reeve locks unlock --pr N` (runID "") for closed or
-// abandoned PRs.
-func (s *Store) UnlockPRAll(ctx context.Context, pr int, runID string, ttl time.Duration) (int, error) {
+// UnlockPRAll removes pr from holder/queue across every stored lock.
+// Returns the number of locks the pr was removed from plus the
+// "project/stack" refs that were SKIPPED because the pr holds them with
+// an active lease (force=false only; queue entries are always removed).
+// Called by a finishing apply run (runID-scoped, force=true) so the PR
+// does not linger in queues for stacks it no longer needs, and by
+// `reeve locks unlock --pr N` / the "/reeve unlock" PR comment (runID "")
+// for closed or abandoned PRs.
+func (s *Store) UnlockPRAll(ctx context.Context, pr int, runID string, ttl time.Duration, force bool) (int, []string, error) {
 	keys, err := s.store.List(ctx, "locks")
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	var n int
+	var active []string
 	for _, k := range keys {
 		if !strings.HasSuffix(k, ".json") {
 			continue
@@ -113,17 +139,21 @@ func (s *Store) UnlockPRAll(ctx context.Context, pr int, runID string, ttl time.
 		}
 		cur, _, err := s.Get(ctx, proj, stack)
 		if err != nil {
-			return n, err
+			return n, active, err
 		}
 		if !involvesPR(cur, pr) {
 			continue // avoid rewriting lock blobs the PR never touched
 		}
-		if _, err := s.UnlockPR(ctx, proj, stack, pr, runID, ttl); err != nil {
-			return n, err
+		if _, err := s.UnlockPR(ctx, proj, stack, pr, runID, ttl, force); err != nil {
+			if errors.Is(err, ErrHolderActive) {
+				active = append(active, proj+"/"+stack)
+				continue
+			}
+			return n, active, err
 		}
 		n++
 	}
-	return n, nil
+	return n, active, nil
 }
 
 func involvesPR(l corelocks.Lock, pr int) bool {

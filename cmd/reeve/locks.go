@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -45,6 +47,7 @@ func newLocksCmd() *cobra.Command {
 	unlock.Flags().String("reason", "", "Required reason for the override (surfaces in logs)")
 	unlock.Flags().String("actor", "", "User performing the override (default: $GITHUB_ACTOR or $USER)")
 	unlock.Flags().Int("pr", 0, "Remove this PR from the lock's holder/queue instead of force-clearing the holder (closed or abandoned PR cleanup)")
+	unlock.Flags().Bool("force", false, "With --pr: clear the PR's holder even if its lease is still active (likely mid-apply)")
 
 	cmd.AddCommand(list, explain, reap, unlock)
 	return cmd
@@ -209,22 +212,30 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// --pr path: remove the PR from holder/queue, one stack or the
-	// whole bucket.
+	// --pr path: remove the PR from its own holder/queue entries, one
+	// stack or all of them. Without --force, a holder whose lease is
+	// still active (likely a live apply) is refused with a hint.
+	force := flagBool(cmd, "force")
 	if len(args) == 0 {
-		n, err := s.UnlockPRAll(ctx, pr, "", ttl)
+		n, active, err := s.UnlockPRAll(ctx, pr, "", ttl, force)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(w, "removed PR #%d from %d lock(s) by actor=%s reason=%q\n", pr, n, actor, reason)
+		if len(active) > 0 {
+			return fmt.Errorf("PR #%d is in the middle of an apply on %s; if you are sure you want to unlock, re-run with --force", pr, strings.Join(active, ", "))
+		}
 		return nil
 	}
 	parts := splitRef(args[0])
 	if parts == nil {
 		return fmt.Errorf("expected project/stack, got %q", args[0])
 	}
-	l, err := s.UnlockPR(ctx, parts[0], parts[1], pr, "", ttl)
+	l, err := s.UnlockPR(ctx, parts[0], parts[1], pr, "", ttl, force)
 	if err != nil {
+		if errors.Is(err, blocks.ErrHolderActive) {
+			return fmt.Errorf("PR #%d is in the middle of an apply on %s/%s; if you are sure you want to unlock, re-run with --force", pr, parts[0], parts[1])
+		}
 		return err
 	}
 	fmt.Fprintf(w, "removed PR #%d from %s/%s by actor=%s reason=%q\n", pr, parts[0], parts[1], actor, reason)

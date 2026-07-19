@@ -14,7 +14,7 @@ func BuildHelpComment(autoReady bool) string {
 	b.WriteString("| `/reeve apply` or `/reeve up` | Apply all planned stacks for this PR |\n")
 	b.WriteString("| `/reeve apply --force` | Re-apply even if this commit was already applied |\n")
 	b.WriteString("| `/reeve ready` | Mark PR as ready for approval, notify Slack |\n")
-	b.WriteString("| `/reeve unlock [project/stack]` | Free this PR's stack locks (all of them, or just one) |\n")
+	b.WriteString("| `/reeve unlock [project/stack] [--force]` | Free this PR's stack locks; --force if it holds one mid-apply |\n")
 	b.WriteString("| `/reeve help` | Show this help message |\n")
 	b.WriteString("\n")
 	if autoReady {
