@@ -18,8 +18,8 @@ func init() {
 	notify.Register("github_issue", New)
 }
 
-// Sink manages one issue per drifted stack. PR-flow events are no-ops.
-type Sink struct {
+// Channel manages one issue per drifted stack. PR-flow events are no-ops.
+type Channel struct {
 	name      string
 	issues    notify.IssueClient
 	labels    []string
@@ -28,13 +28,13 @@ type Sink struct {
 }
 
 // New is the registered constructor. Without an issue client (no GitHub
-// token/repo in the environment) the sink is skipped, matching the previous
+// token/repo in the environment) the channel is skipped, matching the previous
 // factory behavior.
-func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
+func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
 	if deps.Issues == nil {
 		return nil, nil
 	}
-	return &Sink{
+	return &Channel{
 		name:      cfg.EffectiveName(),
 		issues:    deps.Issues,
 		labels:    cfg.Labels,
@@ -43,10 +43,10 @@ func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink
 	}, nil
 }
 
-func (s *Sink) Name() string               { return s.name }
-func (s *Sink) Subscribes() []notify.Event { return s.events }
+func (s *Channel) Name() string               { return s.name }
+func (s *Channel) Subscribes() []notify.Event { return s.events }
 
-func (s *Sink) Deliver(ctx context.Context, p notify.Payload) error {
+func (s *Channel) Deliver(ctx context.Context, p notify.Payload) error {
 	if p.Drift == nil {
 		return nil
 	}

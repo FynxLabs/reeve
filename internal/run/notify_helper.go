@@ -32,26 +32,26 @@ func PulumiLogin(ctx context.Context, cfg *schemas.Engine) error {
 	return nil
 }
 
-// BuildNotifySinks resolves the configured notification sinks (generic
-// `sinks:` list plus the legacy `slack:` block mapped onto it) through the
+// BuildNotifyChannels resolves the configured notification channels (generic
+// `channels:` list plus the legacy `slack:` block mapped onto it) through the
 // notify registry. Returns nil when nothing is configured. Build errors are
 // logged, not fatal - notifications never abort a run. comments backs the
-// timeline_github sink and may be nil (the sink is then skipped).
-func BuildNotifySinks(ctx context.Context, cfg *schemas.Notifications, store blob.Store, comments notify.CommentClient) []notify.Sink {
-	cfgs := cfg.EffectiveSinks()
+// timeline_github channel and may be nil (the channel is then skipped).
+func BuildNotifyChannels(ctx context.Context, cfg *schemas.Notifications, store blob.Store, comments notify.CommentClient) []notify.Channel {
+	cfgs := cfg.EffectiveChannels()
 	if len(cfgs) == 0 {
 		return nil
 	}
-	sinks, err := notify.Build(ctx, cfgs, notify.Deps{
+	channels, err := notify.Build(ctx, cfgs, notify.Deps{
 		Blob:       store,
 		Comments:   comments,
 		SlackToken: os.Getenv("SLACK_BOT_TOKEN"),
 		RepoFull:   os.Getenv("GITHUB_REPOSITORY"),
 	})
 	if err != nil {
-		slog.Warn("notification sink build failed", "err", err)
+		slog.Warn("notification channel build failed", "err", err)
 	}
-	return sinks
+	return channels
 }
 
 // PRNotifyInput bundles the PR-flow event context.
@@ -65,12 +65,12 @@ type PRNotifyInput struct {
 	Stacks            []summary.StackSummary
 }
 
-// NotifyPREvent publishes one PR-flow event to the configured sinks. The
+// NotifyPREvent publishes one PR-flow event to the configured channels. The
 // PR-flow producer runs last in the pipeline so upstream failures are
 // captured accurately; a delivery failure is returned (joined) for the
 // caller to log, never to abort on.
-func NotifyPREvent(ctx context.Context, sinks []notify.Sink, ev notify.Event, in PRNotifyInput) error {
-	if len(sinks) == 0 {
+func NotifyPREvent(ctx context.Context, channels []notify.Channel, ev notify.Event, in PRNotifyInput) error {
+	if len(channels) == 0 {
 		return nil
 	}
 	payload := notify.Payload{
@@ -86,7 +86,7 @@ func NotifyPREvent(ctx context.Context, sinks []notify.Sink, ev notify.Event, in
 			Stacks:            toStackResults(in.Stacks),
 		},
 	}
-	return errors.Join(notify.Dispatch(ctx, sinks, []notify.Payload{payload})...)
+	return errors.Join(notify.Dispatch(ctx, channels, []notify.Payload{payload})...)
 }
 
 // ApplyOutcomeEvent picks the terminal apply event the same way the legacy

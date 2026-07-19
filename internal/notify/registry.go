@@ -12,7 +12,7 @@ import (
 )
 
 // IssueClient is the narrow, consumer-defined VCS surface the github_issue
-// sink needs. internal/vcs/github.Client satisfies it; sinks never import a
+// channel needs. internal/vcs/github.Client satisfies it; channels never import a
 // VCS SDK directly (modularity contract).
 type IssueClient interface {
 	// FindIssueByMarker returns the number of the first open issue whose
@@ -26,7 +26,7 @@ type IssueClient interface {
 	CloseIssue(ctx context.Context, number int, body string) error
 }
 
-// CommentClient is the narrow PR-comment surface the timeline sink needs.
+// CommentClient is the narrow PR-comment surface the timeline channel needs.
 // internal/vcs/github.Client satisfies it; the run pipeline's comment poster
 // does too. Marker-based upsert keeps one comment per key, edited in place.
 type CommentClient interface {
@@ -35,51 +35,51 @@ type CommentClient interface {
 	UpsertComment(ctx context.Context, number int, body, marker string) error
 }
 
-// Deps carries runtime dependencies sinks may need. Fields are optional; a
-// constructor whose dependencies are missing returns (nil, nil) and the sink
+// Deps carries runtime dependencies channels may need. Fields are optional; a
+// constructor whose dependencies are missing returns (nil, nil) and the channel
 // is skipped, matching the previous factory behavior.
 type Deps struct {
 	// HTTP is the shared client for outbound deliveries. Nil defaults to
 	// SharedHTTPClient() (sane timeout).
 	HTTP HTTPDoer
-	// Blob persists sink state (e.g. the Slack per-PR message ID).
+	// Blob persists channel state (e.g. the Slack per-PR message ID).
 	Blob blob.Store
-	// Issues backs the github_issue sink.
+	// Issues backs the github_issue channel.
 	Issues IssueClient
-	// Comments backs the timeline_github sink (PR comment upserts).
+	// Comments backs the timeline_github channel (PR comment upserts).
 	Comments CommentClient
-	// Emitters back the otel_annotation sink.
+	// Emitters back the otel_annotation channel.
 	Emitters []annotations.Emitter
-	// SlackToken is the fallback bot token when a sink config carries no
-	// auth_token (drift.yaml slack sinks read SLACK_BOT_TOKEN).
+	// SlackToken is the fallback bot token when a channel config carries no
+	// auth_token (drift.yaml slack channels read SLACK_BOT_TOKEN).
 	SlackToken string
 	// RepoFull is "owner/repo" from the CI environment, used in payloads
 	// that need a repo reference.
 	RepoFull string
 }
 
-// Constructor builds a sink from its config entry plus runtime deps.
-// Returning (nil, nil) skips the sink (unmet optional dependency).
-type Constructor func(ctx context.Context, cfg schemas.SinkYAML, deps Deps) (Sink, error)
+// Constructor builds a channel from its config entry plus runtime deps.
+// Returning (nil, nil) skips the channel (unmet optional dependency).
+type Constructor func(ctx context.Context, cfg schemas.ChannelYAML, deps Deps) (Channel, error)
 
 var (
 	regMu    sync.RWMutex
 	registry = map[string]Constructor{}
 )
 
-// Register makes a sink type available to Build. Sinks call it from init();
-// importing a sink package (internal/notify/all imports the default set) is
+// Register makes a channel type available to Build. Channels call it from init();
+// importing a channel package (internal/notify/all imports the default set) is
 // what compiles it in. Registering a duplicate type panics.
 func Register(typ string, c Constructor) {
 	regMu.Lock()
 	defer regMu.Unlock()
 	if _, dup := registry[typ]; dup {
-		panic(fmt.Sprintf("notify: duplicate sink type %q", typ))
+		panic(fmt.Sprintf("notify: duplicate channel type %q", typ))
 	}
 	registry[typ] = c
 }
 
-// Registered returns the sorted list of registered sink types.
+// Registered returns the sorted list of registered channel types.
 func Registered() []string {
 	regMu.RLock()
 	defer regMu.RUnlock()
@@ -94,11 +94,11 @@ func Registered() []string {
 // Build resolves each config entry to its registered constructor, purely by
 // the `type:` string. Disabled entries are skipped; constructors may skip
 // themselves by returning (nil, nil). An unregistered type is an error.
-func Build(ctx context.Context, cfgs []schemas.SinkYAML, deps Deps) ([]Sink, error) {
+func Build(ctx context.Context, cfgs []schemas.ChannelYAML, deps Deps) ([]Channel, error) {
 	if deps.HTTP == nil {
 		deps.HTTP = SharedHTTPClient()
 	}
-	var out []Sink
+	var out []Channel
 	for _, cfg := range cfgs {
 		if !cfg.IsEnabled() {
 			continue
@@ -107,11 +107,11 @@ func Build(ctx context.Context, cfgs []schemas.SinkYAML, deps Deps) ([]Sink, err
 		ctor, ok := registry[cfg.Type]
 		regMu.RUnlock()
 		if !ok {
-			return nil, fmt.Errorf("unknown notification sink type %q (registered: %v)", cfg.Type, Registered())
+			return nil, fmt.Errorf("unknown notification channel type %q (registered: %v)", cfg.Type, Registered())
 		}
 		s, err := ctor(ctx, cfg, deps)
 		if err != nil {
-			return nil, fmt.Errorf("sink %s: %w", cfg.EffectiveName(), err)
+			return nil, fmt.Errorf("channel %s: %w", cfg.EffectiveName(), err)
 		}
 		if s != nil {
 			out = append(out, s)

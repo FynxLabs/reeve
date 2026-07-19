@@ -204,15 +204,15 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		_ = os.WriteFile(p, []byte(report), 0o644) // #nosec G306
 	}
 
-	// Bootstrap is silent by design: state is recorded, no sinks fire.
+	// Bootstrap is silent by design: state is recorded, no channels fire.
 	if bootstrap {
 		fmt.Fprintf(cmd.OutOrStdout(), "baseline recorded for %d stack(s); drift runs will now compare against it\n", len(out.Items))
 		fmt.Fprintln(cmd.OutOrStdout(), report)
 		return nil
 	}
 
-	// Dispatch to configured sinks via the shared notify framework:
-	// drift.yaml sinks plus any notifications.yaml sinks subscribed to
+	// Dispatch to configured channels via the shared notify framework:
+	// drift.yaml channels plus any notifications.yaml channels subscribed to
 	// drift events.
 	repoFull := os.Getenv("GITHUB_REPOSITORY")
 	var issues notify.IssueClient
@@ -223,12 +223,12 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 			}
 		}
 	}
-	var sinkCfgs []schemas.SinkYAML
+	var channelCfgs []schemas.ChannelYAML
 	if cfg.Drift != nil {
-		sinkCfgs = append(sinkCfgs, cfg.Drift.Sinks...)
+		channelCfgs = append(channelCfgs, cfg.Drift.Channels...)
 	}
-	sinkCfgs = append(sinkCfgs, cfg.Notifications.EffectiveSinks()...)
-	sinks, serr := notify.Build(ctx, sinkCfgs, notify.Deps{
+	channelCfgs = append(channelCfgs, cfg.Notifications.EffectiveChannels()...)
+	channels, serr := notify.Build(ctx, channelCfgs, notify.Deps{
 		Blob:       store,
 		Issues:     issues,
 		Emitters:   run.BuildAnnotationEmitters(cfg.Observability),
@@ -238,10 +238,10 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	if serr != nil {
 		return serr
 	}
-	if len(sinks) > 0 {
-		errs := notify.Dispatch(ctx, sinks, drift.NotifyPayloads(out))
+	if len(channels) > 0 {
+		errs := notify.Dispatch(ctx, channels, drift.NotifyPayloads(out))
 		for _, e := range errs {
-			fmt.Fprintf(cmd.ErrOrStderr(), "sink error: %v\n", e)
+			fmt.Fprintf(cmd.ErrOrStderr(), "channel error: %v\n", e)
 		}
 	}
 

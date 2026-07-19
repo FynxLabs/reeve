@@ -91,15 +91,15 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	outcome := "success"
 	defer func() { endRun(outcome) }()
 
-	// Sinks are built once and reused for the preview-started and
+	// Channels are built once and reused for the preview-started and
 	// preview-finished events below.
-	var sinks []notify.Sink
+	var channels []notify.Channel
 	if in.PRNumber > 0 && in.Notifications != nil {
-		sinks = BuildNotifySinks(ctx, in.Notifications, in.Blob, in.Comments)
+		channels = BuildNotifyChannels(ctx, in.Notifications, in.Blob, in.Comments)
 		// Timeline heartbeat: preview started. PR title/author are not
 		// fetched yet; the payload carries what the timeline needs (event,
 		// SHA, this run's CI URL).
-		if err := NotifyPREvent(ctx, sinks, notify.EventPlanning, PRNotifyInput{
+		if err := NotifyPREvent(ctx, channels, notify.EventPlanning, PRNotifyInput{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: in.PRTitle,
 		}); err != nil {
@@ -213,7 +213,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 
 	// Notifications run last in the pipeline so upstream failures are captured.
 	if in.PRNumber > 0 && in.Notifications != nil {
-		if err := NotifyPREvent(ctx, sinks, notify.EventPlan, PRNotifyInput{
+		if err := NotifyPREvent(ctx, channels, notify.EventPlan, PRNotifyInput{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: prTitle, PRAuthor: prAuthor, Stacks: summaries,
 		}); err != nil {

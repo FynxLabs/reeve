@@ -52,14 +52,14 @@ func TestLegacyNotificationsV1StillLoads(t *testing.T) {
 		t.Fatalf("Validate: %v", err)
 	}
 
-	sinks := cfg.Notifications.EffectiveSinks()
-	if len(sinks) != 1 {
-		t.Fatalf("EffectiveSinks: %+v", sinks)
+	channels := cfg.Notifications.EffectiveChannels()
+	if len(channels) != 1 {
+		t.Fatalf("EffectiveChannels: %+v", channels)
 	}
-	s := sinks[0]
+	s := channels[0]
 	if s.Type != "slack" || !s.IsEnabled() || s.Channel != "#infra-deploys" ||
 		s.AuthToken != "xoxb-test" || s.Trigger != schemas.SlackTriggerPlan {
-		t.Fatalf("mapped sink: %+v", s)
+		t.Fatalf("mapped channel: %+v", s)
 	}
 	if len(s.On) != 3 || s.On[0] != "plan" || s.On[2] != "failed" {
 		t.Fatalf("events → on: %v", s.On)
@@ -72,13 +72,13 @@ func TestLegacyNotificationsV1StillLoads(t *testing.T) {
 	}
 }
 
-func TestNotificationsV2SinksLoad(t *testing.T) {
+func TestNotificationsV2ChannelsLoad(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": sharedYAMLMin,
 		"pulumi.yaml": engineYAMLMin,
 		"notifications.yaml": `version: 2
 config_type: notifications
-sinks:
+channels:
   - type: slack
     channel: "#deploys"
     auth_token: xoxb-x
@@ -96,22 +96,22 @@ sinks:
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	sinks := cfg.Notifications.EffectiveSinks()
-	if len(sinks) != 2 {
-		t.Fatalf("sinks: %+v", sinks)
+	channels := cfg.Notifications.EffectiveChannels()
+	if len(channels) != 2 {
+		t.Fatalf("channels: %+v", channels)
 	}
-	if sinks[0].Type != "slack" || sinks[1].EffectiveName() != "audit" {
-		t.Fatalf("sinks: %+v", sinks)
+	if channels[0].Type != "slack" || channels[1].EffectiveName() != "audit" {
+		t.Fatalf("channels: %+v", channels)
 	}
 }
 
-func TestTimelineSinksLoadAndValidate(t *testing.T) {
+func TestTimelineChannelsLoadAndValidate(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": sharedYAMLMin,
 		"pulumi.yaml": engineYAMLMin,
 		"notifications.yaml": `version: 2
 config_type: notifications
-sinks:
+channels:
   - type: timeline_slack
     channel: "#infra-deploys"
     auth_token: xoxb-x
@@ -126,13 +126,13 @@ sinks:
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	sinks := cfg.Notifications.EffectiveSinks()
-	if len(sinks) != 2 || sinks[0].Type != "timeline_slack" || sinks[1].Type != "timeline_github" {
-		t.Fatalf("sinks: %+v", sinks)
+	channels := cfg.Notifications.EffectiveChannels()
+	if len(channels) != 2 || channels[0].Type != "timeline_slack" || channels[1].Type != "timeline_github" {
+		t.Fatalf("channels: %+v", channels)
 	}
 	// timeline_slack with no on: is valid (defaults to all timeline events).
-	if len(sinks[0].On) != 0 {
-		t.Fatalf("on: %v", sinks[0].On)
+	if len(channels[0].On) != 0 {
+		t.Fatalf("on: %v", channels[0].On)
 	}
 }
 
@@ -156,7 +156,7 @@ func TestUnknownOnEventRejected(t *testing.T) {
 		"pulumi.yaml": engineYAMLMin,
 		"notifications.yaml": `version: 2
 config_type: notifications
-sinks:
+channels:
   - type: webhook
     url: https://example.test/hook
     on: [aplied]
@@ -181,7 +181,7 @@ func TestUnknownOnEventInDriftRejected(t *testing.T) {
 		"pulumi.yaml": engineYAMLMin,
 		"drift.yaml": `version: 1
 config_type: drift
-sinks:
+channels:
   - type: slack
     channel: "#drift"
     on: [drift_detcted]
@@ -217,10 +217,88 @@ slack:
 	}
 }
 
-func TestDisabledLegacySlackMapsToDisabledSink(t *testing.T) {
+func TestDriftChannelsLoad(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": sharedYAMLMin,
+		"pulumi.yaml": engineYAMLMin,
+		"drift.yaml": `version: 1
+config_type: drift
+channels:
+  - type: slack
+    channel: "#drift"
+    on: [drift_detected]
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if len(cfg.Drift.Channels) != 1 || cfg.Drift.Channels[0].Channel != "#drift" {
+		t.Fatalf("channels: %+v", cfg.Drift.Channels)
+	}
+	if cfg.Drift.DeprecatedSinks != nil {
+		t.Fatalf("DeprecatedSinks should be empty: %+v", cfg.Drift.DeprecatedSinks)
+	}
+}
+
+func TestDriftSinksAliasStillLoads(t *testing.T) {
+	// drift.yaml `sinks:` shipped in v0.2.0; it must keep loading as a
+	// deprecated alias, mapped onto Channels.
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": sharedYAMLMin,
+		"pulumi.yaml": engineYAMLMin,
+		"drift.yaml": `version: 1
+config_type: drift
+sinks:
+  - type: webhook
+    url: https://example.test/hook
+    on: [drift_detected, check_failed]
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if len(cfg.Drift.Channels) != 1 || cfg.Drift.Channels[0].Type != "webhook" {
+		t.Fatalf("alias should map onto Channels: %+v", cfg.Drift.Channels)
+	}
+	if cfg.Drift.DeprecatedSinks != nil {
+		t.Fatalf("DeprecatedSinks should be cleared after mapping: %+v", cfg.Drift.DeprecatedSinks)
+	}
+}
+
+func TestDriftBothSinksAndChannelsRejected(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": sharedYAMLMin,
+		"pulumi.yaml": engineYAMLMin,
+		"drift.yaml": `version: 1
+config_type: drift
+channels:
+  - type: slack
+    channel: "#drift"
+    on: [drift_detected]
+sinks:
+  - type: webhook
+    url: https://example.test/hook
+    on: [drift_detected]
+`,
+	})
+	_, err := Load(root)
+	if err == nil || !strings.Contains(err.Error(), "both channels: and sinks:") {
+		t.Fatalf("want both-set error, got %v", err)
+	}
+}
+
+func TestDisabledLegacySlackMapsToDisabledChannel(t *testing.T) {
 	n := &schemas.Notifications{Slack: &schemas.SlackConfig{Enabled: false, Channel: "#x"}}
-	sinks := n.EffectiveSinks()
-	if len(sinks) != 1 || sinks[0].IsEnabled() {
-		t.Fatalf("disabled slack should map to a disabled sink: %+v", sinks)
+	channels := n.EffectiveChannels()
+	if len(channels) != 1 || channels[0].IsEnabled() {
+		t.Fatalf("disabled slack should map to a disabled channel: %+v", channels)
 	}
 }

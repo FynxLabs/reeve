@@ -13,7 +13,7 @@ boundary.
 | GitHub repo with Actions | reeve runs inside workflows | yes |
 | IAM role trusting GitHub's OIDC provider | short-lived creds for IaC | strongly recommended |
 | GitHub App | higher rate limits, cross-repo install | optional |
-| Slack workspace + bot | PR-scoped notifications + drift sinks | optional |
+| Slack workspace + bot | PR-scoped notifications + drift channels | optional |
 | OTEL collector | traces + metrics | optional |
 | PagerDuty / incident system | drift escalation | optional |
 
@@ -210,7 +210,7 @@ runners start empty, so locks don't persist across runs.
 permissions:
   contents: read
   pull-requests: write      # upsert PR comment
-  issues: write             # /reeve apply via issue_comment; github_issue drift sink
+  issues: write             # /reeve apply via issue_comment; github_issue drift channel
   id-token: write           # only when using aws_oidc / gcp_wif / azure_federated
 ```
 

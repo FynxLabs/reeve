@@ -15,30 +15,30 @@ func init() {
 	notify.Register("otel_annotation", New)
 }
 
-// Sink fans events out to a list of annotation emitters.
-type Sink struct {
+// Channel fans events out to a list of annotation emitters.
+type Channel struct {
 	name     string
 	events   []notify.Event
 	emitters []annotations.Emitter
 }
 
-// New is the registered constructor. With no emitters configured the sink
+// New is the registered constructor. With no emitters configured the channel
 // is skipped, matching the previous factory behavior.
-func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
+func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
 	if len(deps.Emitters) == 0 {
 		return nil, nil
 	}
-	return &Sink{
+	return &Channel{
 		name:     cfg.EffectiveName(),
 		events:   notify.ParseEvents(cfg.On),
 		emitters: deps.Emitters,
 	}, nil
 }
 
-func (s *Sink) Name() string               { return s.name }
-func (s *Sink) Subscribes() []notify.Event { return s.events }
+func (s *Channel) Name() string               { return s.name }
+func (s *Channel) Subscribes() []notify.Event { return s.events }
 
-func (s *Sink) Deliver(ctx context.Context, p notify.Payload) error {
+func (s *Channel) Deliver(ctx context.Context, p notify.Payload) error {
 	switch {
 	case p.Drift != nil:
 		t := driftEventType(p.Event)

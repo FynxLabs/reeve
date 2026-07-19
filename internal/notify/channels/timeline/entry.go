@@ -1,21 +1,21 @@
-// Package timeline is the deployment-timeline sink pair. Where the
-// dashboard sinks (slack, the PR status comment) show the CURRENT state of a
+// Package timeline is the deployment-timeline channel pair. Where the
+// dashboard channels (slack, the PR status comment) show the CURRENT state of a
 // deployment - a snapshot edited in place - the timeline is the append-only
 // activity heartbeat: one entry per lifecycle event, each carrying the
 // event, the commit SHA, a timestamp, and the CI run URL of the run that
 // produced it (preview and apply are different Actions runs).
 //
-// Two sink types share this package:
+// Two channel types share this package:
 //
 //   - timeline_slack: entries become thread replies under ONE PR-level
 //     anchor message (no channel spam), composing with the dashboard slack
-//     sink's per-PR message via the shared blob state.
+//     channel's per-PR message via the shared blob state.
 //   - timeline_github: entries become PR comments GROUPED BY SHA - one
 //     comment per commit, maintained via marker + in-place edit, so
 //     "preview started/finished" stay visible even though GitHub renders
 //     comment edits silently.
 //
-// Both are default-off: operators enable them explicitly in the `sinks:`
+// Both are default-off: operators enable them explicitly in the `channels:`
 // list.
 package timeline
 

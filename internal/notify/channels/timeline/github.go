@@ -36,12 +36,12 @@ type ghState struct {
 	Entries map[string][]Entry `json:"entries"`
 }
 
-// GitHubSink maintains one PR comment per commit SHA: each event appends an
+// GitHubChannel maintains one PR comment per commit SHA: each event appends an
 // entry to the SHA's group in blob state (CAS) and rewrites that SHA's
 // comment in place. This makes preview start/finish visible entries -
 // GitHub renders comment edits silently, so an edited-in-place dashboard
 // alone can't answer "did it even run?".
-type GitHubSink struct {
+type GitHubChannel struct {
 	name     string
 	comments notify.CommentClient
 	blob     blob.Store
@@ -52,7 +52,7 @@ type GitHubSink struct {
 // NewGitHub is the registered constructor for `timeline_github`. Skipped
 // without a comment client or blob store, matching the framework's
 // unmet-optional-dependency convention.
-func NewGitHub(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
+func NewGitHub(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
 	if deps.Comments == nil || deps.Blob == nil {
 		return nil, nil
 	}
@@ -60,7 +60,7 @@ func NewGitHub(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notif
 	if len(cfg.On) == 0 {
 		events = notify.TimelinePREvents()
 	}
-	return &GitHubSink{
+	return &GitHubChannel{
 		name:     cfg.EffectiveName(),
 		comments: deps.Comments,
 		blob:     deps.Blob,
@@ -69,11 +69,11 @@ func NewGitHub(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notif
 	}, nil
 }
 
-func (s *GitHubSink) Name() string               { return s.name }
-func (s *GitHubSink) Subscribes() []notify.Event { return s.events }
+func (s *GitHubChannel) Name() string               { return s.name }
+func (s *GitHubChannel) Subscribes() []notify.Event { return s.events }
 
 // Deliver appends the entry to its SHA group and upserts that SHA's comment.
-func (s *GitHubSink) Deliver(ctx context.Context, p notify.Payload) error {
+func (s *GitHubChannel) Deliver(ctx context.Context, p notify.Payload) error {
 	if p.PR == nil || p.PR.PR <= 0 {
 		return nil
 	}
@@ -90,7 +90,7 @@ func (s *GitHubSink) Deliver(ctx context.Context, p notify.Payload) error {
 // appendEntry persists the entry with compare-and-swap and returns the full
 // entry list for its SHA. On conflict a concurrent run wrote first: reload
 // its state and re-append, so no writer's entries are lost.
-func (s *GitHubSink) appendEntry(ctx context.Context, pr int, e Entry) ([]Entry, error) {
+func (s *GitHubChannel) appendEntry(ctx context.Context, pr int, e Entry) ([]Entry, error) {
 	sha := shortSHA(e.SHA)
 	for attempt := 0; attempt < 3; attempt++ {
 		st, etag, err := s.loadState(ctx, pr)
@@ -115,7 +115,7 @@ func (s *GitHubSink) appendEntry(ctx context.Context, pr int, e Entry) ([]Entry,
 
 // loadState reads the per-PR timeline. Missing object = fresh state; any
 // other failure propagates so an outage cannot silently drop history.
-func (s *GitHubSink) loadState(ctx context.Context, pr int) (*ghState, string, error) {
+func (s *GitHubChannel) loadState(ctx context.Context, pr int) (*ghState, string, error) {
 	rc, meta, err := s.blob.Get(ctx, stateKey(pr))
 	if errors.Is(err, blob.ErrNotFound) {
 		return &ghState{Entries: map[string][]Entry{}}, "", nil

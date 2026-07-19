@@ -283,7 +283,7 @@ on:
 permissions:
   contents: read
   id-token: write            # OIDC for the read-only role
-  issues: write              # for github_issue drift sink
+  issues: write              # for github_issue drift channel
 
 jobs:
   drift:
@@ -305,7 +305,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 ```
 
-Configure schedules + sinks in `.reeve/drift.yaml` - see [drift.md](drift.md).
+Configure schedules + channels in `.reeve/drift.yaml` - see [drift.md](drift.md).
 
 ## Troubleshooting
 
@@ -330,6 +330,6 @@ Configure schedules + sinks in `.reeve/drift.yaml` - see [drift.md](drift.md).
 
 - [configuration.md](configuration.md) - full schema for every `.reeve/*.yaml` file
 - [auth.md](auth.md) - every provider type, plus GitHub App setup
-- [drift.md](drift.md) - schedules, event lifecycle, sink catalog
+- [drift.md](drift.md) - schedules, event lifecycle, channel catalog
 - [policy-hooks.md](policy-hooks.md) - wiring OPA / Conftest / CrossGuard
 - [self-hosting.md](self-hosting.md) - bucket provisioning, scope, distribution

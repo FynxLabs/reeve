@@ -14,7 +14,7 @@ import (
 	"github.com/thefynx/reeve/internal/blob"
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/notify"
-	slacksink "github.com/thefynx/reeve/internal/notify/sinks/slack"
+	slackchannel "github.com/thefynx/reeve/internal/notify/channels/slack"
 	slackapi "github.com/thefynx/reeve/internal/slack"
 )
 
@@ -150,13 +150,13 @@ func payload(ev notify.Event, sha string) notify.Payload {
 	}}
 }
 
-func testGitHubSink(fc *fakeComments, store blob.Store) *GitHubSink {
-	return &GitHubSink{name: "timeline_github", comments: fc, blob: store, events: notify.TimelinePREvents(), now: fixedNow}
+func testGitHubChannel(fc *fakeComments, store blob.Store) *GitHubChannel {
+	return &GitHubChannel{name: "timeline_github", comments: fc, blob: store, events: notify.TimelinePREvents(), now: fixedNow}
 }
 
-func testSlackSink(fs *fakeSlack, store blob.Store) *SlackSink {
-	return &SlackSink{name: "timeline_slack", client: fs, channel: "#infra",
-		events: notify.TimelinePREvents(), state: slacksink.StateStore{Blob: store}, now: fixedNow}
+func testSlackChannel(fs *fakeSlack, store blob.Store) *SlackChannel {
+	return &SlackChannel{name: "timeline_slack", client: fs, channel: "#infra",
+		events: notify.TimelinePREvents(), state: slackchannel.StateStore{Blob: store}, now: fixedNow}
 }
 
 // --- entry rendering -----------------------------------------------------
@@ -211,11 +211,11 @@ func TestDetailForBlockedListsBlockedRefs(t *testing.T) {
 	}
 }
 
-// --- github sink ---------------------------------------------------------
+// --- github channel ---------------------------------------------------------
 
 func TestGitHubGroupsCommentsBySHA(t *testing.T) {
 	fc := &fakeComments{}
-	s := testGitHubSink(fc, newMemStore())
+	s := testGitHubChannel(fc, newMemStore())
 	ctx := context.Background()
 
 	must := func(p notify.Payload) {
@@ -256,12 +256,12 @@ func TestGitHubGroupsCommentsBySHA(t *testing.T) {
 func TestGitHubCASConflictKeepsBothWriters(t *testing.T) {
 	store := newMemStore()
 	fc := &fakeComments{}
-	s := testGitHubSink(fc, store)
+	s := testGitHubChannel(fc, store)
 	ctx := context.Background()
 
 	// A concurrent run writes its entry between our load and save.
 	store.putIfMatchHook = func() {
-		other := testGitHubSink(&fakeComments{}, store)
+		other := testGitHubChannel(&fakeComments{}, store)
 		if err := other.Deliver(ctx, payload(notify.EventApproved, "aaaa111bbbb")); err != nil {
 			t.Errorf("concurrent Deliver: %v", err)
 		}
@@ -287,7 +287,7 @@ func TestGitHubCASConflictKeepsBothWriters(t *testing.T) {
 
 func TestGitHubIgnoresDriftAndLocalPayloads(t *testing.T) {
 	fc := &fakeComments{}
-	s := testGitHubSink(fc, newMemStore())
+	s := testGitHubChannel(fc, newMemStore())
 	if err := s.Deliver(context.Background(), notify.Payload{
 		Event: notify.EventDriftDetected, Drift: &notify.DriftPayload{Project: "a", Stack: "b"},
 	}); err != nil {
@@ -321,12 +321,12 @@ func TestGitHubMarkerNamespace(t *testing.T) {
 	}
 }
 
-// --- slack sink ----------------------------------------------------------
+// --- slack channel ----------------------------------------------------------
 
 func TestSlackCreatesAnchorOnceThenThreads(t *testing.T) {
 	fs := &fakeSlack{}
 	store := newMemStore()
-	s := testSlackSink(fs, store)
+	s := testSlackChannel(fs, store)
 	ctx := context.Background()
 
 	if err := s.Deliver(ctx, payload(notify.EventPlanning, "abc1234def")); err != nil {
@@ -347,7 +347,7 @@ func TestSlackCreatesAnchorOnceThenThreads(t *testing.T) {
 	}
 
 	// State: anchor recorded + thread claimed.
-	st, _, err := slacksink.StateStore{Blob: store}.Load(ctx, 7)
+	st, _, err := slackchannel.StateStore{Blob: store}.Load(ctx, 7)
 	if err != nil || st.MainTS != "ts-1" || st.ThreadOwner != "timeline" {
 		t.Fatalf("state: %+v err=%v", st, err)
 	}
@@ -365,21 +365,21 @@ func TestSlackReusesDashboardAnchorAndClaimsThread(t *testing.T) {
 	fs := &fakeSlack{}
 	store := newMemStore()
 	ctx := context.Background()
-	// The dashboard slack sink already created the per-PR status message.
-	seed := &slacksink.PRState{Channel: "C9", MainTS: "dash-ts"}
+	// The dashboard slack channel already created the per-PR status message.
+	seed := &slackchannel.PRState{Channel: "C9", MainTS: "dash-ts"}
 	data, _ := json.Marshal(seed)
-	if _, err := store.Put(ctx, slacksink.PRStateKey(7), bytes.NewReader(data)); err != nil {
+	if _, err := store.Put(ctx, slackchannel.PRStateKey(7), bytes.NewReader(data)); err != nil {
 		t.Fatal(err)
 	}
 
-	s := testSlackSink(fs, store)
+	s := testSlackChannel(fs, store)
 	if err := s.Deliver(ctx, payload(notify.EventApplying, "abc1234def")); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
 	if len(fs.calls) != 1 || fs.calls[0].method != "thread" || fs.calls[0].parentTS != "dash-ts" || fs.calls[0].channel != "C9" {
 		t.Fatalf("must thread under the dashboard message: %+v", fs.calls)
 	}
-	st, _, _ := slacksink.StateStore{Blob: store}.Load(ctx, 7)
+	st, _, _ := slackchannel.StateStore{Blob: store}.Load(ctx, 7)
 	if st.ThreadOwner != "timeline" || st.MainTS != "dash-ts" {
 		t.Fatalf("thread not claimed: %+v", st)
 	}
@@ -392,13 +392,13 @@ func TestSlackAnchorRaceThreadsUnderFirstWriter(t *testing.T) {
 	// A concurrent dashboard delivery records its message between our state
 	// load and save (triggered from the anchor Post).
 	fs.postHook = func() {
-		st := &slacksink.PRState{Channel: "C1", MainTS: "winner-ts"}
+		st := &slackchannel.PRState{Channel: "C1", MainTS: "winner-ts"}
 		data, _ := json.Marshal(st)
-		if _, err := store.Put(ctx, slacksink.PRStateKey(7), bytes.NewReader(data)); err != nil {
+		if _, err := store.Put(ctx, slackchannel.PRStateKey(7), bytes.NewReader(data)); err != nil {
 			t.Errorf("seed: %v", err)
 		}
 	}
-	s := testSlackSink(fs, store)
+	s := testSlackChannel(fs, store)
 	if err := s.Deliver(ctx, payload(notify.EventPlanning, "abc1234def")); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestSlackAnchorRaceThreadsUnderFirstWriter(t *testing.T) {
 		t.Fatalf("must thread under first writer's anchor: %+v", fs.calls)
 	}
 	// First writer's state survives.
-	st, _, _ := slacksink.StateStore{Blob: store}.Load(ctx, 7)
+	st, _, _ := slackchannel.StateStore{Blob: store}.Load(ctx, 7)
 	if st.MainTS != "winner-ts" {
 		t.Fatalf("state clobbered: %+v", st)
 	}
@@ -415,7 +415,7 @@ func TestSlackAnchorRaceThreadsUnderFirstWriter(t *testing.T) {
 
 func TestSlackIgnoresDriftPayloads(t *testing.T) {
 	fs := &fakeSlack{}
-	s := testSlackSink(fs, newMemStore())
+	s := testSlackChannel(fs, newMemStore())
 	if err := s.Deliver(context.Background(), notify.Payload{
 		Event: notify.EventDriftDetected, Drift: &notify.DriftPayload{Project: "a", Stack: "b"},
 	}); err != nil {
@@ -430,23 +430,23 @@ func TestSlackIgnoresDriftPayloads(t *testing.T) {
 
 func TestConstructorsSkipOnMissingDeps(t *testing.T) {
 	ctx := context.Background()
-	if s, err := NewSlack(ctx, schemas.SinkYAML{Type: "timeline_slack"}, notify.Deps{Blob: newMemStore()}); err != nil || s != nil {
+	if s, err := NewSlack(ctx, schemas.ChannelYAML{Type: "timeline_slack"}, notify.Deps{Blob: newMemStore()}); err != nil || s != nil {
 		t.Fatalf("no token: want skip, got %v %v", s, err)
 	}
-	if s, err := NewSlack(ctx, schemas.SinkYAML{Type: "timeline_slack", AuthToken: "xoxb-1"}, notify.Deps{}); err != nil || s != nil {
+	if s, err := NewSlack(ctx, schemas.ChannelYAML{Type: "timeline_slack", AuthToken: "xoxb-1"}, notify.Deps{}); err != nil || s != nil {
 		t.Fatalf("no blob: want skip, got %v %v", s, err)
 	}
-	if s, err := NewGitHub(ctx, schemas.SinkYAML{Type: "timeline_github"}, notify.Deps{Blob: newMemStore()}); err != nil || s != nil {
+	if s, err := NewGitHub(ctx, schemas.ChannelYAML{Type: "timeline_github"}, notify.Deps{Blob: newMemStore()}); err != nil || s != nil {
 		t.Fatalf("no comments: want skip, got %v %v", s, err)
 	}
-	if s, err := NewGitHub(ctx, schemas.SinkYAML{Type: "timeline_github"}, notify.Deps{Comments: &fakeComments{}}); err != nil || s != nil {
+	if s, err := NewGitHub(ctx, schemas.ChannelYAML{Type: "timeline_github"}, notify.Deps{Comments: &fakeComments{}}); err != nil || s != nil {
 		t.Fatalf("no blob: want skip, got %v %v", s, err)
 	}
 }
 
 func TestDefaultSubscriptionsCoverAllTimelineEvents(t *testing.T) {
 	ctx := context.Background()
-	g, err := NewGitHub(ctx, schemas.SinkYAML{Type: "timeline_github"},
+	g, err := NewGitHub(ctx, schemas.ChannelYAML{Type: "timeline_github"},
 		notify.Deps{Comments: &fakeComments{}, Blob: newMemStore()})
 	if err != nil || g == nil {
 		t.Fatalf("NewGitHub: %v %v", g, err)
@@ -466,7 +466,7 @@ func TestDefaultSubscriptionsCoverAllTimelineEvents(t *testing.T) {
 		t.Fatalf("timeline event order: %v", got)
 	}
 
-	sl, err := NewSlack(ctx, schemas.SinkYAML{Type: "timeline_slack", AuthToken: "xoxb-1", On: []string{"applied", "failed"}},
+	sl, err := NewSlack(ctx, schemas.ChannelYAML{Type: "timeline_slack", AuthToken: "xoxb-1", On: []string{"applied", "failed"}},
 		notify.Deps{Blob: newMemStore()})
 	if err != nil || sl == nil {
 		t.Fatalf("NewSlack: %v %v", sl, err)

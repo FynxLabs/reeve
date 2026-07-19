@@ -29,7 +29,7 @@ const (
 // in place as the run progresses, with a thread timeline. Whether an event
 // may CREATE the message (vs only update an existing one) preserves the
 // legacy trigger semantics.
-func (s *Sink) deliverPR(ctx context.Context, p notify.Payload) error {
+func (s *Channel) deliverPR(ctx context.Context, p notify.Payload) error {
 	if s.blob == nil {
 		return errors.New("slack pr notifications need a blob store for message state")
 	}
@@ -88,7 +88,7 @@ func eventColor(ev notify.Event) string {
 
 // filterStacks applies the rule list (environments + glob patterns) to the
 // payload's stacks. Empty rules = notify all.
-func (s *Sink) filterStacks(ss []notify.StackResult) []notify.StackResult {
+func (s *Channel) filterStacks(ss []notify.StackResult) []notify.StackResult {
 	if len(s.rules) == 0 {
 		return ss
 	}
@@ -117,7 +117,7 @@ func stackMatchesAnyRule(rules []schemas.SlackNotifyRule, s notify.StackResult) 
 	return false
 }
 
-func (s *Sink) sendOrUpdate(ctx context.Context, in notify.PRPayload, state *PRState, etag string, ev notify.Event, color string) error {
+func (s *Channel) sendOrUpdate(ctx context.Context, in notify.PRPayload, state *PRState, etag string, ev notify.Event, color string) error {
 	blocks := s.buildMainBlocks(in, ev)
 	text := mainFallbackText(in.RepoFull, in.PR, ev)
 
@@ -148,7 +148,7 @@ func (s *Sink) sendOrUpdate(ctx context.Context, in notify.PRPayload, state *PRS
 	state.MainTS = res.TS
 
 	// Thread: first timeline entry initialises the thread; subsequent events
-	// append. When a timeline sink owns the thread (state.ThreadOwner), the
+	// append. When a timeline channel owns the thread (state.ThreadOwner), the
 	// dashboard suppresses its courtesy entries - the timeline's richer
 	// entries are the only replies.
 	if state.ThreadOwner == "" {
@@ -171,7 +171,7 @@ func (s *Sink) sendOrUpdate(ctx context.Context, in notify.PRPayload, state *PRS
 }
 
 // buildMainBlocks produces the attachment blocks for the main message.
-func (s *Sink) buildMainBlocks(in notify.PRPayload, ev notify.Event) []slack.Block {
+func (s *Channel) buildMainBlocks(in notify.PRPayload, ev notify.Event) []slack.Block {
 	engineIcon := s.icon("engine", ":building_construction:")
 	runnerIcon := s.icon("runner", ":runner:")
 	authorIcon := s.icon("author", ":bust_in_silhouette:")
@@ -280,7 +280,7 @@ func stackSummaryLines(stacks []notify.StackResult) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-func (s *Sink) icon(kind, defaultEmoji string) string {
+func (s *Channel) icon(kind, defaultEmoji string) string {
 	if s.icons == nil {
 		return defaultEmoji
 	}

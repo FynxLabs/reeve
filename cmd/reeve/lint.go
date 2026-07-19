@@ -44,23 +44,23 @@ func newLintCmd() *cobra.Command {
 					}
 				}
 			}
-			// Drift sinks: an unknown event name in `on:` would be silently
-			// dropped at runtime, and a sink with an empty subscription never
-			// fires. Fail the typo here; warn on the never-firing sink.
+			// Drift channels: an unknown event name in `on:` would be silently
+			// dropped at runtime, and a channel with an empty subscription never
+			// fires. Fail the typo here; warn on the never-firing channel.
 			if cfg.Drift != nil {
-				for i, sk := range cfg.Drift.Sinks {
+				for i, sk := range cfg.Drift.Channels {
 					name := sk.Name
 					if name == "" {
 						name = sk.Type
 					}
 					for _, evName := range sk.On {
 						if _, ok := drift.ParseEventName(evName); !ok {
-							return fmt.Errorf("drift sink %d (%s): unknown event %q in on: list (valid: %s)",
+							return fmt.Errorf("drift channel %d (%s): unknown event %q in on: list (valid: %s)",
 								i, name, evName, strings.Join(drift.KnownEventNames(), ", "))
 						}
 					}
 					if len(sk.On) == 0 {
-						fmt.Fprintf(os.Stderr, "⚠️  drift sink %d (%s) has an empty on: list - it will never fire\n", i, name)
+						fmt.Fprintf(os.Stderr, "⚠️  drift channel %d (%s) has an empty on: list - it will never fire\n", i, name)
 					}
 				}
 			}

@@ -8,7 +8,7 @@ import (
 )
 
 // Issue operations. These satisfy internal/notify.IssueClient (the
-// consumer-defined surface of the github_issue sink) so the sink never
+// consumer-defined surface of the github_issue channel) so the channel never
 // imports go-github directly.
 
 // FindIssueByMarker returns the number of the first open issue whose body

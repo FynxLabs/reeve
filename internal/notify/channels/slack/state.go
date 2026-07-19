@@ -13,15 +13,15 @@ import (
 
 // PRState is the per-PR Slack message state persisted at
 // notifications/pr-{n}/slack.json. It is shared between the dashboard slack
-// sink (which owns the main message) and the timeline_slack sink (which
+// channel (which owns the main message) and the timeline_slack channel (which
 // threads timeline entries under it) so both agree on ONE anchor per PR.
 type PRState struct {
 	Channel  string `json:"channel"`
 	MainTS   string `json:"main_ts"`
 	ThreadTS string `json:"thread_ts,omitempty"`
-	// ThreadOwner names the sink that owns the anchor's thread. When set,
-	// the dashboard sink suppresses its courtesy thread entries so the
-	// timeline sink's entries are the only replies (no double posting).
+	// ThreadOwner names the channel that owns the anchor's thread. When set,
+	// the dashboard channel suppresses its courtesy thread entries so the
+	// timeline channel's entries are the only replies (no double posting).
 	ThreadOwner string `json:"thread_owner,omitempty"`
 }
 
@@ -29,14 +29,14 @@ type PRState struct {
 func PRStateKey(pr int) string { return fmt.Sprintf("notifications/pr-%d/slack.json", pr) }
 
 // StateStore loads and CAS-saves PRState in the blob store. It is consumed
-// by both slack-facing sinks; the zero value is not usable (Blob required).
+// by both slack-facing channels; the zero value is not usable (Blob required).
 type StateStore struct {
 	Blob blob.Store
 }
 
 // Load reads the per-PR message state plus its ETag for the
 // compare-and-swap on save. A missing object is a legitimately fresh state;
-// any other failure is propagated - swallowing it here made the sink believe
+// any other failure is propagated - swallowing it here made the channel believe
 // no message existed and post a duplicate.
 func (ss StateStore) Load(ctx context.Context, pr int) (*PRState, string, error) {
 	rc, meta, err := ss.Blob.Get(ctx, PRStateKey(pr))
@@ -98,12 +98,12 @@ func (ss StateStore) Save(ctx context.Context, pr int, st *PRState, etag string)
 	return fmt.Errorf("save slack state for pr %d: too many conflicts", pr)
 }
 
-// loadPRState / savePRState keep the dashboard sink's call sites (and their
+// loadPRState / savePRState keep the dashboard channel's call sites (and their
 // tests) reading naturally; they delegate to the shared StateStore.
-func (s *Sink) loadPRState(ctx context.Context, pr int) (*PRState, string, error) {
+func (s *Channel) loadPRState(ctx context.Context, pr int) (*PRState, string, error) {
 	return StateStore{Blob: s.blob}.Load(ctx, pr)
 }
 
-func (s *Sink) savePRState(ctx context.Context, pr int, st *PRState, etag string) error {
+func (s *Channel) savePRState(ctx context.Context, pr int, st *PRState, etag string) error {
 	return StateStore{Blob: s.blob}.Save(ctx, pr, st, etag)
 }

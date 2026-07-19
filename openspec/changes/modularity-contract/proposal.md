@@ -4,13 +4,13 @@
 
 reeve's design intent is a modular core with pluggable providers on every
 axis: IAC engine (Pulumi/Terraform), VCS (GitHub/GitLab/Gitea), auth, blob,
-notification sinks, approval sources. An audit this cycle found the intent
+notification channels, approval sources. An audit this cycle found the intent
 held ~80% — IAC, cloud auth/blob, VCS interfaces, and approvals are genuinely
 modular — but with concentrated, nameable debt:
 
-- PR-flow notifications hand-rolled off the sink abstraction (addressed by the
-  `notification-sinks` change).
-- Two `go-github` leaks in drift sinks.
+- PR-flow notifications hand-rolled off the channel abstraction (addressed by the
+  `notification-channels` change).
+- Two `go-github` leaks in drift channels.
 - **`auth/factory` and `blob/factory` statically import every concrete
   provider**, so no build can exclude one — the AWS, GCP, and Azure SDKs all
   link into every binary (~47 MB stripped). Split builds are impossible until
@@ -37,14 +37,14 @@ provider axis must satisfy:
 - Heavy new provider dependencies land behind a build tag.
 
 This is documentation of intent — no runtime behavior changes. It becomes the
-review checklist for `notification-sinks`, `split-builds`, and any new axis.
+review checklist for `notification-channels`, `split-builds`, and any new axis.
 
 ## Scope
 
 **In:** the `architecture` spec (the contract).
 
 **Out (tracked elsewhere):** actually fixing the factory self-registration
-(the `split-builds` change), the notification unification (`notification-sinks`),
-and the drift-sink `go-github` leaks. This change only states the rule; the
+(the `split-builds` change), the notification unification (`notification-channels`),
+and the drift-channel `go-github` leaks. This change only states the rule; the
 existing violations are called out here as known debt to be resolved by those
 changes, not by this one.

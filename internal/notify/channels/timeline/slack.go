@@ -9,7 +9,7 @@ import (
 
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/notify"
-	slacksink "github.com/thefynx/reeve/internal/notify/sinks/slack"
+	slackchannel "github.com/thefynx/reeve/internal/notify/channels/slack"
 	slackapi "github.com/thefynx/reeve/internal/slack"
 )
 
@@ -18,28 +18,28 @@ func init() {
 }
 
 // threadOwner is the value written to the shared PR state's ThreadOwner
-// field. Once set, the dashboard slack sink suppresses its own courtesy
+// field. Once set, the dashboard slack channel suppresses its own courtesy
 // thread entries so the timeline's entries are the only replies.
 const threadOwner = "timeline"
 
-// SlackSink posts every subscribed event as a thread reply under ONE
-// PR-level anchor message. The anchor is the dashboard slack sink's per-PR
-// status message when that sink is enabled (shared blob state, same CAS
+// SlackChannel posts every subscribed event as a thread reply under ONE
+// PR-level anchor message. The anchor is the dashboard slack channel's per-PR
+// status message when that channel is enabled (shared blob state, same CAS
 // machinery); otherwise the timeline creates a minimal anchor itself.
-type SlackSink struct {
+type SlackChannel struct {
 	name    string
-	client  slacksink.Client
+	client  slackchannel.Client
 	channel string
 	events  []notify.Event
-	state   slacksink.StateStore
+	state   slackchannel.StateStore
 	now     func() time.Time
 }
 
 // NewSlack is the registered constructor for `timeline_slack`. Skipped
 // without a token (auth_token or Deps.SlackToken) or a blob store, matching
 // the framework's unmet-optional-dependency convention.
-func NewSlack(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
-	token := slacksink.ExpandEnvRef(cfg.AuthToken)
+func NewSlack(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
+	token := slackchannel.ExpandEnvRef(cfg.AuthToken)
 	if token == "" {
 		token = deps.SlackToken
 	}
@@ -50,22 +50,22 @@ func NewSlack(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify
 	if len(cfg.On) == 0 {
 		events = notify.TimelinePREvents()
 	}
-	return &SlackSink{
+	return &SlackChannel{
 		name:    cfg.EffectiveName(),
 		client:  slackapi.New(token),
 		channel: cfg.Channel,
 		events:  events,
-		state:   slacksink.StateStore{Blob: deps.Blob},
+		state:   slackchannel.StateStore{Blob: deps.Blob},
 		now:     time.Now,
 	}, nil
 }
 
-func (s *SlackSink) Name() string               { return s.name }
-func (s *SlackSink) Subscribes() []notify.Event { return s.events }
+func (s *SlackChannel) Name() string               { return s.name }
+func (s *SlackChannel) Subscribes() []notify.Event { return s.events }
 
 // Deliver threads one timeline entry under the PR's anchor message,
 // creating the anchor (and claiming thread ownership) on first delivery.
-func (s *SlackSink) Deliver(ctx context.Context, p notify.Payload) error {
+func (s *SlackChannel) Deliver(ctx context.Context, p notify.Payload) error {
 	if p.PR == nil {
 		return nil
 	}
@@ -75,7 +75,7 @@ func (s *SlackSink) Deliver(ctx context.Context, p notify.Payload) error {
 	st, etag, err := s.state.Load(ctx, in.PR)
 	if err != nil {
 		// Unknown state must not create a duplicate anchor - fail the
-		// delivery instead (same rule as the dashboard sink).
+		// delivery instead (same rule as the dashboard channel).
 		return err
 	}
 
@@ -93,14 +93,14 @@ func (s *SlackSink) Deliver(ctx context.Context, p notify.Payload) error {
 		dirty = true
 	}
 	if st.ThreadOwner == "" {
-		// Claim the thread so the dashboard sink stops posting its own
+		// Claim the thread so the dashboard channel stops posting its own
 		// courtesy entries alongside ours.
 		st.ThreadOwner = threadOwner
 		dirty = true
 	}
 	if dirty {
 		if serr := s.state.Save(ctx, in.PR, st, etag); serr != nil {
-			// A concurrent writer (dashboard sink or parallel run) recorded a
+			// A concurrent writer (dashboard channel or parallel run) recorded a
 			// different anchor first. First writer wins: reload and thread
 			// under the surviving anchor; our stray message stays as a
 			// one-off (Slack offers no delete via bot post).
@@ -123,7 +123,7 @@ func (s *SlackSink) Deliver(ctx context.Context, p notify.Payload) error {
 }
 
 // anchorText is the minimal anchor the timeline creates when no dashboard
-// message exists yet. If the dashboard slack sink is also enabled it will
+// message exists yet. If the dashboard slack channel is also enabled it will
 // find this message in the shared state and edit it in place into the full
 // status message - the anchor stays the current status, the thread is the
 // timeline.

@@ -10,26 +10,26 @@ addition to `plan` (preview finished). The run pipeline SHALL emit
 SHALL be a valid subscription with no producer yet, keeping the surface
 extensible for emergency-override runs. The legacy Slack trigger-onward
 default subscription SHALL NOT be widened by these additions: existing
-sinks' subscriptions keep their exact prior behavior.
+channels' subscriptions keep their exact prior behavior.
 
 #### Scenario: Legacy defaults unchanged
 
-- **WHEN** a sink relies on the legacy default subscription (no `on:` list)
+- **WHEN** a channel relies on the legacy default subscription (no `on:` list)
 - **THEN** it does not receive `planning` or `break_glass` events
 
 #### Scenario: Preview start is observable
 
 - **WHEN** a preview run starts for a PR
-- **THEN** sinks subscribed to `planning` receive a payload carrying the PR,
+- **THEN** channels subscribed to `planning` receive a payload carrying the PR,
   commit SHA, and that run's CI URL
 
-### Requirement: Timeline sinks are explicit, default-off sink types
+### Requirement: Timeline channels are explicit, default-off channel types
 
-The deployment timeline SHALL be provided by two sink types —
+The deployment timeline SHALL be provided by two channel types —
 `timeline_slack` and `timeline_github` — enabled only by explicit entries in
-the `sinks:` config list. With no timeline sink configured, behavior is
+the `channels:` config list. With no timeline channel configured, behavior is
 byte-identical for existing users: no new messages, comments, or markers.
-When `on:` is omitted, timeline sinks SHALL default to every PR-flow
+When `on:` is omitted, timeline channels SHALL default to every PR-flow
 timeline event (planning through blocked, plus break_glass).
 
 #### Scenario: Default off
@@ -54,17 +54,17 @@ per-stack outcome summary.
 
 `timeline_slack` SHALL post every entry as a thread reply under ONE
 PR-level anchor message (no channel-level spam). The anchor SHALL be the
-dashboard slack sink's per-PR status message when present (shared per-PR
+dashboard slack channel's per-PR status message when present (shared per-PR
 blob state, conditional writes via `PutIfMatch`); otherwise the timeline
-SHALL create a minimal anchor which the dashboard sink subsequently edits
+SHALL create a minimal anchor which the dashboard channel subsequently edits
 into the status message. On a create race, the first writer's anchor wins
 and the timeline threads under it. Once the timeline claims the thread, the
-dashboard sink SHALL suppress its own courtesy thread notes so events are
+dashboard channel SHALL suppress its own courtesy thread notes so events are
 not double-posted.
 
 #### Scenario: Anchor reuse
 
-- **WHEN** the dashboard slack sink already created the per-PR message
+- **WHEN** the dashboard slack channel already created the per-PR message
 - **THEN** timeline entries appear as replies in that message's thread and
   no second channel message is posted
 
@@ -94,14 +94,14 @@ comment from state.
 - **WHEN** two runs append timeline entries for the same PR concurrently
 - **THEN** both entries survive in state and the final comment shows both
 
-### Requirement: Timeline sinks stay inside the modularity contract
+### Requirement: Timeline channels stay inside the modularity contract
 
 `timeline_github` SHALL consume a narrow, consumer-defined comment surface
 (marker upsert) implemented by the VCS adapter; no VCS SDK is imported by
-the sink. Both timeline sinks SHALL skip (not fail) when their runtime
+the channel. Both timeline channels SHALL skip (not fail) when their runtime
 dependencies are absent (no comment client / blob store / Slack token).
 
 #### Scenario: Drift runs skip the timeline
 
 - **WHEN** the drift runner dispatches with no PR comment client configured
-- **THEN** the timeline_github sink is skipped and drift delivery proceeds
+- **THEN** the timeline_github channel is skipped and drift delivery proceeds
