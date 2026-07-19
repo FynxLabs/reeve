@@ -51,7 +51,7 @@ everything, don't babysit.
   justification, matched authorization source, overridden gates, the
   same-PR-authorizing-config-modified flag and paths — plus a `run_url`
   field. The reserved `break_glass` notify event (deployment-timeline
-  change) gains its producer: timeline entries and subscribed sinks fire.
+  change) gains its producer: timeline entries and subscribed channels fire.
   The apply PR comment renders a loud, marker-tagged warning section
   (`<!-- reeve:break-glass:v1 -->`) with the justification quoted.
 
@@ -75,5 +75,5 @@ freeze-confirm flow.
 - Non-break-glass applies are unchanged: same gates, same comment, same
   audit shape (the new fields are omitempty).
 - The `break_glass` notify event was already reserved and excluded from
-  legacy default subscriptions; producing it changes nothing for sinks that
+  legacy default subscriptions; producing it changes nothing for channels that
   did not subscribe.

@@ -20,10 +20,10 @@ pipeline so upstream failures are captured accurately.
 ## Client sharing
 
 The Slack API client (auth, message lifecycle, Block Kit primitives) lives
-in `internal/slack` and is shared with drift sinks. PR-flow templates live
-here; drift-flow templates live in `internal/drift/sinks/slack`.
+in `internal/slack` and is shared with drift channels. PR-flow templates live
+here; drift-flow templates live in `internal/drift/channels/slack`.
 
-## Future sinks (out of scope for v1)
+## Future channels (out of scope for v1)
 
 Mattermost, Rocket.Chat, Teams, generic webhook. Each is a new adapter in
 this module.

@@ -23,7 +23,7 @@ const (
 	OutcomeSkipped       Outcome = "skipped_fresh"
 )
 
-// Event is what sinks consume. Determined by comparing current outcome
+// Event is what channels consume. Determined by comparing current outcome
 // against prior state.
 type Event string
 
@@ -32,8 +32,30 @@ const (
 	EventDriftOngoing  Event = "drift_ongoing"
 	EventDriftResolved Event = "drift_resolved"
 	EventCheckFailed   Event = "check_failed"
-	EventNone          Event = "" // silent - no sink delivery
+	EventNone          Event = "" // silent - no channel delivery
 )
+
+// KnownEventNames lists the event names a channel's `on:` list may subscribe
+// to. Used by lint and the channel factory to reject/flag typos instead of
+// silently dropping them.
+func KnownEventNames() []string {
+	return []string{
+		string(EventDriftDetected),
+		string(EventDriftOngoing),
+		string(EventDriftResolved),
+		string(EventCheckFailed),
+	}
+}
+
+// ParseEventName maps a config string to an Event. ok is false for
+// unknown names (including the empty string).
+func ParseEventName(s string) (Event, bool) {
+	switch Event(s) {
+	case EventDriftDetected, EventDriftOngoing, EventDriftResolved, EventCheckFailed:
+		return Event(s), true
+	}
+	return EventNone, false
+}
 
 // State is the per-stack persisted state at drift/state/{project}/{stack}.json.
 type State struct {

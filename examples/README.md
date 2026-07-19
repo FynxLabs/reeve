@@ -9,7 +9,7 @@ file. Copy whichever one matches your setup and adapt.
 | [`aws-oidc/`](aws-oidc/) | Single-cloud AWS OIDC federation, S3 bucket, PR preview + apply workflow. |
 | [`gcp-wif/`](gcp-wif/) | GCP Workload Identity Federation, GCS bucket. |
 | [`multi-cloud/`](multi-cloud/) | AWS + GCP + secrets manager per-stack bindings, mode-scoped drift role. |
-| [`drift-scheduled/`](drift-scheduled/) | Drift detection with named schedules, Slack + PagerDuty sinks. |
+| [`drift-scheduled/`](drift-scheduled/) | Drift detection with named schedules, Slack + PagerDuty channels. |
 | [`policy-opa/`](policy-opa/) | Conftest-backed policy hooks with a cost-gate script. |
 
 ## Conventions

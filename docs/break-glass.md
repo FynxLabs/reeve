@@ -145,7 +145,7 @@ Beyond the audit file:
   gates, the same-PR flag, and the justification quoted verbatim.
 - The reserved `break_glass` notification event fires: the
   [deployment timeline](notifications.md) records the override, and any
-  sink subscribed to `break_glass` (Slack, webhook, PagerDuty, …) is
+  channel subscribed to `break_glass` (Slack, webhook, PagerDuty, …) is
   notified.
 - The run log prints a `BREAK-GLASS apply authorized` warning line.
 

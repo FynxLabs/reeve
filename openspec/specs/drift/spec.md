@@ -37,7 +37,7 @@ reeve drift suppress clear <stack>
    - `drift_resolved` - previously drifted stack is clean.
    - `check_failed` - run-level error.
 8. Write artifacts under `drift/runs/{run-id}/`; update state files.
-9. Sinks filter events per their `on:` rules, transform to their payload,
+9. Channels filter events per their `on:` rules, transform to their payload,
    deliver.
 10. Report always rendered to `$GITHUB_STEP_SUMMARY` (free, zero-config).
 

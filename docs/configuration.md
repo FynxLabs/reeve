@@ -9,9 +9,9 @@ are per-file, and schemas are stable within a major version.
 .reeve/
 ├── shared.yaml           # bucket, approvals, locking, preconditions, freeze, apply
 ├── auth.yaml             # credential providers and bindings
-├── notifications.yaml    # notification sinks (slack, webhook, pagerduty, ...)
+├── notifications.yaml    # notification channels (slack, webhook, pagerduty, ...)
 ├── observability.yaml    # OTEL + annotations
-├── drift.yaml            # drift scope, schedules, sinks
+├── drift.yaml            # drift scope, schedules, channels
 ├── pulumi.yaml           # engine: pulumi
 └── terraform.yaml        # engine: terraform (future)
 ```
@@ -55,12 +55,12 @@ retention:
   max_age: 720h                    # default 720h (1 month); 0 disables pruning
 
 locking:
-  ttl: 4h                          # default 4h
+  ttl: 4h                          # default 4h; also bounds the lease of holders promoted from the queue
   queue: fifo                      # v1: fifo (only option)
   reaper_interval: 15m             # informational; reaper is opportunistic
-  admin_override:
-    allowed: ["@org/sre-leads"]
-    requires_reason: true
+  admin_override:                  # gates force-unlock (locks unlock without --pr);
+    allowed: ["@org/sre-leads"]    # PR-scoped removal (--pr / "/reeve unlock") is
+    requires_reason: true          # self-service and not gated here
 
 approvals:
   sources:
@@ -185,6 +185,12 @@ Run artifacts under `runs/` (manifests, applied-state pointers) are pruned at ru
 - Only a reviewer's **most recent** review counts. A reviewer who approves
   and later requests changes (or whose approval is dismissed) no longer
   counts toward the gate.
+- `freshness: <duration>` (opt-in, e.g. `24h`): an approval older than the
+  window at evaluation time does not count and must be re-given. Stale
+  approvals are called out in the rule trace and the missing list, so a
+  blocked apply says exactly whose approval expired. `0`/unset means no
+  freshness constraint. An approval without a submission timestamp fails
+  closed when freshness is set.
 
 ### CODEOWNERS resolution
 
@@ -204,6 +210,15 @@ gate for that file.
 
 Team slugs in CODEOWNERS are expanded the same way as `approvers` entries:
 reeve resolves `org/team` → member logins via the VCS API before evaluation.
+
+**Email owners are unenforceable.** GitHub allows email addresses as
+CODEOWNERS entries (e.g. `docs@example.com`), but reeve has no
+commit-email → login resolution, so email owners are excluded from the
+gate: a path owned by both an email and a login/team still requires the
+login/team's approval, and a path owned *only* by emails adds no
+requirement (the evaluation trace notes the skipped entries instead of
+wedging the gate forever). `reeve lint` warns about email owners in
+CODEOWNERS.
 
 Inspect the merged result:
 
@@ -357,17 +372,17 @@ bindings:
 
 ## `notifications.yaml`
 
-Notification destinations ("sinks") are declared generically: `type`
-chooses the adapter, `on:` chooses the subscribed events. One sink
+Notification destinations ("channels") are declared generically: `type`
+chooses the adapter, `on:` chooses the subscribed events. One channel
 implementation serves both PR-flow events (`plan` … `blocked`) and drift
 events (`drift_detected` …) — see [notifications.md](notifications.md)
-for the full sink catalog and event list.
+for the full channel catalog and event list.
 
 ```yaml
 version: 2
 config_type: notifications
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-deploys"
     auth_token: ${env:SLACK_BOT_TOKEN}
@@ -386,7 +401,7 @@ sinks:
   - type: timeline_github
 ```
 
-The `timeline_*` sinks complement the dashboard surfaces above: the status
+The `timeline_*` channels complement the dashboard surfaces above: the status
 comment/message is the edited-in-place snapshot; the timeline is one entry
 per event (SHA, timestamp, per-run CI link) — thread replies in Slack, one
 comment per commit SHA on GitHub. See
@@ -395,8 +410,8 @@ comment per commit SHA on GitHub. See
 ### Legacy shape (v1)
 
 The single `slack:` block from before v0.3 keeps working unchanged — it
-is mapped onto the sink model internally (`slack.events` maps to `on:`).
-`reeve migrate-config` rewrites it to the v2 `sinks:` shape (originals
+is mapped onto the channel model internally (`slack.events` maps to `on:`).
+`reeve migrate-config` rewrites it to the v2 `channels:` shape (originals
 backed up as `*.bak`; `--dry-run` previews).
 
 ```yaml
@@ -457,6 +472,13 @@ The sidebar color and status field update at each stage:
 **Error rule:** if no message exists yet and apply fails, no message is created.
 Errors only update an existing message.
 
+> The Approved update can also fire the moment a PR review is approved
+> (`reeve run approved`), but only if the GitHub Action is configured with
+> `run-on-approval: "true"` and the workflow subscribes to
+> `pull_request_review` events. By default that dispatch is skipped - the
+> apply gate re-checks approvals anyway - so Slack flips to approved at
+> apply time instead.
+
 **`/reeve apply` hint** only appears when status is `approved`. Pending-approval
 states show "Waiting for approval." instead.
 
@@ -464,7 +486,7 @@ states show "Waiting for approval." instead.
 
 The first message opens a Slack thread. Each event appends a timestamped
 timeline entry (planned, ready, approved, applying, applied, failed).
-When a `timeline_slack` sink is enabled it takes over the thread with
+When a `timeline_slack` channel is enabled it takes over the thread with
 richer entries (per-stack outcomes, per-run CI links) and these courtesy
 entries are suppressed.
 
@@ -541,7 +563,7 @@ schedules:
     patterns: ["prod/*"]
     exclude_patterns: ["prod/payments", "prod/auth"]
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-drift"
     on: [drift_detected, check_failed]
@@ -579,7 +601,7 @@ The following fields accept `${env:NAME}` references:
 - `auth.yaml`: provider fields (see [auth.md](auth.md) for the full list)
 - `notifications.yaml`: `slack.auth_token`
 - `observability.yaml`: `otel.endpoint`, `otel.headers`, `annotations.*.api_key`, etc.
-- `drift.yaml`: sink credentials
+- `drift.yaml`: channel credentials
 
 `${env:X}` expands at runtime via `os.Getenv("X")`. Missing env vars expand
 to empty strings (not an error) - so token references safely degrade when

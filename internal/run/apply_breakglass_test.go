@@ -19,9 +19,9 @@ import (
 	"github.com/thefynx/reeve/internal/iac"
 	"github.com/thefynx/reeve/internal/vcs"
 
-	// Register the timeline sinks so the break_glass notify emission can be
-	// observed through a configured timeline_github sink.
-	_ "github.com/thefynx/reeve/internal/notify/sinks/timeline"
+	// Register the timeline channels so the break_glass notify emission can be
+	// observed through a configured timeline_github channel.
+	_ "github.com/thefynx/reeve/internal/notify/channels/timeline"
 )
 
 // bgEngine is a fake applyEngine recording Apply invocations.
@@ -168,8 +168,8 @@ func TestBreakGlassApplyOverridesApprovals(t *testing.T) {
 		Authorized: schemas.BreakGlassAuthorized{InternalList: []string{"alice"}},
 	}), store)
 	in.Notifications = &schemas.Notifications{
-		Header: schemas.Header{Version: 2, ConfigType: "notifications"},
-		Sinks:  []schemas.SinkYAML{{Type: "timeline_github", On: []string{"break_glass"}}},
+		Header:   schemas.Header{Version: 2, ConfigType: "notifications"},
+		Channels: []schemas.ChannelYAML{{Type: "timeline_github", On: []string{"break_glass"}}},
 	}
 
 	out, err := Apply(ctx, in)
@@ -190,7 +190,7 @@ func TestBreakGlassApplyOverridesApprovals(t *testing.T) {
 			t.Fatalf("PR comments missing %q:\n%s", want, all)
 		}
 	}
-	// The timeline sink saw the break_glass notify event.
+	// The timeline channel saw the break_glass notify event.
 	if !strings.Contains(all, "break-glass override") {
 		t.Fatalf("timeline break_glass entry missing:\n%s", all)
 	}

@@ -23,7 +23,7 @@ state file:
 
 **`drift_ongoing` is silent on purpose** - without the event lifecycle,
 alerting either spams every run or fires once and goes stale. The
-runner still updates state and emits OTEL metrics; only the sink
+runner still updates state and emits OTEL metrics; only the channel
 dispatch is suppressed.
 
 ## CLI
@@ -34,15 +34,23 @@ reeve drift run --pattern "prod/*"     # narrow to a glob
 reeve drift run --schedule prod        # run a named schedule from drift.yaml
 reeve drift run --if-stale             # skip stacks within the freshness window
 
+reeve drift bootstrap                  # record current state as the baseline (no events)
+
 reeve drift status                     # print last-known state for every stack
 reeve drift status --stack prod/api    # limit to one stack
 
 reeve drift report                     # render the latest report.md from the bucket
+reeve drift report --format json       # same run as JSON (manifest + per-stack results)
 
-reeve drift suppress add prod/api --until 48h --reason "known upstream change"
+reeve drift suppress add prod/api --until 7d --reason "known upstream change"
 reeve drift suppress list
 reeve drift suppress clear prod/api
 ```
+
+`--schedule` must name a schedule declared in `drift.yaml`; an unknown
+name is an error (listing the configured names) rather than a silent
+fall-back to the global scope. `--until` accepts Go durations plus day
+and week units (`48h`, `7d`, `2w`).
 
 ## Config (`.reeve/drift.yaml`)
 
@@ -70,7 +78,7 @@ behavior:
 
   state_bootstrap:
     mode: require_manual           # baseline | alert_all | require_manual
-    baseline_max_age: 7d
+    baseline_max_age: 7d           # unset mode = alert_all on first run
 
 classification:
   ignore_properties:
@@ -96,7 +104,7 @@ schedules:
   slow-movers:
     patterns: ["dev/*", "experiments/*"]
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-drift"
     on: [drift_detected, check_failed]
@@ -134,15 +142,19 @@ was manually cleared), reeve needs to decide whether drift counts as
 | `alert_all` | First run fires `drift_detected` for every drifted stack. |
 | `require_manual` | Refuse to run until `reeve drift bootstrap` is explicitly run. |
 
-**Default:** `require_manual` for production scopes. This closes a
-security gap: an attacker who can delete state files could use
-`baseline` mode to silently reset alerts the next time drift appears.
+**Default:** when `state_bootstrap.mode` is unset, the first run behaves
+like `alert_all` - every drifted stack fires `drift_detected`. Noisy on
+a large estate, but nothing is silently accepted as baseline.
 
-To intentionally establish a baseline:
+**Recommended for production scopes:** set `require_manual` explicitly
+(as in the sample above). This closes a security gap: an attacker who
+can delete state files could otherwise rely on a silent baseline mode to
+reset alerts the next time drift appears. With `require_manual`, drift
+runs refuse until a human records the baseline:
 
 ```bash
-reeve drift run --schedule prod   # with bootstrap.mode: baseline set explicitly
-# then revert to require_manual for subsequent runs
+reeve drift bootstrap                 # record current state, emit no events
+reeve drift bootstrap --pattern "prod/*"   # or narrow the scope
 ```
 
 ## Scheduling
@@ -167,7 +179,7 @@ on:
 permissions:
   contents: read
   id-token: write                # OIDC federation
-  issues: write                  # for github_issue sink
+  issues: write                  # for github_issue channel
 
 jobs:
   critical:
@@ -246,6 +258,9 @@ reeve drift suppress list
 reeve drift suppress clear prod/api
 ```
 
+`--until` accepts Go durations plus day and week units (`48h`, `7d`,
+`2w`).
+
 Active suppressions live at `drift/suppressions/{project}/{stack}.json` in
 the bucket. The runner skips suppressed stacks and emits no events.
 
@@ -260,16 +275,27 @@ permanent_suppressions:
 
 These are listed in reports but never trigger events.
 
-## Sinks
+## Channels
 
-Drift sinks ride the shared notification-sink framework
+Drift channels ride the shared notification-channel framework
 (`internal/notify`) — the same adapters that carry PR-flow notifications.
-Declare them under `sinks:` in `drift.yaml` (below), or in
+Declare them under `channels:` in `drift.yaml` (below), or in
 `notifications.yaml` with drift events in `on:`; both feed the same
-dispatch. One sink implementation serves both producers — see
+dispatch. One channel implementation serves both producers — see
 [notifications.md](notifications.md) for the event list, delivery
 guarantees (concurrent dispatch, timeouts, retry with backoff), and how
 to add a destination.
+
+> **Deprecated alias:** drift.yaml's list was called `sinks:` before
+> v0.3. That spelling still loads (with a deprecation warning) as long as
+> `channels:` is not also set — setting both is an error. Run
+> `reeve migrate-config` to rewrite `sinks:` to `channels:` in place.
+
+Every channel declares which events it wants via `on:`. The drift events are
+`drift_detected`, `drift_ongoing`, `drift_resolved`, and `check_failed` -
+an unknown name is a hard config error (load and `reeve lint` both reject
+it, listing the valid names), and a channel whose `on:` list is empty logs a
+warning because it will never fire.
 
 ### Slack
 
@@ -371,7 +397,11 @@ free visibility in the Actions UI.
 
 ```bash
 reeve drift report                # prints latest report.md to stdout
+reeve drift report --format json  # latest run as JSON: {run_id, manifest, items}
 ```
+
+The JSON output re-emits the stored artifacts for the latest run: the
+run manifest plus every per-stack result, ready for `jq`.
 
 ## OTEL metrics
 
@@ -392,7 +422,7 @@ rather than inside reeve.
 ## Overlap with open PRs
 
 When drift is detected on a stack that has open PRs touching its paths,
-the report surfaces those PRs prominently. The raw sink payload
+the report surfaces those PRs prominently. The raw channel payload
 includes them too:
 
 ```json
@@ -422,16 +452,19 @@ monitoring system.
 
 ### First run floods the channel with detections
 
-Set `state_bootstrap.mode: baseline` for that scope (and roll back to
-`require_manual` afterward), or run `reeve drift suppress add` for the
-stacks you plan to reconcile.
+That's the default (`alert_all`) bootstrap behavior. Run
+`reeve drift bootstrap` first to record the baseline silently, or run
+`reeve drift suppress add` for the stacks you plan to reconcile. Setting
+`state_bootstrap.mode: require_manual` prevents accidental first runs
+entirely.
 
 ### Drift run fails with "first run with bootstrap=require_manual"
 
-Expected for any scope that hasn't been bootstrapped. Run:
+Expected for any scope that hasn't been bootstrapped. Record the
+baseline explicitly:
 
 ```bash
-reeve drift run --schedule <scope> --pattern <stack>  # with baseline mode set
+reeve drift bootstrap --pattern "prod/*"
 ```
 
-Then revert `state_bootstrap.mode` back to `require_manual`.
+Subsequent drift runs compare against it; `require_manual` stays set.

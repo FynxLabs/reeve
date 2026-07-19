@@ -107,13 +107,22 @@ jobs:
 
 | Event / Comment              | What it does                                                    |
 | ---------------------------- | --------------------------------------------------------------- |
-| PR opened / push             | `reeve run preview` runs automatically, posts plan comment      |
+| PR opened / reopened / push  | `reeve run preview` runs automatically, posts plan comment      |
 | PR converted from draft      | `reeve run ready` runs automatically (if `auto_ready: true`)    |
 | `/reeve preview` or `/reeve plan` | Re-runs plan for this PR                               |
 | `/reeve ready`               | Marks PR ready for approval, posts comment, notifies Slack      |
 | `/reeve apply` or `/reeve up` | Applies all planned stacks (subject to approval gates)         |
 | `/reeve breakglass "<justification>" apply` | Emergency apply: overrides approvals (and freeze unless disabled), never locks/checks; loudly audited. Requires `break_glass:` config |
+| `/reeve unlock [project/stack]` | Frees this PR's stack locks (all, or just one)               |
 | `/reeve help`                | Posts a comment listing available commands                      |
+
+Commands also work mention-style (`@reeve apply`); accepted prefixes are set
+by the `command-prefix` input (default `"/reeve,@reeve"`). Other
+`pull_request` actions (labels, assignees, edits) and all bot-authored
+comments are ignored, so reeve's own comments never re-trigger a run.
+Review approvals don't trigger runs unless you opt in with
+`run-on-approval: "true"` (the apply gate re-checks approvals anyway; opting
+in only buys the automatic approved-state notification).
 
 > Draft PRs cannot be applied. Convert to ready for review first.
 
@@ -145,7 +154,7 @@ mise run release-check # goreleaser config validation
 - [Configuration reference](docs/configuration.md) - every config_type
 - [Break-glass apply](docs/break-glass.md) - emergency override: config, command, audit
 - [Auth providers](docs/auth.md) - OIDC/WIF/federated/secret managers
-- [Drift detection](docs/drift.md) - schedules, sinks, bootstrap modes
+- [Drift detection](docs/drift.md) - schedules, channels, bootstrap modes
 - [Policy hooks](docs/policy-hooks.md) - OPA, Conftest, CrossGuard, custom
 - [Self-hosting](docs/self-hosting.md) - bucket choice, GH App, scope
 - [Spec](openspec/specs/) - authoritative per-capability behavior

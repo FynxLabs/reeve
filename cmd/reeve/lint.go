@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -12,7 +14,9 @@ import (
 	authfac "github.com/thefynx/reeve/internal/auth/factory"
 	"github.com/thefynx/reeve/internal/config"
 	"github.com/thefynx/reeve/internal/core/discovery"
+	"github.com/thefynx/reeve/internal/drift"
 	"github.com/thefynx/reeve/internal/iac/pulumi"
+	"github.com/thefynx/reeve/internal/vcs/codeowners"
 )
 
 func newLintCmd() *cobra.Command {
@@ -40,6 +44,30 @@ func newLintCmd() *cobra.Command {
 					}
 				}
 			}
+			// Drift channels: an unknown event name in `on:` would be silently
+			// dropped at runtime, and a channel with an empty subscription never
+			// fires. Fail the typo here; warn on the never-firing channel.
+			if cfg.Drift != nil {
+				for i, sk := range cfg.Drift.Channels {
+					name := sk.Name
+					if name == "" {
+						name = sk.Type
+					}
+					for _, evName := range sk.On {
+						if _, ok := drift.ParseEventName(evName); !ok {
+							return fmt.Errorf("drift channel %d (%s): unknown event %q in on: list (valid: %s)",
+								i, name, evName, strings.Join(drift.KnownEventNames(), ", "))
+						}
+					}
+					if len(sk.On) == 0 {
+						fmt.Fprintf(os.Stderr, "⚠️  drift channel %d (%s) has an empty on: list - it will never fire\n", i, name)
+					}
+				}
+			}
+			// CODEOWNERS: email owners cannot be matched to VCS logins, so
+			// reeve's codeowners gate ignores them. Flag them here so a
+			// path owned only by emails isn't silently unenforced.
+			lintCodeownersEmails(root)
 			// Auth lint: surfaces conflicts and dangerous providers.
 			if cfg.Auth != nil {
 				// Collect declared stack refs for the conflict check.
@@ -74,4 +102,28 @@ func newLintCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// lintCodeownersEmails warns about email owners in the repo's CODEOWNERS
+// file. GitHub accepts them, but reeve has no commit-email → login
+// resolution, so the approvals gate cannot enforce them (they are ignored
+// at evaluation time). Same candidate paths as the VCS adapter's
+// FetchCodeowners.
+func lintCodeownersEmails(root string) {
+	for _, rel := range []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"} {
+		f, err := os.Open(filepath.Join(root, rel))
+		if err != nil {
+			continue
+		}
+		rules := codeowners.Parse(f)
+		_ = f.Close()
+		for _, r := range rules {
+			for _, o := range r.Owners {
+				if strings.Contains(strings.TrimPrefix(o, "@"), "@") {
+					fmt.Fprintf(os.Stderr, "⚠️  %s: owner %q (pattern %q) is an email address - reeve cannot match emails to logins, so this owner is unenforceable\n", rel, o, r.Pattern)
+				}
+			}
+		}
+		return // first candidate found wins, matching FetchCodeowners
+	}
 }

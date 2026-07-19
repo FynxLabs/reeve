@@ -8,13 +8,13 @@ The apply pipeline SHALL emit the `break_glass` event for an authorized
 break-glass run — after authorization succeeds and before stacks are
 applied — in place of the `approved` event (approvals were bypassed, not
 granted). The payload SHALL carry the standard PR-flow context (PR, commit
-SHA, that run's CI URL, target stacks). Sinks subscribed to `break_glass`
+SHA, that run's CI URL, target stacks). Channels subscribed to `break_glass`
 (the deployment timeline by default; anything else explicitly) SHALL fire;
 legacy default subscriptions remain unwidened.
 
 #### Scenario: Timeline records the override
 
-- **WHEN** an authorized break-glass apply runs with a timeline sink
+- **WHEN** an authorized break-glass apply runs with a timeline channel
   configured
 - **THEN** a break-glass timeline entry is recorded for that commit SHA,
   linked to the apply run

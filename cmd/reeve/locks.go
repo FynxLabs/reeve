@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,6 +13,7 @@ import (
 	"github.com/thefynx/reeve/internal/blob/factory"
 	blocks "github.com/thefynx/reeve/internal/blob/locks"
 	"github.com/thefynx/reeve/internal/config"
+	"github.com/thefynx/reeve/internal/run"
 )
 
 func newLocksCmd() *cobra.Command {
@@ -36,36 +39,41 @@ func newLocksCmd() *cobra.Command {
 	}
 
 	unlock := &cobra.Command{
-		Use:   "unlock <project/stack>",
-		Short: "Admin-override release: forcibly clear the holder, promote queue",
-		Args:  cobra.ExactArgs(1),
+		Use:   "unlock [project/stack]",
+		Short: "Admin-override unlock: clear a stack's holder and promote its queue; --pr N instead removes that PR from its locks (all of them when the stack is omitted)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  locksUnlock,
 	}
 	unlock.Flags().String("reason", "", "Required reason for the override (surfaces in logs)")
 	unlock.Flags().String("actor", "", "User performing the override (default: $GITHUB_ACTOR or $USER)")
+	unlock.Flags().Int("pr", 0, "Remove this PR from the lock's holder/queue instead of force-clearing the holder (closed or abandoned PR cleanup)")
+	unlock.Flags().Bool("force", false, "With --pr: clear the PR's holder even if its lease is still active (likely mid-apply)")
 
 	cmd.AddCommand(list, explain, reap, unlock)
 	return cmd
 }
 
-func openLocks(cmd *cobra.Command) (*blocks.Store, error) {
+// openLocks opens the lock store and returns the loaded config alongside
+// it so callers can thread config-derived settings (locking.ttl, admin
+// override) without re-loading.
+func openLocks(cmd *cobra.Command) (*blocks.Store, *config.Config, error) {
 	root, _ := os.Getwd()
 	cfg, err := config.Load(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	store, err := factory.Open(context.Background(), cfg.Shared.Bucket, root)
 	if err != nil {
-		return nil, fmt.Errorf("open bucket: %w", err)
+		return nil, nil, fmt.Errorf("open bucket: %w", err)
 	}
-	return blocks.New(store), nil
+	return blocks.New(store), cfg, nil
 }
 
 func locksList(cmd *cobra.Command, _ []string) error {
-	s, err := openLocks(cmd)
+	s, _, err := openLocks(cmd)
 	if err != nil {
 		return err
 	}
@@ -97,7 +105,7 @@ func locksExplain(cmd *cobra.Command, args []string) error {
 	if parts == nil {
 		return fmt.Errorf("expected project/stack, got %q", ref)
 	}
-	s, err := openLocks(cmd)
+	s, _, err := openLocks(cmd)
 	if err != nil {
 		return err
 	}
@@ -126,11 +134,11 @@ func locksExplain(cmd *cobra.Command, args []string) error {
 }
 
 func locksReap(cmd *cobra.Command, _ []string) error {
-	s, err := openLocks(cmd)
+	s, cfg, err := openLocks(cmd)
 	if err != nil {
 		return err
 	}
-	n, err := s.ReapAll(context.Background())
+	n, err := s.ReapAll(context.Background(), run.LockTTL(cfg.Shared))
 	if err != nil {
 		return err
 	}
@@ -138,19 +146,21 @@ func locksReap(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// locksUnlock is lock cleanup. Without --pr it is the admin override:
+// force-clear the holder of one lock (or every lock, when the stack is
+// omitted) and promote the queue - gated by locking.admin_override.
+// With --pr N it removes that PR from the holder/queue instead - the
+// escape hatch for PRs closed or merged while still holding or queued,
+// without which an abandoned PR could be promoted to holder and block
+// everyone until TTL. The --pr path is NOT admin-gated: it only ever
+// touches that PR's own entries (parity with what a finishing apply
+// does automatically), and it is what "/reeve unlock" PR comments
+// dispatch - those are already gated by allowed-associations upstream.
 func locksUnlock(cmd *cobra.Command, args []string) error {
-	ref := args[0]
-	parts := splitRef(ref)
-	if parts == nil {
-		return fmt.Errorf("expected project/stack, got %q", ref)
-	}
+	pr := flagInt(cmd, "pr")
 
-	root, _ := os.Getwd()
-	cfg, err := config.Load(root)
+	s, cfg, err := openLocks(cmd)
 	if err != nil {
-		return err
-	}
-	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
@@ -160,29 +170,77 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 		actor = os.Getenv("USER")
 	}
 
-	// Admin gate: shared.yaml locking.admin_override
-	admin := cfg.Shared.Locking.AdminOverride
-	if admin.RequiresReason && reason == "" {
-		return fmt.Errorf("locks unlock: --reason is required (shared.yaml locking.admin_override.requires_reason=true)")
-	}
-	if len(admin.Allowed) > 0 {
-		if !actorAllowed(actor, admin.Allowed) {
-			return fmt.Errorf("locks unlock: actor %q is not in locking.admin_override.allowed", actor)
+	if pr <= 0 {
+		// Admin gate: shared.yaml locking.admin_override. Force-clearing
+		// other PRs' holders is the dangerous path; PR-scoped removal
+		// below is not.
+		admin := cfg.Shared.Locking.AdminOverride
+		if admin.RequiresReason && reason == "" {
+			return fmt.Errorf("locks unlock: --reason is required (shared.yaml locking.admin_override.requires_reason=true)")
+		}
+		if len(admin.Allowed) > 0 {
+			if !actorAllowed(actor, admin.Allowed) {
+				return fmt.Errorf("locks unlock: actor %q is not in locking.admin_override.allowed", actor)
+			}
 		}
 	}
 
-	s, err := openLocks(cmd)
+	ctx := context.Background()
+	ttl := run.LockTTL(cfg.Shared)
+	w := cmd.OutOrStdout()
+
+	if pr <= 0 {
+		// Force-unlock one stack's holder. There is deliberately no
+		// bucket-wide force-unlock: "unlock everything" only exists
+		// PR-scoped (--pr / "/reeve unlock"), never for the whole bucket.
+		if len(args) == 0 {
+			return fmt.Errorf("locks unlock: <project/stack> is required (or pass --pr N to remove a PR from its locks)")
+		}
+		parts := splitRef(args[0])
+		if parts == nil {
+			return fmt.Errorf("expected project/stack, got %q", args[0])
+		}
+		l, err := s.ForceUnlock(ctx, parts[0], parts[1], ttl)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "unlocked %s/%s by actor=%s reason=%q\n",
+			parts[0], parts[1], actor, reason)
+		if l.Holder != nil {
+			fmt.Fprintf(w, "promoted PR #%d from queue\n", l.Holder.PR)
+		}
+		return nil
+	}
+
+	// --pr path: remove the PR from its own holder/queue entries, one
+	// stack or all of them. Without --force, a holder whose lease is
+	// still active (likely a live apply) is refused with a hint.
+	force := flagBool(cmd, "force")
+	if len(args) == 0 {
+		n, active, err := s.UnlockPRAll(ctx, pr, "", ttl, force)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "removed PR #%d from %d lock(s) by actor=%s reason=%q\n", pr, n, actor, reason)
+		if len(active) > 0 {
+			return fmt.Errorf("PR #%d is in the middle of an apply on %s; if you are sure you want to unlock, re-run with --force", pr, strings.Join(active, ", "))
+		}
+		return nil
+	}
+	parts := splitRef(args[0])
+	if parts == nil {
+		return fmt.Errorf("expected project/stack, got %q", args[0])
+	}
+	l, err := s.UnlockPR(ctx, parts[0], parts[1], pr, "", ttl, force)
 	if err != nil {
+		if errors.Is(err, blocks.ErrHolderActive) {
+			return fmt.Errorf("PR #%d is in the middle of an apply on %s/%s; if you are sure you want to unlock, re-run with --force", pr, parts[0], parts[1])
+		}
 		return err
 	}
-	l, err := s.ForceUnlock(context.Background(), parts[0], parts[1])
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "unlocked %s/%s by actor=%s reason=%q\n",
-		parts[0], parts[1], actor, reason)
+	fmt.Fprintf(w, "removed PR #%d from %s/%s by actor=%s reason=%q\n", pr, parts[0], parts[1], actor, reason)
 	if l.Holder != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "promoted PR #%d from queue\n", l.Holder.PR)
+		fmt.Fprintf(w, "holder is now PR #%d (expires %s)\n", l.Holder.PR, l.Holder.ExpiresAt)
 	}
 	return nil
 }

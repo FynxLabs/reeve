@@ -53,6 +53,13 @@ var ErrAlreadyHolder = errors.New("already holding lock")
 // ErrAlreadyQueued signals the caller is already waiting in the queue.
 var ErrAlreadyQueued = errors.New("already queued")
 
+// ErrHeldBySamePR signals a DIFFERENT run of the same PR currently holds
+// the lock. The applicant must not apply concurrently and is not queued
+// (a PR never waits behind itself); it should surface "another run of
+// this PR holds the lock" and back off until the holder finishes or its
+// lease expires.
+var ErrHeldBySamePR = errors.New("lock held by another run of the same PR")
+
 // ErrNotHolder is returned by Release when the caller does not currently
 // hold the lock.
 var ErrNotHolder = errors.New("not the current holder")
@@ -70,13 +77,19 @@ func NewLock(project, stack string, now time.Time) Lock {
 // - acquired=true: caller is now the holder
 // - acquired=false: caller is queued (or already queued)
 //
-// Expired holders are evicted. Holder idempotency: re-acquire by the same
-// PR refreshes the expires_at.
+// Expired holders are evicted. Holder identity is PR+RunID: re-acquire by
+// the same PR AND same RunID refreshes the expires_at; a different run of
+// the same PR is refused with ErrHeldBySamePR while the holder's lease is
+// unexpired (two runs of one PR must never apply concurrently).
 func TryAcquire(l Lock, applicant Holder, ttl time.Duration, now time.Time) (Lock, bool, error) {
-	l = evictIfExpired(l, now)
+	l = evictIfExpired(l, now, ttl)
 
-	// Idempotent re-acquire?
+	// Same PR already holds. Same run: idempotent refresh. Different run:
+	// refuse - the unexpired holder wins (an expired one was evicted above).
 	if l.Holder != nil && l.Holder.PR == applicant.PR {
+		if l.Holder.RunID != applicant.RunID {
+			return l, false, ErrHeldBySamePR
+		}
 		refreshed := *l.Holder
 		refreshed.ExpiresAt = now.Add(ttl).UTC().Format(time.RFC3339)
 		refreshed.CommitSHA = applicant.CommitSHA
@@ -115,10 +128,12 @@ func TryAcquire(l Lock, applicant Holder, ttl time.Duration, now time.Time) (Loc
 }
 
 // Release transfers the lock to the next queued applicant (or frees it).
-// Only the current holder can release by pr match.
-func Release(l Lock, pr int, now time.Time) (Lock, error) {
-	l = evictIfExpired(l, now)
-	if l.Holder == nil || l.Holder.PR != pr {
+// Only the current holder - matched by pr AND runID - can release. A
+// non-holder release falls back to queue-removal semantics. ttl bounds the
+// promoted holder's lease; <=0 falls back to defaultPromoteTTL.
+func Release(l Lock, pr int, runID string, ttl time.Duration, now time.Time) (Lock, error) {
+	l = evictIfExpired(l, now, ttl)
+	if l.Holder == nil || l.Holder.PR != pr || l.Holder.RunID != runID {
 		// Removing from queue is always safe.
 		before := len(l.Queue)
 		l.Queue = removePR(l.Queue, pr)
@@ -129,31 +144,38 @@ func Release(l Lock, pr int, now time.Time) (Lock, error) {
 		return l, ErrNotHolder
 	}
 	l.Holder = nil
-	l = promoteNext(l, now, defaultPromoteTTL)
+	l = promoteNext(l, now, promoteTTL(ttl))
 	l.UpdatedAt = now.UTC().Format(time.RFC3339)
 	return l, nil
 }
 
-// Leave removes pr from holder or queue without erroring if absent.
-// Used for PR closed / merged cleanup across all stacks.
-func Leave(l Lock, pr int, now time.Time) Lock {
-	if l.Holder != nil && l.Holder.PR == pr {
+// UnlockPR removes pr from holder and queue without erroring if absent.
+// Used for PR closed / merged cleanup across all stacks. runID scopes the
+// holder removal: "" matches any run of the pr (admin/PR-close cleanup);
+// a non-empty runID only clears a holder from that same run (or one whose
+// lease has expired), so a finishing run cannot evict a different live run
+// of its own PR. Queue entries for pr are removed unconditionally. ttl
+// bounds the promoted holder's lease; <=0 falls back to defaultPromoteTTL.
+func UnlockPR(l Lock, pr int, runID string, ttl time.Duration, now time.Time) Lock {
+	if l.Holder != nil && l.Holder.PR == pr &&
+		(runID == "" || l.Holder.RunID == runID || expired(l.Holder, now)) {
 		l.Holder = nil
-		l = promoteNext(l, now, defaultPromoteTTL)
+		l = promoteNext(l, now, promoteTTL(ttl))
 	}
 	l.Queue = removePR(l.Queue, pr)
 	l.UpdatedAt = now.UTC().Format(time.RFC3339)
 	return l
 }
 
-// Reap evicts an expired holder if present. Returns (lock, evicted).
-func Reap(l Lock, now time.Time) (Lock, bool) {
+// Reap evicts an expired holder if present. Returns (lock, evicted). ttl
+// bounds the promoted holder's lease; <=0 falls back to defaultPromoteTTL.
+func Reap(l Lock, ttl time.Duration, now time.Time) (Lock, bool) {
 	if l.Holder == nil {
 		return l, false
 	}
 	if expired(l.Holder, now) {
 		l.Holder = nil
-		l = promoteNext(l, now, defaultPromoteTTL)
+		l = promoteNext(l, now, promoteTTL(ttl))
 		l.UpdatedAt = now.UTC().Format(time.RFC3339)
 		return l, true
 	}
@@ -173,12 +195,23 @@ func (l Lock) Status(now time.Time) Status {
 
 // --- helpers ---
 
+// defaultPromoteTTL is the promoted-holder lease fallback for callers that
+// do not thread the configured locking.ttl (ttl <= 0).
 const defaultPromoteTTL = 4 * time.Hour
 
-func evictIfExpired(l Lock, now time.Time) Lock {
+// promoteTTL resolves the lease duration for a holder promoted from the
+// queue: the configured ttl when set, defaultPromoteTTL otherwise.
+func promoteTTL(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return defaultPromoteTTL
+	}
+	return ttl
+}
+
+func evictIfExpired(l Lock, now time.Time, ttl time.Duration) Lock {
 	if l.Holder != nil && expired(l.Holder, now) {
 		l.Holder = nil
-		l = promoteNext(l, now, defaultPromoteTTL)
+		l = promoteNext(l, now, promoteTTL(ttl))
 	}
 	return l
 }

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// HTTPDoer is the minimal http.Client surface sinks depend on.
+// HTTPDoer is the minimal http.Client surface channels depend on.
 type HTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -20,7 +20,7 @@ var (
 	sharedClient *http.Client
 )
 
-// SharedHTTPClient returns the process-wide client for sink deliveries. It
+// SharedHTTPClient returns the process-wide client for channel deliveries. It
 // carries a sane overall timeout so a hung endpoint cannot wedge a delivery
 // even if the caller forgot a ctx deadline.
 func SharedHTTPClient() *http.Client {

@@ -13,7 +13,7 @@ boundary.
 | GitHub repo with Actions | reeve runs inside workflows | yes |
 | IAM role trusting GitHub's OIDC provider | short-lived creds for IaC | strongly recommended |
 | GitHub App | higher rate limits, cross-repo install | optional |
-| Slack workspace + bot | PR-scoped notifications + drift sinks | optional |
+| Slack workspace + bot | PR-scoped notifications + drift channels | optional |
 | OTEL collector | traces + metrics | optional |
 | PagerDuty / incident system | drift escalation | optional |
 
@@ -210,7 +210,7 @@ runners start empty, so locks don't persist across runs.
 permissions:
   contents: read
   pull-requests: write      # upsert PR comment
-  issues: write             # /reeve apply via issue_comment; github_issue drift sink
+  issues: write             # /reeve apply via issue_comment; github_issue drift channel
   id-token: write           # only when using aws_oidc / gcp_wif / azure_federated
 ```
 
@@ -218,12 +218,19 @@ permissions:
 
 reeve expects these events:
 
-- `pull_request` (`opened`, `synchronize`, `reopened`) - fires `preview`
+- `pull_request` (`opened`, `reopened`, `synchronize`) - fires `preview`
 - `pull_request` (`ready_for_review`) - fires `ready` (if `auto_ready: true` and plan succeeded)
-- `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update)
-- `issue_comment` (`created`, body starts with `/reeve apply` (or `/reeve up`), `/reeve ready`, `/reeve preview` (or `/reeve plan`), or `/reeve help`) - fires respective command
+- `pull_request` (any other action, e.g. `labeled`, `assigned`, `edited`) - no-op
+- `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update), **only** when the action input `run-on-approval` is `"true"`; skipped by default since the apply gate re-checks approvals anyway
+- `issue_comment` (`created`, first word matches a `command-prefix` entry - default `/reeve` or `@reeve` - followed by `apply` (or `up`), `ready`, `preview` (or `plan`), or `help`) - fires respective command; comments authored by bots (user type `Bot` or login ending in `[bot]`) are always skipped to prevent self-trigger loops
 - `schedule` - fires `drift run`
 - `workflow_dispatch` - manual re-runs
+
+For run coalescing, use a `concurrency` group keyed per PR with
+`cancel-in-progress` limited to preview runs: previews never take apply
+locks, so cancelling one loses nothing, while an apply holds per-stack locks
+that only the run itself releases - never cancel an apply mid-run. See the
+workflow in [getting-started](getting-started.md#4-add-the-github-actions-workflow).
 
 ### GitHub App (optional but recommended for multi-repo)
 
@@ -357,11 +364,34 @@ wired OTEL.
 ```bash
 reeve locks list                    # shows holder + queue depth
 reeve locks explain <project/stack> # detail for one stack
+reeve locks unlock <project/stack>  # force-clear one holder, promote its queue
+reeve locks unlock <project/stack> --pr N  # remove a closed/abandoned PR instead
+reeve locks unlock --pr N           # ...from every lock that PR is in
+reeve locks unlock --pr N --force   # ...even a holder whose lease is active (mid-apply)
 ```
 
 Long queue depths on a stack indicate apply contention - usually a
 symptom of too-coarse stack granularity or PRs that take too long to
 merge after `/reeve apply`.
+
+Lock holders are identified by **PR + run ID**. A second concurrent run
+of the same PR is refused ("another run of this PR holds the lock")
+rather than applied in parallel, and only the run that acquired a lock
+can release it. A successful apply automatically removes its PR from every lock it
+still appeared in; for PRs closed while holding or queued, use
+`reeve locks unlock --pr N` so the queue doesn't promote a dead PR - or
+comment `/reeve unlock` on the PR itself, which does the same thing
+scoped to that PR (add `project/stack` to free just one lock). If the
+PR still holds a lock with an active lease - usually an apply mid-run -
+the unlock is refused and reeve comments back "this PR is in the middle
+of an apply; comment `/reeve unlock --force` if you are sure". Queue
+entries are always removed; only an active holder needs `--force`.
+Promotion from the queue grants a lease of the configured `locking.ttl`
+(default 4h).
+
+`locking.admin_override` gates only the force paths (`locks unlock`
+without `--pr`), which can clear other PRs' holders. PR-scoped removal
+is self-service: it cannot touch another PR's entries.
 
 ### Audit trail
 

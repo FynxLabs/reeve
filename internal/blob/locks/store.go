@@ -56,7 +56,9 @@ func (s *Store) Get(ctx context.Context, project, stack string) (corelocks.Lock,
 
 // TryAcquire runs the acquire transition with optimistic concurrency.
 // Returns acquired=true if the caller holds the lock after the call.
-// acquired=false means the caller is queued. The updated lock is always
+// acquired=false means the caller is queued - or, when the error is
+// corelocks.ErrHeldBySamePR, that a different run of the same PR holds
+// the lock and the caller must back off. The updated lock is always
 // returned.
 func (s *Store) TryAcquire(ctx context.Context, project, stack string, applicant corelocks.Holder, ttl time.Duration) (corelocks.Lock, bool, error) {
 	return s.mutate(ctx, project, stack, func(cur corelocks.Lock) (corelocks.Lock, bool, error) {
@@ -68,32 +70,112 @@ func (s *Store) TryAcquire(ctx context.Context, project, stack string, applicant
 	})
 }
 
-// Release releases the lock. If pr is the holder, the next queued
-// applicant is promoted.
-func (s *Store) Release(ctx context.Context, project, stack string, pr int) (corelocks.Lock, error) {
+// Release releases the lock. If pr+runID is the holder, the next queued
+// applicant is promoted with a lease of ttl (<=0 falls back to the 4h
+// default). A non-holder release only removes pr from the queue.
+func (s *Store) Release(ctx context.Context, project, stack string, pr int, runID string, ttl time.Duration) (corelocks.Lock, error) {
 	l, _, err := s.mutate(ctx, project, stack, func(cur corelocks.Lock) (corelocks.Lock, bool, error) {
-		next, err := corelocks.Release(cur, pr, s.Now())
+		next, err := corelocks.Release(cur, pr, runID, ttl, s.Now())
 		return next, false, err
 	})
 	return l, err
 }
 
-// Leave removes pr from holder or queue across a stack. Silent if absent.
-// Intended for PR merge/close cleanup.
-func (s *Store) Leave(ctx context.Context, project, stack string, pr int) (corelocks.Lock, error) {
+// ErrHolderActive is returned (force=false) when the PR holds the lock
+// with an unexpired lease - most likely an apply still running. Callers
+// surface a "re-run with --force" hint instead of clearing the holder.
+var ErrHolderActive = errors.New("pr holds this lock with an active lease")
+
+// holderActive reports whether pr (optionally scoped to runID) is the
+// current holder with an unexpired lease.
+func holderActive(l corelocks.Lock, pr int, runID string, now time.Time) bool {
+	if l.Holder == nil || l.Holder.PR != pr {
+		return false
+	}
+	if runID != "" && l.Holder.RunID != runID {
+		return false
+	}
+	exp, err := time.Parse(time.RFC3339, l.Holder.ExpiresAt)
+	return err == nil && now.Before(exp)
+}
+
+// UnlockPR removes pr from holder or queue across a stack. Silent if absent.
+// Intended for PR merge/close cleanup. runID "" matches any run of the pr;
+// a non-empty runID skips a holder from a different live run of the same
+// pr untouched. ttl bounds the promoted holder's lease. force=false refuses
+// (ErrHolderActive) to clear a holder whose lease is still active.
+func (s *Store) UnlockPR(ctx context.Context, project, stack string, pr int, runID string, ttl time.Duration, force bool) (corelocks.Lock, error) {
 	l, _, err := s.mutate(ctx, project, stack, func(cur corelocks.Lock) (corelocks.Lock, bool, error) {
-		return corelocks.Leave(cur, pr, s.Now()), false, nil
+		if !force && holderActive(cur, pr, runID, s.Now()) {
+			return cur, false, ErrHolderActive
+		}
+		return corelocks.UnlockPR(cur, pr, runID, ttl, s.Now()), false, nil
 	})
 	return l, err
 }
 
+// UnlockPRAll removes pr from holder/queue across every stored lock.
+// Returns the number of locks the pr was removed from plus the
+// "project/stack" refs that were SKIPPED because the pr holds them with
+// an active lease (force=false only; queue entries are always removed).
+// Called by a finishing apply run (runID-scoped, force=true) so the PR
+// does not linger in queues for stacks it no longer needs, and by
+// `reeve locks unlock --pr N` / the "/reeve unlock" PR comment (runID "")
+// for closed or abandoned PRs.
+func (s *Store) UnlockPRAll(ctx context.Context, pr int, runID string, ttl time.Duration, force bool) (int, []string, error) {
+	keys, err := s.store.List(ctx, "locks")
+	if err != nil {
+		return 0, nil, err
+	}
+	var n int
+	var active []string
+	for _, k := range keys {
+		if !strings.HasSuffix(k, ".json") {
+			continue
+		}
+		proj, stack, ok := parseLockKey(k)
+		if !ok {
+			continue
+		}
+		cur, _, err := s.Get(ctx, proj, stack)
+		if err != nil {
+			return n, active, err
+		}
+		if !involvesPR(cur, pr) {
+			continue // avoid rewriting lock blobs the PR never touched
+		}
+		if _, err := s.UnlockPR(ctx, proj, stack, pr, runID, ttl, force); err != nil {
+			if errors.Is(err, ErrHolderActive) {
+				active = append(active, proj+"/"+stack)
+				continue
+			}
+			return n, active, err
+		}
+		n++
+	}
+	return n, active, nil
+}
+
+func involvesPR(l corelocks.Lock, pr int) bool {
+	if l.Holder != nil && l.Holder.PR == pr {
+		return true
+	}
+	for _, q := range l.Queue {
+		if q.PR == pr {
+			return true
+		}
+	}
+	return false
+}
+
 // ForceUnlock is the admin-override release. It clears the holder
-// regardless of PR, promotes the queue. Callers verify admin auth
-// before invoking (via shared.yaml locking.admin_override.allowed).
-func (s *Store) ForceUnlock(ctx context.Context, project, stack string) (corelocks.Lock, error) {
+// regardless of PR, promotes the queue with a lease of ttl (<=0 falls
+// back to the 4h default). Callers verify admin auth before invoking
+// (via shared.yaml locking.admin_override.allowed).
+func (s *Store) ForceUnlock(ctx context.Context, project, stack string, ttl time.Duration) (corelocks.Lock, error) {
 	l, _, err := s.mutate(ctx, project, stack, func(cur corelocks.Lock) (corelocks.Lock, bool, error) {
 		cur.Holder = nil
-		cur = forcePromoteQueue(cur, s.Now(), time.Hour*4)
+		cur = forcePromoteQueue(cur, s.Now(), ttl)
 		cur.UpdatedAt = s.Now().UTC().Format(time.RFC3339)
 		return cur, false, nil
 	})
@@ -101,6 +183,9 @@ func (s *Store) ForceUnlock(ctx context.Context, project, stack string) (coreloc
 }
 
 func forcePromoteQueue(l corelocks.Lock, now time.Time, ttl time.Duration) corelocks.Lock {
+	if ttl <= 0 {
+		ttl = 4 * time.Hour
+	}
 	if l.Holder != nil || len(l.Queue) == 0 {
 		return l
 	}
@@ -117,11 +202,12 @@ func forcePromoteQueue(l corelocks.Lock, now time.Time, ttl time.Duration) corel
 	return l
 }
 
-// Reap evicts an expired holder. Returns (lock, evicted).
-func (s *Store) Reap(ctx context.Context, project, stack string) (corelocks.Lock, bool, error) {
+// Reap evicts an expired holder. Returns (lock, evicted). ttl bounds the
+// promoted holder's lease; <=0 falls back to the 4h default.
+func (s *Store) Reap(ctx context.Context, project, stack string, ttl time.Duration) (corelocks.Lock, bool, error) {
 	var evicted bool
 	l, _, err := s.mutate(ctx, project, stack, func(cur corelocks.Lock) (corelocks.Lock, bool, error) {
-		next, ev := corelocks.Reap(cur, s.Now())
+		next, ev := corelocks.Reap(cur, ttl, s.Now())
 		evicted = ev
 		return next, false, nil
 	})
@@ -130,7 +216,8 @@ func (s *Store) Reap(ctx context.Context, project, stack string) (corelocks.Lock
 
 // ReapAll walks locks/ and reaps expired holders across every stack.
 // Called opportunistically by reeve invocations and by `reeve locks reap`.
-func (s *Store) ReapAll(ctx context.Context) (int, error) {
+// ttl bounds promoted holders' leases; <=0 falls back to the 4h default.
+func (s *Store) ReapAll(ctx context.Context, ttl time.Duration) (int, error) {
 	keys, err := s.store.List(ctx, "locks")
 	if err != nil {
 		return 0, err
@@ -144,7 +231,7 @@ func (s *Store) ReapAll(ctx context.Context) (int, error) {
 		if !ok {
 			continue
 		}
-		_, evicted, err := s.Reap(ctx, proj, stack)
+		_, evicted, err := s.Reap(ctx, proj, stack, ttl)
 		if err != nil {
 			return n, err
 		}
