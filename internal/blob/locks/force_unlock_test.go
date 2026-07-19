@@ -20,7 +20,7 @@ func TestForceUnlockClearsHolderAndPromotes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l, err := s.ForceUnlock(ctx, "api", "prod")
+	l, err := s.ForceUnlock(ctx, "api", "prod", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestForceUnlockEmptyQueueReleases(t *testing.T) {
 	if _, _, err := s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 1}, time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	l, err := s.ForceUnlock(ctx, "api", "prod")
+	l, err := s.ForceUnlock(ctx, "api", "prod", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

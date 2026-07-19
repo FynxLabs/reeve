@@ -234,7 +234,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	freezeCfg := toFreezeConfig(in.Shared)
 	preCfg := toPreconditionsConfig(in.Shared)
 	appCfg := toApprovalsConfig(in.Shared)
-	ttl := lockTTL(in.Shared)
+	ttl := LockTTL(in.Shared)
 
 	// Pre-resolve team-slug membership once for every stack we're about to
 	// process. Without this, a rule like `approvers: [my-org/sre]` would
@@ -307,10 +307,25 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			Project: s.Project, Stack: s.Name, Env: s.Env,
 		}
 
-		// Lock acquire.
+		// Lock acquire. Holder identity is PR+RunID: a concurrent run of
+		// this same PR (double `/reeve apply`, workflow re-run) is refused
+		// with ErrHeldBySamePR and must not proceed to apply.
 		lock, acquired, err := in.Locks.TryAcquire(ctx, s.Project, s.Name, corelocks.Holder{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunID: runID, Actor: in.Actor,
 		}, ttl)
+		if errors.Is(err, corelocks.ErrHeldBySamePR) {
+			holderRun := "unknown"
+			if lock.Holder != nil {
+				holderRun = lock.Holder.RunID
+			}
+			ss.Status = summary.StatusBlocked
+			ss.Error = fmt.Sprintf("another run of PR #%d (%s) currently holds the lock for this stack; wait for it to finish or for its lease to expire", in.PRNumber, holderRun)
+			anyBlocked = true
+			slog.Info("lock held by concurrent run of same PR",
+				"stack", s.Ref(), "pr", in.PRNumber, "holder_run", holderRun, "this_run", runID)
+			summaries = append(summaries, ss)
+			continue
+		}
 		if err != nil {
 			ss.Status = summary.StatusError
 			ss.Error = fmt.Sprintf("lock acquire: %v", err)
@@ -425,7 +440,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			}
 			anyBlocked = true
 			if acquired {
-				releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "gates blocked")
+				releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, runID, ttl, "gates blocked")
 			}
 			summaries = append(summaries, ss)
 			continue
@@ -438,7 +453,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		if aerr != nil {
 			ss.Status = summary.StatusError
 			ss.Error = redactor.Redact(aerr.Error())
-			releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "auth resolve failed")
+			releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, runID, ttl, "auth resolve failed")
 			summaries = append(summaries, ss)
 			continue
 		}
@@ -455,7 +470,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			ss.Error = redactor.Redact(aerr.Error())
 			stackOutcome = "error"
 			endStack(stackOutcome, time.Since(stackStart).Seconds())
-			releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "engine apply failed")
+			releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, runID, ttl, "engine apply failed")
 			summaries = append(summaries, ss)
 			PostAnnotation(ctx, in.Annotations, annotations.EventApplyFailed,
 				s.Project, s.Name, s.Env, "failed", ss.Error, in.PRNumber, in.CommitSHA)
@@ -474,7 +489,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		} else {
 			ss.Status = summary.StatusPlanned
 		}
-		releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, "stack apply complete")
+		releaseLockOrLog(ctx, in.Locks, s.Project, s.Name, in.PRNumber, runID, ttl, "stack apply complete")
 		summaries = append(summaries, ss)
 	}
 
@@ -515,6 +530,19 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		timeline.add(ctx, "🔒", "blocked", blockedStacksDetail(summaries))
 	default:
 		timeline.add(ctx, "✅", "applied", changedStacksDetail(summaries))
+		// The run is fully done - leave every lock the PR still appears in
+		// (queues on stacks a previous run wanted but this one no longer
+		// targets, plus the just-released holders as no-ops). RunID-scoped,
+		// so a different live run of the same PR keeps its holds.
+		if in.Locks != nil && in.PRNumber > 0 {
+			// force=true: this is the finishing run clearing its own
+			// runID-scoped entries; its lease may still look active.
+			if n, _, err := in.Locks.UnlockPRAll(ctx, in.PRNumber, runID, ttl, true); err != nil {
+				slog.Warn("lock unlock sweep failed", "pr", in.PRNumber, "err", err)
+			} else if n > 0 {
+				slog.Info("removed lock entries after successful apply", "pr", in.PRNumber, "locks", n)
+			}
+		}
 		if err := writeAppliedState(ctx, in.Blob, AppliedState{
 			CommitSHA: in.CommitSHA, RunID: runID, RunNumber: in.RunNumber,
 			AppliedAt: time.Now().UTC().Format(time.RFC3339), PR: in.PRNumber,
@@ -611,13 +639,16 @@ func gatesToTrace(r preconditions.Result) []summary.GateTrace {
 // instead of swallowing the error. The lock-release path needs to be
 // best-effort (the work has already happened or been declined), but a silent
 // drop hid leaks until the reaper noticed - operators need a signal.
-func releaseLockOrLog(ctx context.Context, store *blocks.Store, project, stack string, pr int, reason string) {
+// Release is RunID-scoped: only the run that holds the lock frees it, so a
+// concurrent run of the same PR cannot have its lease pulled out from under
+// it. ttl bounds the lease of any holder promoted from the queue.
+func releaseLockOrLog(ctx context.Context, store *blocks.Store, project, stack string, pr int, runID string, ttl time.Duration, reason string) {
 	if store == nil {
 		return
 	}
-	if _, err := store.Release(ctx, project, stack, pr); err != nil {
+	if _, err := store.Release(ctx, project, stack, pr, runID, ttl); err != nil {
 		slog.Warn("lock release failed",
-			"project", project, "stack", stack, "pr", pr, "reason", reason, "err", err)
+			"project", project, "stack", stack, "pr", pr, "run_id", runID, "reason", reason, "err", err)
 	}
 }
 

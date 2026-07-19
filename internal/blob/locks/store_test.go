@@ -2,6 +2,7 @@ package locks
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -41,7 +42,7 @@ func TestAcquireReleaseFlow(t *testing.T) {
 		t.Fatalf("queue len: %d", len(l.Queue))
 	}
 
-	l, err = s.Release(ctx, "api", "prod", 1)
+	l, err = s.Release(ctx, "api", "prod", 1, "r1", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestListAllAndReapAll(t *testing.T) {
 
 	// Advance time past TTL.
 	s.Now = func() time.Time { return now.Add(2 * time.Hour) }
-	n, err := s.ReapAll(ctx)
+	n, err := s.ReapAll(ctx, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,5 +98,178 @@ func TestConditionalWriteRetryOnRace(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("second acquire should have queued, not acquired")
+	}
+}
+
+func TestTryAcquireSamePRDifferentRunRefused(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	s := newStore(t, now)
+
+	if _, ok, err := s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 1, RunID: "r1"}, time.Hour); err != nil || !ok {
+		t.Fatalf("first acquire: ok=%v err=%v", ok, err)
+	}
+	l, ok, err := s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 1, RunID: "r2"}, time.Hour)
+	if ok || !errors.Is(err, corelocks.ErrHeldBySamePR) {
+		t.Fatalf("expected ErrHeldBySamePR, got ok=%v err=%v", ok, err)
+	}
+	if l.Holder == nil || l.Holder.RunID != "r1" {
+		t.Fatalf("holder must stay r1: %+v", l.Holder)
+	}
+}
+
+func TestReleaseByWrongRunKeepsHolder(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	s := newStore(t, now)
+
+	if _, ok, err := s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 1, RunID: "r1"}, time.Hour); err != nil || !ok {
+		t.Fatalf("acquire: ok=%v err=%v", ok, err)
+	}
+	if _, err := s.Release(ctx, "api", "prod", 1, "r2", time.Hour); !errors.Is(err, corelocks.ErrNotHolder) {
+		t.Fatalf("expected ErrNotHolder, got %v", err)
+	}
+	l, _, err := s.Get(ctx, "api", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Holder == nil || l.Holder.RunID != "r1" {
+		t.Fatalf("holder must survive wrong-run release: %+v", l.Holder)
+	}
+}
+
+func TestUnlockPRAllSweepsHolderAndQueues(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	s := newStore(t, now)
+
+	// PR 9 holds api/prod (run r9) and is queued behind PR 1 on worker/prod.
+	_, _, _ = s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 9, RunID: "r9"}, time.Hour)
+	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 1, RunID: "r1"}, time.Hour)
+	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 9, RunID: "r9"}, time.Hour)
+
+	n, _, err := s.UnlockPRAll(ctx, 9, "r9", time.Hour, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 locks touched, got %d", n)
+	}
+	api, _, err := s.Get(ctx, "api", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.Holder != nil {
+		t.Fatalf("api/prod should be free: %+v", api.Holder)
+	}
+	worker, _, err := s.Get(ctx, "worker", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worker.Holder == nil || worker.Holder.PR != 1 {
+		t.Fatalf("worker/prod holder must stay PR 1: %+v", worker.Holder)
+	}
+	if len(worker.Queue) != 0 {
+		t.Fatalf("PR 9 must be gone from worker/prod queue: %+v", worker.Queue)
+	}
+}
+
+func TestUnlockPRAllRunScopedKeepsOtherRunsHolder(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	s := newStore(t, now)
+
+	// Another live run (r-live) of PR 9 holds api/prod; the finishing run
+	// r-done must leave it alone but still clean its own queue entries.
+	_, _, _ = s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 9, RunID: "r-live"}, time.Hour)
+
+	if _, _, err := s.UnlockPRAll(ctx, 9, "r-done", time.Hour, true); err != nil {
+		t.Fatal(err)
+	}
+	l, _, err := s.Get(ctx, "api", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Holder == nil || l.Holder.RunID != "r-live" {
+		t.Fatalf("live run's hold must survive the sweep: %+v", l.Holder)
+	}
+}
+
+func TestUnlockPRRefusesActiveHolderWithoutForce(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	s := newStore(t, now)
+
+	_, _, _ = s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 7, RunID: "r7"}, time.Hour)
+
+	if _, err := s.UnlockPR(ctx, "api", "prod", 7, "", time.Hour, false); !errors.Is(err, ErrHolderActive) {
+		t.Fatalf("expected ErrHolderActive, got %v", err)
+	}
+	l, _, err := s.Get(ctx, "api", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Holder == nil || l.Holder.PR != 7 {
+		t.Fatalf("holder must be untouched after refusal: %+v", l.Holder)
+	}
+
+	// force clears it and promotes the queue.
+	_, _, _ = s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 8, RunID: "r8"}, time.Hour)
+	if _, err := s.UnlockPR(ctx, "api", "prod", 7, "", time.Hour, true); err != nil {
+		t.Fatal(err)
+	}
+	l, _, err = s.Get(ctx, "api", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Holder == nil || l.Holder.PR != 8 {
+		t.Fatalf("force should clear PR 7 and promote PR 8: %+v", l.Holder)
+	}
+}
+
+func TestUnlockPRAllSkipsActiveHolderButDequeues(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	s := newStore(t, now)
+
+	// PR 7 actively holds api/prod and is queued behind PR 1 on worker/prod.
+	_, _, _ = s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 7, RunID: "r7"}, time.Hour)
+	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 1, RunID: "r1"}, time.Hour)
+	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 7, RunID: "r7"}, time.Hour)
+
+	n, active, err := s.UnlockPRAll(ctx, 7, "", time.Hour, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 removal (worker queue), got %d", n)
+	}
+	if len(active) != 1 || active[0] != "api/prod" {
+		t.Fatalf("expected api/prod reported active, got %v", active)
+	}
+	api, _, err := s.Get(ctx, "api", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.Holder == nil || api.Holder.PR != 7 {
+		t.Fatalf("active holder must survive without force: %+v", api.Holder)
+	}
+	worker, _, err := s.Get(ctx, "worker", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range worker.Queue {
+		if q.PR == 7 {
+			t.Fatal("PR 7 should be dequeued from worker/prod")
+		}
+	}
+
+	// force sweeps the active holder too.
+	n, active, err = s.UnlockPRAll(ctx, 7, "", time.Hour, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || len(active) != 0 {
+		t.Fatalf("force: expected 1 removal 0 active, got %d/%v", n, active)
 	}
 }
