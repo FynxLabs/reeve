@@ -531,7 +531,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		// targets, plus the just-released holders as no-ops). RunID-scoped,
 		// so a different live run of the same PR keeps its holds.
 		if in.Locks != nil && in.PRNumber > 0 {
-			if n, err := in.Locks.LeaveAll(ctx, in.PRNumber, runID, ttl); err != nil {
+			if n, err := in.Locks.UnlockPRAll(ctx, in.PRNumber, runID, ttl); err != nil {
 				slog.Warn("lock leave sweep failed", "pr", in.PRNumber, "err", err)
 			} else if n > 0 {
 				slog.Info("left lock entries after successful apply", "pr", in.PRNumber, "locks", n)

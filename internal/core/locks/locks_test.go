@@ -171,17 +171,17 @@ func TestReapPromotesWithConfiguredTTL(t *testing.T) {
 	}
 }
 
-func TestLeaveRunScopedKeepsOtherRunsHolder(t *testing.T) {
+func TestUnlockPRRunScopedKeepsOtherRunsHolder(t *testing.T) {
 	// A finishing run leaving its PR everywhere must not evict a different
 	// live run of the same PR that holds another stack's lock.
 	l := NewLock("api", "prod", t0)
 	l, _, _ = TryAcquire(l, Holder{PR: 1, RunID: "run-a"}, time.Hour, t0)
-	l = Leave(l, 1, "run-b", time.Hour, t0.Add(time.Minute))
+	l = UnlockPR(l, 1, "run-b", time.Hour, t0.Add(time.Minute))
 	if l.Holder == nil || l.Holder.RunID != "run-a" {
 		t.Fatalf("run-scoped leave must not evict a different live run: %+v", l.Holder)
 	}
 	// runID "" (admin / PR-close cleanup) removes any run of the PR.
-	l = Leave(l, 1, "", time.Hour, t0.Add(2*time.Minute))
+	l = UnlockPR(l, 1, "", time.Hour, t0.Add(2*time.Minute))
 	if l.Holder != nil {
 		t.Fatalf("unscoped leave should clear the holder: %+v", l.Holder)
 	}
@@ -225,16 +225,16 @@ func TestReapEvictsAndPromotes(t *testing.T) {
 	}
 }
 
-func TestLeaveRemovesAcrossHolderAndQueue(t *testing.T) {
+func TestUnlockPRRemovesAcrossHolderAndQueue(t *testing.T) {
 	l := NewLock("api", "prod", t0)
 	l, _, _ = TryAcquire(l, Holder{PR: 1}, time.Hour, t0)
 	l, _, _ = TryAcquire(l, Holder{PR: 2}, time.Hour, t0)
 	l, _, _ = TryAcquire(l, Holder{PR: 3}, time.Hour, t0)
-	l = Leave(l, 2, "", time.Hour, t0.Add(time.Minute)) // queued PR leaves
+	l = UnlockPR(l, 2, "", time.Hour, t0.Add(time.Minute)) // queued PR leaves
 	if len(l.Queue) != 1 || l.Queue[0].PR != 3 {
 		t.Fatalf("expected queue to be [3], got %+v", l.Queue)
 	}
-	l = Leave(l, 1, "", time.Hour, t0.Add(2*time.Minute)) // holder leaves, promotes 3
+	l = UnlockPR(l, 1, "", time.Hour, t0.Add(2*time.Minute)) // holder leaves, promotes 3
 	if l.Holder == nil || l.Holder.PR != 3 {
 		t.Fatalf("expected pr 3 promoted: %+v", l.Holder)
 	}

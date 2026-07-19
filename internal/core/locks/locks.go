@@ -149,14 +149,14 @@ func Release(l Lock, pr int, runID string, ttl time.Duration, now time.Time) (Lo
 	return l, nil
 }
 
-// Leave removes pr from holder and queue without erroring if absent.
+// UnlockPR removes pr from holder and queue without erroring if absent.
 // Used for PR closed / merged cleanup across all stacks. runID scopes the
 // holder removal: "" matches any run of the pr (admin/PR-close cleanup);
 // a non-empty runID only clears a holder from that same run (or one whose
 // lease has expired), so a finishing run cannot evict a different live run
 // of its own PR. Queue entries for pr are removed unconditionally. ttl
 // bounds the promoted holder's lease; <=0 falls back to defaultPromoteTTL.
-func Leave(l Lock, pr int, runID string, ttl time.Duration, now time.Time) Lock {
+func UnlockPR(l Lock, pr int, runID string, ttl time.Duration, now time.Time) Lock {
 	if l.Holder != nil && l.Holder.PR == pr &&
 		(runID == "" || l.Holder.RunID == runID || expired(l.Holder, now)) {
 		l.Holder = nil

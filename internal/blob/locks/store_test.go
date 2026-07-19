@@ -138,7 +138,7 @@ func TestReleaseByWrongRunKeepsHolder(t *testing.T) {
 	}
 }
 
-func TestLeaveAllSweepsHolderAndQueues(t *testing.T) {
+func TestUnlockPRAllSweepsHolderAndQueues(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
 	s := newStore(t, now)
@@ -148,7 +148,7 @@ func TestLeaveAllSweepsHolderAndQueues(t *testing.T) {
 	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 1, RunID: "r1"}, time.Hour)
 	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 9, RunID: "r9"}, time.Hour)
 
-	n, err := s.LeaveAll(ctx, 9, "r9", time.Hour)
+	n, err := s.UnlockPRAll(ctx, 9, "r9", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestLeaveAllSweepsHolderAndQueues(t *testing.T) {
 	}
 }
 
-func TestLeaveAllRunScopedKeepsOtherRunsHolder(t *testing.T) {
+func TestUnlockPRAllRunScopedKeepsOtherRunsHolder(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
 	s := newStore(t, now)
@@ -183,7 +183,7 @@ func TestLeaveAllRunScopedKeepsOtherRunsHolder(t *testing.T) {
 	// r-done must leave it alone but still clean its own queue entries.
 	_, _, _ = s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 9, RunID: "r-live"}, time.Hour)
 
-	if _, err := s.LeaveAll(ctx, 9, "r-done", time.Hour); err != nil {
+	if _, err := s.UnlockPRAll(ctx, 9, "r-done", time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	l, _, err := s.Get(ctx, "api", "prod")

@@ -41,10 +41,10 @@ No control plane.
 
 ## Release triggers
 
-- Apply finished → the finishing run releases per stack, then leaves
+- Apply finished → the finishing run releases per stack, then removes its PR from
   every lock its PR still appears in (holder or queue) so the PR does
   not linger in queues for stacks it no longer needs.
-- PR merged / closed unmerged → `reeve locks leave [project/stack] --pr N`
+- PR merged / closed unmerged → `reeve locks unlock [project/stack] --pr N`
   removes the PR from holder/queue (all locks when the stack is omitted).
 - TTL expiry (opportunistic reaper).
 - Manual `/reeve unlock` (admin per `shared.yaml` `locking.admin_override`).

@@ -81,23 +81,23 @@ func (s *Store) Release(ctx context.Context, project, stack string, pr int, runI
 	return l, err
 }
 
-// Leave removes pr from holder or queue across a stack. Silent if absent.
+// UnlockPR removes pr from holder or queue across a stack. Silent if absent.
 // Intended for PR merge/close cleanup. runID "" matches any run of the pr;
-// a non-empty runID leaves a holder from a different live run of the same
+// a non-empty runID skips a holder from a different live run of the same
 // pr untouched. ttl bounds the promoted holder's lease.
-func (s *Store) Leave(ctx context.Context, project, stack string, pr int, runID string, ttl time.Duration) (corelocks.Lock, error) {
+func (s *Store) UnlockPR(ctx context.Context, project, stack string, pr int, runID string, ttl time.Duration) (corelocks.Lock, error) {
 	l, _, err := s.mutate(ctx, project, stack, func(cur corelocks.Lock) (corelocks.Lock, bool, error) {
-		return corelocks.Leave(cur, pr, runID, ttl, s.Now()), false, nil
+		return corelocks.UnlockPR(cur, pr, runID, ttl, s.Now()), false, nil
 	})
 	return l, err
 }
 
-// LeaveAll removes pr from holder/queue across every stored lock. Returns
+// UnlockPRAll removes pr from holder/queue across every stored lock. Returns
 // the number of locks the pr appeared in. Called by a finishing apply run
 // (runID-scoped) so the PR does not linger in queues for stacks it no
-// longer needs, and by `reeve locks leave --pr N` (runID "") for closed or
+// longer needs, and by `reeve locks unlock --pr N` (runID "") for closed or
 // abandoned PRs.
-func (s *Store) LeaveAll(ctx context.Context, pr int, runID string, ttl time.Duration) (int, error) {
+func (s *Store) UnlockPRAll(ctx context.Context, pr int, runID string, ttl time.Duration) (int, error) {
 	keys, err := s.store.List(ctx, "locks")
 	if err != nil {
 		return 0, err
@@ -118,7 +118,7 @@ func (s *Store) LeaveAll(ctx context.Context, pr int, runID string, ttl time.Dur
 		if !involvesPR(cur, pr) {
 			continue // avoid rewriting lock blobs the PR never touched
 		}
-		if _, err := s.Leave(ctx, proj, stack, pr, runID, ttl); err != nil {
+		if _, err := s.UnlockPR(ctx, proj, stack, pr, runID, ttl); err != nil {
 			return n, err
 		}
 		n++

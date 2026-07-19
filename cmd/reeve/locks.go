@@ -37,23 +37,16 @@ func newLocksCmd() *cobra.Command {
 	}
 
 	unlock := &cobra.Command{
-		Use:   "unlock <project/stack>",
-		Short: "Admin-override release: forcibly clear the holder, promote queue",
-		Args:  cobra.ExactArgs(1),
+		Use:   "unlock [project/stack]",
+		Short: "Admin-override unlock: clear the holder and promote the queue, or with --pr remove one PR from holder/queue (omit the stack to sweep every lock)",
+		Args:  cobra.MaximumNArgs(1),
 		RunE:  locksUnlock,
 	}
 	unlock.Flags().String("reason", "", "Required reason for the override (surfaces in logs)")
 	unlock.Flags().String("actor", "", "User performing the override (default: $GITHUB_ACTOR or $USER)")
+	unlock.Flags().Int("pr", 0, "Remove this PR from the lock's holder/queue instead of force-clearing the holder (closed or abandoned PR cleanup)")
 
-	leave := &cobra.Command{
-		Use:   "leave [project/stack]",
-		Short: "Remove a PR from a lock's holder/queue (closed or abandoned PR cleanup); omit the stack to sweep every lock",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  locksLeave,
-	}
-	leave.Flags().Int("pr", 0, "PR number to remove (required)")
-
-	cmd.AddCommand(list, explain, reap, unlock, leave)
+	cmd.AddCommand(list, explain, reap, unlock)
 	return cmd
 }
 
@@ -150,12 +143,14 @@ func locksReap(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// locksUnlock is the admin override. Without --pr it force-clears the
+// holder of one lock and promotes the queue. With --pr N it removes that
+// PR from the holder/queue instead - the escape hatch for PRs closed or
+// merged while still holding or queued, without which an abandoned PR
+// could be promoted to holder and block everyone until TTL. Both paths go
+// through the same locking.admin_override gate.
 func locksUnlock(cmd *cobra.Command, args []string) error {
-	ref := args[0]
-	parts := splitRef(ref)
-	if parts == nil {
-		return fmt.Errorf("expected project/stack, got %q", ref)
-	}
+	pr := flagInt(cmd, "pr")
 
 	s, cfg, err := openLocks(cmd)
 	if err != nil {
@@ -179,51 +174,50 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	l, err := s.ForceUnlock(context.Background(), parts[0], parts[1], run.LockTTL(cfg.Shared))
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "unlocked %s/%s by actor=%s reason=%q\n",
-		parts[0], parts[1], actor, reason)
-	if l.Holder != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "promoted PR #%d from queue\n", l.Holder.PR)
-	}
-	return nil
-}
-
-// locksLeave removes a PR from a lock's holder/queue (or from every lock
-// when no stack is given). This is the escape hatch for PRs that were
-// closed or merged while still holding or queued on locks - without it an
-// abandoned PR could be promoted to holder and block everyone until TTL.
-func locksLeave(cmd *cobra.Command, args []string) error {
-	pr := flagInt(cmd, "pr")
-	if pr <= 0 {
-		return fmt.Errorf("locks leave: --pr is required")
-	}
-	s, cfg, err := openLocks(cmd)
-	if err != nil {
-		return err
-	}
 	ctx := context.Background()
 	ttl := run.LockTTL(cfg.Shared)
 	w := cmd.OutOrStdout()
-	if len(args) == 0 {
-		n, err := s.LeaveAll(ctx, pr, "", ttl)
+
+	if pr <= 0 {
+		// Force-unlock one stack's holder.
+		if len(args) == 0 {
+			return fmt.Errorf("locks unlock: <project/stack> is required (or pass --pr N to remove a PR from locks)")
+		}
+		parts := splitRef(args[0])
+		if parts == nil {
+			return fmt.Errorf("expected project/stack, got %q", args[0])
+		}
+		l, err := s.ForceUnlock(ctx, parts[0], parts[1], ttl)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "removed PR #%d from %d lock(s)\n", pr, n)
+		fmt.Fprintf(w, "unlocked %s/%s by actor=%s reason=%q\n",
+			parts[0], parts[1], actor, reason)
+		if l.Holder != nil {
+			fmt.Fprintf(w, "promoted PR #%d from queue\n", l.Holder.PR)
+		}
+		return nil
+	}
+
+	// --pr path: remove the PR from holder/queue, one stack or the
+	// whole bucket.
+	if len(args) == 0 {
+		n, err := s.UnlockPRAll(ctx, pr, "", ttl)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "removed PR #%d from %d lock(s) by actor=%s reason=%q\n", pr, n, actor, reason)
 		return nil
 	}
 	parts := splitRef(args[0])
 	if parts == nil {
 		return fmt.Errorf("expected project/stack, got %q", args[0])
 	}
-	l, err := s.Leave(ctx, parts[0], parts[1], pr, "", ttl)
+	l, err := s.UnlockPR(ctx, parts[0], parts[1], pr, "", ttl)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "removed PR #%d from %s/%s\n", pr, parts[0], parts[1])
+	fmt.Fprintf(w, "removed PR #%d from %s/%s by actor=%s reason=%q\n", pr, parts[0], parts[1], actor, reason)
 	if l.Holder != nil {
 		fmt.Fprintf(w, "holder is now PR #%d (expires %s)\n", l.Holder.PR, l.Holder.ExpiresAt)
 	}

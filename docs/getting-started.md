@@ -261,7 +261,7 @@ concurrently. Once the first run finishes - or its lease expires - the
 next attempt proceeds normally.
 
 `reeve locks list` inspects the live state. `reeve locks explain <stack>`
-shows holder + queue. `reeve locks leave <project/stack> --pr N` removes a
+shows holder + queue. `reeve locks unlock <project/stack> --pr N` removes a
 closed or abandoned PR from a lock's holder/queue (omit the stack to sweep
 every lock). `reeve rules explain <stack>` shows the merged rule
 resolution.
