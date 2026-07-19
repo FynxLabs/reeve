@@ -157,8 +157,10 @@ func toFreezeConfig(s *schemas.Shared) freeze.Config {
 	return cfg
 }
 
-// lockTTL pulls the configured lock TTL (default 4h).
-func lockTTL(s *schemas.Shared) time.Duration {
+// LockTTL pulls the configured lock TTL (default 4h). Exported so cmd
+// wiring can thread the same TTL into lock-store operations (reap,
+// leave, force-unlock) that promote queued holders.
+func LockTTL(s *schemas.Shared) time.Duration {
 	if s == nil || s.Locking.TTL == "" {
 		return 4 * time.Hour
 	}

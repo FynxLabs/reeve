@@ -111,9 +111,14 @@ name: reeve
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]
   issue_comment:
     types: [created]
+  # Only add pull_request_review if you set run-on-approval: "true" below -
+  # otherwise the action skips review events, so subscribing to them just
+  # burns runner minutes.
+  # pull_request_review:
+  #   types: [submitted]
 
 permissions:
   contents: read
@@ -121,9 +126,17 @@ permissions:
   issues: write
   id-token: write
 
+# Coalesce runs per PR. Cancelling an in-flight preview is safe and saves CI:
+# previews never take apply locks (locks are acquired only during apply), so
+# a cancelled preview releases nothing that matters - the next push's preview
+# supersedes it. Applies are different: an apply holds per-stack locks that
+# are released by the run itself, so cancelling one mid-run is dangerous.
+# Hence two groups: pull_request runs (previews) coalesce and cancel each
+# other; comment-dispatched runs (which include /reeve apply) get their own
+# group and are never cancelled - not even by a push that lands mid-apply.
 concurrency:
-  group: reeve-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: false
+  group: reeve-${{ github.event_name == 'pull_request' && 'preview' || 'comment' }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   reeve:
@@ -138,14 +151,29 @@ jobs:
 
 That's it. The action auto-detects the command from the event:
 
-| Event / Comment                   | Action                   |
-| --------------------------------- | ------------------------ |
-| `pull_request` (opened / push)    | `reeve run preview`      |
-| `pull_request` (ready_for_review) | `reeve run ready`        |
-| `/reeve ready` comment            | `reeve run ready`        |
-| `/reeve apply` comment            | `reeve run apply`        |
-| `/reeve help` comment             | posts available commands |
-| Any other comment                 | silent no-op             |
+| Event / Comment                                    | Action                   |
+| -------------------------------------------------- | ------------------------ |
+| `pull_request` (opened / reopened / synchronize)   | `reeve run preview`      |
+| `pull_request` (ready_for_review)                  | `reeve run ready`        |
+| `pull_request` (any other action: labeled, ...)    | silent no-op             |
+| `/reeve ready` comment                             | `reeve run ready`        |
+| `/reeve apply` comment                             | `reeve run apply`        |
+| `/reeve unlock [project/stack]` comment            | frees this PR's locks    |
+| `/reeve help` comment                              | posts available commands |
+| Any other comment, or any bot-authored comment     | silent no-op             |
+
+Every comment command also works mention-style: `@reeve apply`, `@reeve plan`,
+etc. The accepted prefixes are configurable via the `command-prefix` input
+(default `"/reeve,@reeve"`). Comments authored by bots (user type `Bot` or a
+login ending in `[bot]`) are always skipped, so reeve's own PR comments can
+never re-trigger a run.
+
+> **Review approvals:** by default an approval does not trigger a run -
+> approvals don't change code, and the apply gate re-checks approvals at
+> apply time. If you want the automatic approved-state notification (e.g.
+> the Slack "ready to apply" update) the moment a PR is approved, set
+> `run-on-approval: "true"` on the action and subscribe the workflow to
+> `pull_request_review: types: [submitted]`.
 
 > **Draft PRs:** apply is blocked. reeve returns an error if `/reeve apply`
 > is attempted on a draft PR.
@@ -223,8 +251,20 @@ locking:
   queue: fifo
 ```
 
+`ttl` bounds every lease - including holders promoted from the queue when
+the previous holder releases or expires.
+
+Locks identify their holder by **PR + run**: re-running the same workflow
+run refreshes the lease, but a *second concurrent run of the same PR*
+(double `/reeve apply`, workflow re-run while the first is still going) is
+refused with "another run of this PR holds the lock" instead of applying
+concurrently. Once the first run finishes - or its lease expires - the
+next attempt proceeds normally.
+
 `reeve locks list` inspects the live state. `reeve locks explain <stack>`
-shows holder + queue. `reeve rules explain <stack>` shows the merged rule
+shows holder + queue. `reeve locks unlock <project/stack> --pr N` removes a
+closed or abandoned PR from a lock's holder/queue (omit the stack to sweep
+every lock). `reeve rules explain <stack>` shows the merged rule
 resolution.
 
 ## 8. Turn on drift detection

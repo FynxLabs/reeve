@@ -72,7 +72,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 
 	// Opportunistic reaper before acquiring any locks.
 	lockStore := blocks.New(store)
-	if n, _ := lockStore.ReapAll(ctx); n > 0 {
+	if n, _ := lockStore.ReapAll(ctx, run.LockTTL(cfg.Shared)); n > 0 {
 		fmt.Fprintf(cmd.ErrOrStderr(), "reaped %d expired lock(s)\n", n)
 	}
 

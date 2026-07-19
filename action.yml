@@ -52,6 +52,25 @@ inputs:
       any command dispatch. The approvals gate still applies afterwards.
     required: false
     default: "OWNER,MEMBER,COLLABORATOR"
+  command-prefix:
+    description: >-
+      Comma-separated list of comment prefixes accepted as reeve commands.
+      The first word of a comment must exactly match one of these (spaces
+      around entries are trimmed). Default accepts both the slash style
+      ("/reeve apply") and the mention style ("@reeve apply").
+    required: false
+    default: "/reeve,@reeve"
+  run-on-approval:
+    description: >-
+      Set "true" to dispatch "run approved" when a pull_request_review is
+      submitted with state approved (requires subscribing the workflow to
+      pull_request_review events). Default "false": approvals do not change
+      code and the apply gate re-checks approvals at apply time, so these
+      runs are pure CI cost. Tradeoff when disabled: you lose the automatic
+      approved-state notification (e.g. the Slack "ready to apply" update)
+      that reeve posts the moment a PR is approved.
+    required: false
+    default: "false"
   log-level:
     description: Log level for reeve (debug, info, warn, error).
     required: false
@@ -145,6 +164,14 @@ runs:
         # Auto-detect command from event context when not explicitly set
         if [[ -z "$CMD" ]]; then
           if [[ "$GITHUB_EVENT_NAME" == "pull_request_review" ]]; then
+            # Review-triggered runs are opt-in. Approvals don't change code,
+            # and the apply gate re-checks approvals at apply time, so a run
+            # here is pure CI cost - its only effect is the approved-state
+            # notification (Slack "ready to apply" update).
+            if [[ "${{ inputs.run-on-approval }}" != "true" ]]; then
+              echo "pull_request_review dispatch is opt-in (run-on-approval is not 'true') - skipping."
+              exit 0
+            fi
             REVIEW_STATE=$(jq -r .review.state < "$GITHUB_EVENT_PATH")
             if [[ "$REVIEW_STATE" == "approved" ]]; then
               CMD="approved"
@@ -153,19 +180,50 @@ runs:
               exit 0
             fi
           elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            # Explicit trigger matrix: only code-changing actions run preview,
+            # and ready_for_review runs ready. Everything else (labeled,
+            # assigned, edited, ...) is a no-op instead of a wasted preview.
             ACTION=$(jq -r .action < "$GITHUB_EVENT_PATH")
-            if [[ "$ACTION" == "ready_for_review" ]]; then
-              CMD="ready"
-            else
-              CMD="preview"
-            fi
+            case "$ACTION" in
+              opened|reopened|synchronize)
+                CMD="preview"
+                ;;
+              ready_for_review)
+                CMD="ready"
+                ;;
+              *)
+                echo "pull_request action '$ACTION' does not trigger reeve - skipping."
+                exit 0
+                ;;
+            esac
           elif [[ "$GITHUB_EVENT_NAME" == "issue_comment" ]]; then
+            # Self-trigger guard: reeve posts its own PR comments with the
+            # workflow token. If one of those (or any other bot's comment)
+            # ever contains a command prefix, dispatching on it would loop
+            # reeve back onto itself. Skip all bot-authored comments.
+            AUTHOR_TYPE=$(jq -r '.comment.user.type // ""' < "$GITHUB_EVENT_PATH")
+            AUTHOR_LOGIN=$(jq -r '.comment.user.login // ""' < "$GITHUB_EVENT_PATH")
+            if [[ "$AUTHOR_TYPE" == "Bot" || "$AUTHOR_LOGIN" == *"[bot]" ]]; then
+              echo "Comment authored by bot '${AUTHOR_LOGIN}' - skipping (self-trigger guard)."
+              exit 0
+            fi
             COMMENT_BODY=$(jq -r .comment.body < "$GITHUB_EVENT_PATH")
             # Parse the first line into tokens and match the VERB exactly, so
             # "/reeve update the docs?" is NOT treated as apply (the old
             # "/reeve up*" prefix match did exactly that).
             read -r PREFIX VERB REST <<< "$(printf '%s' "$COMMENT_BODY" | head -n1)"
-            if [[ "$PREFIX" != "/reeve" ]]; then
+            # The first word must exactly match one of the configured
+            # command prefixes (default: "/reeve" and "@reeve").
+            PREFIX_OK=false
+            IFS=',' read -ra PREFIXES <<< "${{ inputs.command-prefix }}"
+            for P in "${PREFIXES[@]}"; do
+              P=$(printf '%s' "$P" | tr -d '[:space:]')
+              if [[ -n "$P" && "$P" == "$PREFIX" ]]; then
+                PREFIX_OK=true
+                break
+              fi
+            done
+            if [[ "$PREFIX_OK" != true ]]; then
               echo "Not a reeve command, skipping."
               exit 0
             fi
@@ -197,6 +255,21 @@ runs:
                 ;;
               ready)         CMD="ready" ;;
               preview|plan)  CMD="preview" ;;
+              unlock)
+                CMD="unlock"
+                # Optional "project/stack" token scopes the unlock to one
+                # lock; bare "/reeve unlock" frees everything this PR holds
+                # or is queued on. Only this PR's entries are ever touched.
+                # "--force" (or "force") clears a holder even mid-apply.
+                UNLOCK_REF=""
+                read -r FIRST _ <<< "$REST"
+                if [[ -n "$FIRST" && "$FIRST" != -* && "$FIRST" == */* ]]; then
+                  UNLOCK_REF="$FIRST"
+                fi
+                if [[ " $REST " == *" --force "* || " $REST " == *" force "* ]]; then
+                  EXTRA="$EXTRA --force"
+                fi
+                ;;
               help)          CMD="pr-help" ;;
               *)
                 echo "Unknown reeve command '${VERB:-}', skipping."
@@ -232,6 +305,31 @@ runs:
           apply|"run apply")
             PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
             "$REEVE_BIN" run apply --pr "$PR_NUMBER" $EXTRA
+            ;;
+          unlock)
+            # PR-scoped lock cleanup: removes this PR from lock holders and
+            # queues (one stack, or all of them). Never touches other PRs'
+            # locks - admin force-unlock stays CLI-only. If reeve refuses
+            # because the PR looks mid-apply, relay the hint back onto the
+            # PR as a comment (the commenter isn't watching the run log).
+            PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
+            set +e
+            UNLOCK_OUT=$("$REEVE_BIN" locks unlock ${UNLOCK_REF:+"$UNLOCK_REF"} --pr "$PR_NUMBER" $EXTRA 2>&1)
+            UNLOCK_STATUS=$?
+            set -e
+            printf '%s\n' "$UNLOCK_OUT"
+            if [[ $UNLOCK_STATUS -ne 0 && "$UNLOCK_OUT" == *"re-run with --force"* ]]; then
+              HINT=$(printf '%s\n' "$UNLOCK_OUT" | grep -m1 're-run with --force' | sed 's/^Error: //')
+              BODY="⚠️ ${HINT/re-run with --force/comment \`/reeve unlock --force\` if you are sure}"
+              curl -sf -X POST \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+                -d "$(jq -n --arg b "$BODY" '{body:$b}')" > /dev/null \
+                || echo "warning: could not post refusal comment"
+              exit 0
+            fi
+            exit $UNLOCK_STATUS
             ;;
           pr-help|"run pr-help")
             PR_NUMBER=$(jq -r '.issue.number // 0' < "$GITHUB_EVENT_PATH")
