@@ -58,7 +58,7 @@ Valid `on:` values, in lifecycle order:
 | `applied` | PR flow | Apply finished successfully |
 | `failed` | PR flow | Apply errored |
 | `blocked` | PR flow | Apply blocked (gates/locks) |
-| `break_glass` | PR flow | Reserved for emergency-override runs (no producer yet; the timeline renders it) |
+| `break_glass` | PR flow | Emergency-override apply authorized (see [break-glass.md](break-glass.md)) |
 | `drift_detected` | drift | New drift on a stack |
 | `drift_ongoing` | drift | Still drifted since the last run |
 | `drift_resolved` | drift | Was drifted, now clean |

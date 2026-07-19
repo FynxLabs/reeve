@@ -94,6 +94,14 @@ freeze_windows:
     duration: 65h                  # through Monday morning
     stacks: ["prod/*"]
 
+break_glass:                       # opt-in emergency apply; OFF when absent
+  authorized:                      # UNION: any matching source grants
+    internal_list: ["alice", "myorg/sre"]
+    codeowners: true               # owners of changed paths may break-glass
+    anyone: false
+    vcs_bypass: false              # config surface only — not yet supported
+  override_freeze: true            # default true
+
 apply:
   trigger: comment                 # comment (default) | merge
   command: "/reeve apply"
@@ -202,6 +210,24 @@ Inspect the merged result:
 ```bash
 reeve rules explain prod/payments
 ```
+
+### Break-glass (`break_glass`)
+
+Opt-in emergency apply: `/reeve breakglass "<justification>" apply`
+overrides the approvals gate (and freeze windows unless
+`override_freeze: false`) with a mandatory justification and a loud,
+write-once audit record. Locks, checks, up-to-date base, preview
+freshness, and policy hooks are **never** bypassed. Absent the block, the
+command fails closed with a polite error.
+
+`authorized:` is a union of sources — `internal_list` (logins and
+`org/team` slugs), `codeowners`, `anyone`; `vcs_bypass` and
+`groups:` (`group:<provider>:<name>`) are parsed but rejected as
+not-yet-supported/phase-2. Authorization is resolved against the PR HEAD
+(self-add is by design; the audit flags same-PR modification of
+`.reeve/*.yaml` or CODEOWNERS).
+
+Full reference: [break-glass.md](break-glass.md).
 
 ---
 
