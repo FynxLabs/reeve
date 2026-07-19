@@ -38,7 +38,7 @@ func newLocksCmd() *cobra.Command {
 
 	unlock := &cobra.Command{
 		Use:   "unlock [project/stack]",
-		Short: "Admin-override unlock: clear the holder and promote the queue, or with --pr remove one PR from holder/queue (omit the stack to sweep every lock)",
+		Short: "Admin-override unlock: clear the holder and promote the queue (every lock when the stack is omitted); --pr N removes that PR from holder/queue instead",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  locksUnlock,
 	}
@@ -179,9 +179,15 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 
 	if pr <= 0 {
-		// Force-unlock one stack's holder.
+		// Force-unlock: one stack's holder, or every holder in the
+		// bucket when no stack is given.
 		if len(args) == 0 {
-			return fmt.Errorf("locks unlock: <project/stack> is required (or pass --pr N to remove a PR from locks)")
+			n, err := s.ForceUnlockAll(ctx, ttl)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(w, "unlocked %d lock(s) by actor=%s reason=%q\n", n, actor, reason)
+			return nil
 		}
 		parts := splitRef(args[0])
 		if parts == nil {

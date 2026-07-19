@@ -194,3 +194,41 @@ func TestUnlockPRAllRunScopedKeepsOtherRunsHolder(t *testing.T) {
 		t.Fatalf("live run's hold must survive the sweep: %+v", l.Holder)
 	}
 }
+
+func TestForceUnlockAllClearsEveryHolder(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	s := newStore(t, now)
+
+	// Two held locks (one with a queued PR behind the holder), one free lock.
+	_, _, _ = s.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 9, RunID: "r9"}, time.Hour)
+	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 1, RunID: "r1"}, time.Hour)
+	_, _, _ = s.TryAcquire(ctx, "worker", "prod", corelocks.Holder{PR: 9, RunID: "r9"}, time.Hour)
+
+	n, err := s.ForceUnlockAll(ctx, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 locks cleared, got %d", n)
+	}
+	api, _, err := s.Get(ctx, "api", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.Holder != nil {
+		t.Fatalf("api/prod should be free: %+v", api.Holder)
+	}
+	// worker/prod's holder was cleared and queued PR 9 promoted with the ttl lease.
+	worker, _, err := s.Get(ctx, "worker", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worker.Holder == nil || worker.Holder.PR != 9 {
+		t.Fatalf("worker/prod should have promoted PR 9: %+v", worker.Holder)
+	}
+	wantExp := now.Add(30 * time.Minute).UTC().Format(time.RFC3339)
+	if worker.Holder.ExpiresAt != wantExp {
+		t.Fatalf("promoted lease should honor ttl: got %s want %s", worker.Holder.ExpiresAt, wantExp)
+	}
+}

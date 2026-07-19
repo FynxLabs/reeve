@@ -364,7 +364,9 @@ wired OTEL.
 ```bash
 reeve locks list                    # shows holder + queue depth
 reeve locks explain <project/stack> # detail for one stack
-reeve locks unlock <project/stack> --pr N  # remove a closed/abandoned PR
+reeve locks unlock <project/stack>  # force-clear one holder, promote its queue
+reeve locks unlock                  # ...every held lock in the bucket
+reeve locks unlock <project/stack> --pr N  # remove a closed/abandoned PR instead
 reeve locks unlock --pr N           # ...from every lock in the bucket
 ```
 

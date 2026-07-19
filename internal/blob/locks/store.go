@@ -152,6 +152,39 @@ func (s *Store) ForceUnlock(ctx context.Context, project, stack string, ttl time
 	return l, err
 }
 
+// ForceUnlockAll applies ForceUnlock to every held lock in the bucket:
+// each holder is cleared and its queue promoted with a ttl lease. Locks
+// that are already free are left untouched. Returns the number of locks
+// that were cleared. Same admin-gate contract as ForceUnlock.
+func (s *Store) ForceUnlockAll(ctx context.Context, ttl time.Duration) (int, error) {
+	keys, err := s.store.List(ctx, "locks")
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	for _, k := range keys {
+		if !strings.HasSuffix(k, ".json") {
+			continue
+		}
+		proj, stack, ok := parseLockKey(k)
+		if !ok {
+			continue
+		}
+		cur, _, err := s.Get(ctx, proj, stack)
+		if err != nil {
+			return n, err
+		}
+		if cur.Holder == nil {
+			continue // already free - avoid rewriting untouched blobs
+		}
+		if _, err := s.ForceUnlock(ctx, proj, stack, ttl); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 func forcePromoteQueue(l corelocks.Lock, now time.Time, ttl time.Duration) corelocks.Lock {
 	if ttl <= 0 {
 		ttl = 4 * time.Hour
