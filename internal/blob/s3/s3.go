@@ -12,9 +12,11 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -218,15 +220,30 @@ func isNotFound(err error) bool {
 	return false
 }
 
+// isPreconditionFailed classifies a conditional-write failure so the
+// caller's mutate loop re-reads and retries instead of aborting. S3
+// returns 412 PreconditionFailed when an If-Match/If-None-Match
+// precondition misses, and HTTP 409 ConditionalRequestConflict when a
+// conditional write loses a race against a concurrent operation on the
+// same key; both mean "lost the CAS race".
 func isPreconditionFailed(err error) bool {
 	var ae smithy.APIError
 	if errors.As(err, &ae) {
-		code := ae.ErrorCode()
-		if code == "PreconditionFailed" || code == "At least one of the pre-conditions you specified did not hold" {
+		switch ae.ErrorCode() {
+		case "PreconditionFailed", "ConditionalRequestConflict":
 			return true
 		}
 	}
-	return strings.Contains(err.Error(), "PreconditionFailed") || strings.Contains(err.Error(), "412")
+	// Some S3-compatible services return a bare 412 without a parseable
+	// error code; classify by HTTP status.
+	var re *awshttp.ResponseError
+	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusPreconditionFailed {
+		return true
+	}
+	// Last-resort message match for services that surface the failure only
+	// in the message body.
+	msg := err.Error()
+	return strings.Contains(msg, "PreconditionFailed") || strings.Contains(msg, "ConditionalRequestConflict")
 }
 
 // compile-time check
