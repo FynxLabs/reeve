@@ -209,3 +209,74 @@ func TestLogSettingsNilShared(t *testing.T) {
 		t.Fatalf("nil Shared should yield empty settings, got %q/%q", lvl, fmtt)
 	}
 }
+
+func TestBreakGlassBlockParses(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket:
+  type: filesystem
+  name: ./.reeve-state
+break_glass:
+  authorized:
+    internal_list: ["alice", "myorg/sre"]
+    codeowners: true
+    anyone: false
+    vcs_bypass: false
+    groups: ["group:aws_iam:oncall"]
+  override_freeze: false
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bg := cfg.Shared.BreakGlass
+	if bg == nil {
+		t.Fatal("break_glass block not loaded")
+	}
+	if len(bg.Authorized.InternalList) != 2 || !bg.Authorized.Codeowners || bg.Authorized.Anyone {
+		t.Fatalf("authorized mismatch: %+v", bg.Authorized)
+	}
+	if len(bg.Authorized.Groups) != 1 || bg.Authorized.Groups[0] != "group:aws_iam:oncall" {
+		t.Fatalf("groups mismatch: %+v", bg.Authorized.Groups)
+	}
+	if bg.OverrideFreeze == nil || *bg.OverrideFreeze {
+		t.Fatalf("override_freeze should parse false, got %+v", bg.OverrideFreeze)
+	}
+}
+
+func TestBreakGlassAbsentStaysNil(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket:
+  type: filesystem
+  name: ./.reeve-state
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Shared.BreakGlass != nil {
+		t.Fatalf("break_glass must be nil (off) when absent, got %+v", cfg.Shared.BreakGlass)
+	}
+}
+
+func TestBreakGlassUnknownKeyRejected(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket:
+  type: filesystem
+  name: ./.reeve-state
+break_glass:
+  authorised:
+    anyone: true
+`,
+	})
+	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "authorised") {
+		t.Fatalf("strict loader must reject unknown break_glass key, got %v", err)
+	}
+}
