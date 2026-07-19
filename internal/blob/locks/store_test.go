@@ -195,7 +195,6 @@ func TestUnlockPRAllRunScopedKeepsOtherRunsHolder(t *testing.T) {
 	}
 }
 
-
 func TestUnlockPRRefusesActiveHolderWithoutForce(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
