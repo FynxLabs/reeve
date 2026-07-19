@@ -8,22 +8,22 @@ import (
 	"github.com/thefynx/reeve/internal/notify"
 )
 
-type captureSink struct {
+type captureChannel struct {
 	events   []notify.Event
 	payloads []notify.Payload
 }
 
-func (c *captureSink) Name() string               { return "capture" }
-func (c *captureSink) Subscribes() []notify.Event { return c.events }
-func (c *captureSink) Deliver(_ context.Context, p notify.Payload) error {
+func (c *captureChannel) Name() string               { return "capture" }
+func (c *captureChannel) Subscribes() []notify.Event { return c.events }
+func (c *captureChannel) Deliver(_ context.Context, p notify.Payload) error {
 	c.payloads = append(c.payloads, p)
 	return nil
 }
 
 func TestNotifyPREventBuildsPayload(t *testing.T) {
 	t.Setenv("GITHUB_REPOSITORY", "org/repo")
-	sink := &captureSink{events: notify.PREvents()}
-	err := NotifyPREvent(context.Background(), []notify.Sink{sink}, notify.EventPlan, PRNotifyInput{
+	channel := &captureChannel{events: notify.PREvents()}
+	err := NotifyPREvent(context.Background(), []notify.Channel{channel}, notify.EventPlan, PRNotifyInput{
 		PR: 9, CommitSHA: "abc", RunURL: "https://ci", PRTitle: "t", PRAuthor: "a",
 		RequiredApprovers: []string{"lead"},
 		Stacks: []summary.StackSummary{
@@ -35,10 +35,10 @@ func TestNotifyPREventBuildsPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NotifyPREvent: %v", err)
 	}
-	if len(sink.payloads) != 1 {
-		t.Fatalf("payloads: %d", len(sink.payloads))
+	if len(channel.payloads) != 1 {
+		t.Fatalf("payloads: %d", len(channel.payloads))
 	}
-	p := sink.payloads[0]
+	p := channel.payloads[0]
 	if p.Event != notify.EventPlan || p.Drift != nil || p.PR == nil {
 		t.Fatalf("payload: %+v", p)
 	}
@@ -55,12 +55,12 @@ func TestNotifyPREventBuildsPayload(t *testing.T) {
 }
 
 func TestNotifyPREventRespectsSubscriptions(t *testing.T) {
-	sink := &captureSink{events: []notify.Event{notify.EventApplied}}
-	if err := NotifyPREvent(context.Background(), []notify.Sink{sink}, notify.EventPlan, PRNotifyInput{PR: 1}); err != nil {
+	channel := &captureChannel{events: []notify.Event{notify.EventApplied}}
+	if err := NotifyPREvent(context.Background(), []notify.Channel{channel}, notify.EventPlan, PRNotifyInput{PR: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if len(sink.payloads) != 0 {
-		t.Fatalf("unsubscribed event delivered: %+v", sink.payloads)
+	if len(channel.payloads) != 0 {
+		t.Fatalf("unsubscribed event delivered: %+v", channel.payloads)
 	}
 }
 

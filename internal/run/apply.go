@@ -280,7 +280,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// Notify approved + applying before the loop (creates the message on
 	// the apply trigger path).
 	if in.PRNumber > 0 && in.Notifications != nil {
-		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob)
+		channels := BuildNotifyChannels(ctx, in.Notifications, in.Blob)
 		preSummaries := make([]summary.StackSummary, 0, len(target))
 		for _, s := range target {
 			preSummaries = append(preSummaries, summary.StackSummary{
@@ -291,10 +291,10 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: pr.Title, PRAuthor: pr.Author, Stacks: preSummaries,
 		}
-		if err := NotifyPREvent(ctx, sinks, notify.EventApproved, preInput); err != nil {
+		if err := NotifyPREvent(ctx, channels, notify.EventApproved, preInput); err != nil {
 			slog.Warn("notify approved failed", "err", err, "pr", in.PRNumber)
 		}
-		if err := NotifyPREvent(ctx, sinks, notify.EventApplying, preInput); err != nil {
+		if err := NotifyPREvent(ctx, channels, notify.EventApplying, preInput); err != nil {
 			slog.Warn("notify applying failed", "err", err, "pr", in.PRNumber)
 		}
 	}
@@ -573,9 +573,9 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// already shipped at this point; a notification failure must not abort
 	// the run.
 	if in.PRNumber > 0 && in.Notifications != nil {
-		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob)
+		channels := BuildNotifyChannels(ctx, in.Notifications, in.Blob)
 		ev := ApplyOutcomeEvent(summaries, anyBlocked)
-		if err := NotifyPREvent(ctx, sinks, ev, PRNotifyInput{
+		if err := NotifyPREvent(ctx, channels, ev, PRNotifyInput{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: pr.Title, PRAuthor: pr.Author, Stacks: summaries,
 		}); err != nil {

@@ -159,7 +159,7 @@ mise run release-check # goreleaser config validation
 - [Getting started](docs/getting-started.md) - zero-to-PR-comment in 10 minutes
 - [Configuration reference](docs/configuration.md) - every config_type
 - [Auth providers](docs/auth.md) - OIDC/WIF/federated/secret managers
-- [Drift detection](docs/drift.md) - schedules, sinks, bootstrap modes
+- [Drift detection](docs/drift.md) - schedules, channels, bootstrap modes
 - [Policy hooks](docs/policy-hooks.md) - OPA, Conftest, CrossGuard, custom
 - [Self-hosting](docs/self-hosting.md) - bucket choice, GH App, scope
 - [Spec](openspec/specs/) - authoritative per-capability behavior

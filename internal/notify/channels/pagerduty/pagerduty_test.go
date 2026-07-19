@@ -27,20 +27,20 @@ func testServer(t *testing.T) (*httptest.Server, *[]map[string]any) {
 	return srv, &got
 }
 
-func newTestSink(t *testing.T, cfg schemas.SinkYAML, url string) *Sink {
+func newTestChannel(t *testing.T, cfg schemas.ChannelYAML, url string) *Channel {
 	t.Helper()
 	s, err := New(context.Background(), cfg, notify.Deps{HTTP: &http.Client{Timeout: 5 * time.Second}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sink := s.(*Sink)
-	sink.endpoint = url
-	return sink
+	channel := s.(*Channel)
+	channel.endpoint = url
+	return channel
 }
 
 func TestDriftEventWireFormat(t *testing.T) {
 	srv, got := testServer(t)
-	s := newTestSink(t, schemas.SinkYAML{
+	s := newTestChannel(t, schemas.ChannelYAML{
 		Type: "pagerduty", IntegrationKey: "key123",
 		SeverityMap: map[string]string{"prod": "critical"},
 		On:          []string{"drift_detected", "drift_resolved"},
@@ -81,7 +81,7 @@ func TestDriftEventWireFormat(t *testing.T) {
 
 func TestPREventsTriggerAndResolve(t *testing.T) {
 	srv, got := testServer(t)
-	s := newTestSink(t, schemas.SinkYAML{
+	s := newTestChannel(t, schemas.ChannelYAML{
 		Type: "pagerduty", IntegrationKey: "key123",
 		On: []string{"failed", "applied", "applying"},
 	}, srv.URL)

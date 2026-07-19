@@ -9,9 +9,9 @@ are per-file, and schemas are stable within a major version.
 .reeve/
 ├── shared.yaml           # bucket, approvals, locking, preconditions, freeze, apply
 ├── auth.yaml             # credential providers and bindings
-├── notifications.yaml    # notification sinks (slack, webhook, pagerduty, ...)
+├── notifications.yaml    # notification channels (slack, webhook, pagerduty, ...)
 ├── observability.yaml    # OTEL + annotations
-├── drift.yaml            # drift scope, schedules, sinks
+├── drift.yaml            # drift scope, schedules, channels
 ├── pulumi.yaml           # engine: pulumi
 └── terraform.yaml        # engine: terraform (future)
 ```
@@ -346,17 +346,17 @@ bindings:
 
 ## `notifications.yaml`
 
-Notification destinations ("sinks") are declared generically: `type`
-chooses the adapter, `on:` chooses the subscribed events. One sink
+Notification destinations ("channels") are declared generically: `type`
+chooses the adapter, `on:` chooses the subscribed events. One channel
 implementation serves both PR-flow events (`plan` … `blocked`) and drift
 events (`drift_detected` …) — see [notifications.md](notifications.md)
-for the full sink catalog and event list.
+for the full channel catalog and event list.
 
 ```yaml
 version: 2
 config_type: notifications
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-deploys"
     auth_token: ${env:SLACK_BOT_TOKEN}
@@ -372,8 +372,8 @@ sinks:
 ### Legacy shape (v1)
 
 The single `slack:` block from before v0.3 keeps working unchanged — it
-is mapped onto the sink model internally (`slack.events` maps to `on:`).
-`reeve migrate-config` rewrites it to the v2 `sinks:` shape (originals
+is mapped onto the channel model internally (`slack.events` maps to `on:`).
+`reeve migrate-config` rewrites it to the v2 `channels:` shape (originals
 backed up as `*.bak`; `--dry-run` previews).
 
 ```yaml
@@ -522,7 +522,7 @@ schedules:
     patterns: ["prod/*"]
     exclude_patterns: ["prod/payments", "prod/auth"]
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-drift"
     on: [drift_detected, check_failed]
@@ -560,7 +560,7 @@ The following fields accept `${env:NAME}` references:
 - `auth.yaml`: provider fields (see [auth.md](auth.md) for the full list)
 - `notifications.yaml`: `slack.auth_token`
 - `observability.yaml`: `otel.endpoint`, `otel.headers`, `annotations.*.api_key`, etc.
-- `drift.yaml`: sink credentials
+- `drift.yaml`: channel credentials
 
 `${env:X}` expands at runtime via `os.Getenv("X")`. Missing env vars expand
 to empty strings (not an error) - so token references safely degrade when

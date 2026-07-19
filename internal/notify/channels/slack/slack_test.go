@@ -138,8 +138,8 @@ func (m *memStore) Delete(_ context.Context, key string) error {
 
 func (m *memStore) List(_ context.Context, _ string) ([]string, error) { return nil, nil }
 
-func testSink(fc *fakeClient, store blob.Store, trigger schemas.SlackTrigger) *Sink {
-	return &Sink{
+func testChannel(fc *fakeClient, store blob.Store, trigger schemas.SlackTrigger) *Channel {
+	return &Channel{
 		name:    "slack",
 		client:  fc,
 		channel: "#infra",
@@ -158,13 +158,13 @@ func prPayload(ev notify.Event) notify.Payload {
 // --- constructor ---------------------------------------------------------
 
 func TestNewSkipsWithoutToken(t *testing.T) {
-	s, err := New(context.Background(), schemas.SinkYAML{Type: "slack"}, notify.Deps{})
+	s, err := New(context.Background(), schemas.ChannelYAML{Type: "slack"}, notify.Deps{})
 	if err != nil || s != nil {
 		t.Fatalf("want skip, got %v %v", s, err)
 	}
-	s, err = New(context.Background(), schemas.SinkYAML{Type: "slack"}, notify.Deps{SlackToken: "xoxb-1"})
+	s, err = New(context.Background(), schemas.ChannelYAML{Type: "slack"}, notify.Deps{SlackToken: "xoxb-1"})
 	if err != nil || s == nil {
-		t.Fatalf("want sink with deps token, got %v %v", s, err)
+		t.Fatalf("want channel with deps token, got %v %v", s, err)
 	}
 }
 
@@ -186,7 +186,7 @@ func TestDefaultPREventsMatchLegacyTriggerSemantics(t *testing.T) {
 
 func TestDriftDeliveryContent(t *testing.T) {
 	fc := &fakeClient{}
-	s := testSink(fc, newMemStore(), "")
+	s := testChannel(fc, newMemStore(), "")
 	err := s.Deliver(context.Background(), notify.Payload{
 		Event: notify.EventDriftDetected,
 		Drift: &notify.DriftPayload{
@@ -218,7 +218,7 @@ func TestDriftDeliveryContent(t *testing.T) {
 
 func TestDriftDeliveryTruncatesLongError(t *testing.T) {
 	fc := &fakeClient{}
-	s := testSink(fc, newMemStore(), "")
+	s := testChannel(fc, newMemStore(), "")
 	long := strings.Repeat("é", 300) // multibyte: must not split a rune
 	err := s.Deliver(context.Background(), notify.Payload{
 		Event: notify.EventCheckFailed,
@@ -239,7 +239,7 @@ func TestDriftDeliveryTruncatesLongError(t *testing.T) {
 
 func TestPRPlanDoesNotCreateOnApplyTrigger(t *testing.T) {
 	fc := &fakeClient{}
-	s := testSink(fc, newMemStore(), schemas.SlackTriggerApply)
+	s := testChannel(fc, newMemStore(), schemas.SlackTriggerApply)
 	if err := s.Deliver(context.Background(), prPayload(notify.EventPlan)); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestPRPlanDoesNotCreateOnApplyTrigger(t *testing.T) {
 func TestPRPlanCreatesOnPlanTriggerAndPersistsState(t *testing.T) {
 	fc := &fakeClient{}
 	store := newMemStore()
-	s := testSink(fc, store, schemas.SlackTriggerPlan)
+	s := testChannel(fc, store, schemas.SlackTriggerPlan)
 	if err := s.Deliver(context.Background(), prPayload(notify.EventPlan)); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestPRPlanCreatesOnPlanTriggerAndPersistsState(t *testing.T) {
 
 func TestPRFailedNeverCreates(t *testing.T) {
 	fc := &fakeClient{}
-	s := testSink(fc, newMemStore(), schemas.SlackTriggerPlan)
+	s := testChannel(fc, newMemStore(), schemas.SlackTriggerPlan)
 	if err := s.Deliver(context.Background(), prPayload(notify.EventFailed)); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestPRStateLoadErrorPreventsDuplicatePost(t *testing.T) {
 	fc := &fakeClient{}
 	store := newMemStore()
 	store.getErr = errors.New("bucket unavailable")
-	s := testSink(fc, store, schemas.SlackTriggerPlan)
+	s := testChannel(fc, store, schemas.SlackTriggerPlan)
 	err := s.Deliver(context.Background(), prPayload(notify.EventPlan))
 	if err == nil || !strings.Contains(err.Error(), "bucket unavailable") {
 		t.Fatalf("want propagated state error, got %v", err)
@@ -300,7 +300,7 @@ func TestPRStateLoadErrorPreventsDuplicatePost(t *testing.T) {
 func TestPRStateCASConflictKeepsFirstWriter(t *testing.T) {
 	fc := &fakeClient{}
 	store := newMemStore()
-	s := testSink(fc, store, schemas.SlackTriggerPlan)
+	s := testChannel(fc, store, schemas.SlackTriggerPlan)
 
 	// Simulate a concurrent run winning the race after our load: state gets
 	// created (with a different message TS) between load and save.
@@ -322,7 +322,7 @@ func TestPRStateCASConflictKeepsFirstWriter(t *testing.T) {
 
 func TestPRStateCASRetriesOverSameMessage(t *testing.T) {
 	store := newMemStore()
-	s := testSink(&fakeClient{}, store, "")
+	s := testChannel(&fakeClient{}, store, "")
 	// Remote state exists with the SAME main ts (concurrent thread update).
 	_, _ = store.Put(context.Background(), prStateKey(7), strings.NewReader(`{"channel":"C1","main_ts":"ts-1","thread_ts":"th-9"}`))
 	st := &prState{Channel: "C1", MainTS: "ts-1"}
@@ -337,7 +337,7 @@ func TestPRStateCASRetriesOverSameMessage(t *testing.T) {
 
 func TestPRTitleEscapedInBlocks(t *testing.T) {
 	fc := &fakeClient{}
-	s := testSink(fc, newMemStore(), schemas.SlackTriggerPlan)
+	s := testChannel(fc, newMemStore(), schemas.SlackTriggerPlan)
 	p := prPayload(notify.EventPlan)
 	p.PR.Title = "<!channel> pwn & win"
 	if err := s.Deliver(context.Background(), p); err != nil {
@@ -356,7 +356,7 @@ func TestPRTitleEscapedInBlocks(t *testing.T) {
 
 func TestPRRulesFilterStacks(t *testing.T) {
 	fc := &fakeClient{}
-	s := testSink(fc, newMemStore(), schemas.SlackTriggerPlan)
+	s := testChannel(fc, newMemStore(), schemas.SlackTriggerPlan)
 	s.rules = []schemas.SlackNotifyRule{{Environments: []string{"prod"}}}
 	p := prPayload(notify.EventPlan)
 	p.PR.Stacks = []notify.StackResult{

@@ -52,9 +52,9 @@ func payload(ev notify.Event) notify.Payload {
 	}}
 }
 
-func newSink(t *testing.T, issues notify.IssueClient) notify.Sink {
+func newChannel(t *testing.T, issues notify.IssueClient) notify.Channel {
 	t.Helper()
-	s, err := New(context.Background(), schemas.SinkYAML{
+	s, err := New(context.Background(), schemas.ChannelYAML{
 		Type: "github_issue", On: []string{"drift_detected", "drift_resolved"},
 		Labels: []string{"drift"}, Assignees: []string{"sre"},
 	}, notify.Deps{Issues: issues})
@@ -65,7 +65,7 @@ func newSink(t *testing.T, issues notify.IssueClient) notify.Sink {
 }
 
 func TestSkippedWithoutIssueClient(t *testing.T) {
-	s, err := New(context.Background(), schemas.SinkYAML{Type: "github_issue"}, notify.Deps{})
+	s, err := New(context.Background(), schemas.ChannelYAML{Type: "github_issue"}, notify.Deps{})
 	if err != nil || s != nil {
 		t.Fatalf("want skip, got %v %v", s, err)
 	}
@@ -73,7 +73,7 @@ func TestSkippedWithoutIssueClient(t *testing.T) {
 
 func TestCreatesIssueWithMarker(t *testing.T) {
 	f := &fakeIssues{byMarker: map[string]int{}}
-	s := newSink(t, f)
+	s := newChannel(t, f)
 	if err := s.Deliver(context.Background(), payload(notify.EventDriftDetected)); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestCreatesIssueWithMarker(t *testing.T) {
 
 func TestUpdatesExistingIssue(t *testing.T) {
 	f := &fakeIssues{byMarker: map[string]int{"<!-- reeve:drift:net/prod -->": 42}}
-	s := newSink(t, f)
+	s := newChannel(t, f)
 	if err := s.Deliver(context.Background(), payload(notify.EventDriftOngoing)); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestUpdatesExistingIssue(t *testing.T) {
 
 func TestResolvedClosesIssue(t *testing.T) {
 	f := &fakeIssues{byMarker: map[string]int{"<!-- reeve:drift:net/prod -->": 42}}
-	s := newSink(t, f)
+	s := newChannel(t, f)
 	if err := s.Deliver(context.Background(), payload(notify.EventDriftResolved)); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestResolvedClosesIssue(t *testing.T) {
 	}
 	// Resolved with no existing issue: no-op.
 	f2 := &fakeIssues{byMarker: map[string]int{}}
-	s2 := newSink(t, f2)
+	s2 := newChannel(t, f2)
 	if err := s2.Deliver(context.Background(), payload(notify.EventDriftResolved)); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestResolvedClosesIssue(t *testing.T) {
 
 func TestPRPayloadIsNoOp(t *testing.T) {
 	f := &fakeIssues{byMarker: map[string]int{}}
-	s := newSink(t, f)
+	s := newChannel(t, f)
 	if err := s.Deliver(context.Background(), notify.Payload{Event: notify.EventApplied, PR: &notify.PRPayload{}}); err != nil {
 		t.Fatal(err)
 	}

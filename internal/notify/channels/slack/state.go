@@ -22,9 +22,9 @@ func prStateKey(pr int) string { return fmt.Sprintf("notifications/pr-%d/slack.j
 
 // loadPRState reads the per-PR message state plus its ETag for the
 // compare-and-swap on save. A missing object is a legitimately fresh state;
-// any other failure is propagated - swallowing it here made the sink believe
+// any other failure is propagated - swallowing it here made the channel believe
 // no message existed and post a duplicate.
-func (s *Sink) loadPRState(ctx context.Context, pr int) (*prState, string, error) {
+func (s *Channel) loadPRState(ctx context.Context, pr int) (*prState, string, error) {
 	rc, meta, err := s.blob.Get(ctx, prStateKey(pr))
 	if errors.Is(err, blob.ErrNotFound) {
 		return &prState{}, "", nil
@@ -49,7 +49,7 @@ func (s *Sink) loadPRState(ctx context.Context, pr int) (*prState, string, error
 // recorded the same main message, retry over its version (keeping its
 // thread TS); if it recorded a different message, keep the first writer's
 // state and report the conflict.
-func (s *Sink) savePRState(ctx context.Context, pr int, st *prState, etag string) error {
+func (s *Channel) savePRState(ctx context.Context, pr int, st *prState, etag string) error {
 	for attempt := 0; attempt < 3; attempt++ {
 		data, err := json.MarshalIndent(st, "", "  ")
 		if err != nil {

@@ -17,9 +17,9 @@ func init() {
 	notify.Register("pagerduty", New)
 }
 
-// Sink sends a PagerDuty v2 event per notification event. Deliveries retry
+// Channel sends a PagerDuty v2 event per notification event. Deliveries retry
 // with backoff on 5xx/network errors (notify.PostJSON).
-type Sink struct {
+type Channel struct {
 	name           string
 	integrationKey string
 	severityMap    map[string]string // env → severity (info|warning|error|critical)
@@ -29,12 +29,12 @@ type Sink struct {
 }
 
 // New is the registered constructor.
-func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
+func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
 	sm := cfg.SeverityMap
 	if sm == nil {
 		sm = cfg.Payload.SeverityMap
 	}
-	return &Sink{
+	return &Channel{
 		name:           cfg.EffectiveName(),
 		integrationKey: cfg.IntegrationKey,
 		severityMap:    sm,
@@ -44,10 +44,10 @@ func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink
 	}, nil
 }
 
-func (s *Sink) Name() string               { return s.name }
-func (s *Sink) Subscribes() []notify.Event { return s.events }
+func (s *Channel) Name() string               { return s.name }
+func (s *Channel) Subscribes() []notify.Event { return s.events }
 
-func (s *Sink) Deliver(ctx context.Context, p notify.Payload) error {
+func (s *Channel) Deliver(ctx context.Context, p notify.Payload) error {
 	var event map[string]any
 	switch {
 	case p.Drift != nil:
@@ -65,7 +65,7 @@ func (s *Sink) Deliver(ctx context.Context, p notify.Payload) error {
 	return notify.PostJSON(ctx, s.client, "pagerduty "+s.name, s.endpoint, nil, body)
 }
 
-func (s *Sink) driftEvent(p notify.Payload) map[string]any {
+func (s *Channel) driftEvent(p notify.Payload) map[string]any {
 	d := p.Drift
 	severity := s.severityMap[d.Env]
 	if severity == "" {
@@ -102,7 +102,7 @@ func (s *Sink) driftEvent(p notify.Payload) map[string]any {
 // prEvent maps the PR lifecycle onto PagerDuty incidents: failed/blocked
 // applies trigger an incident, a subsequent successful apply resolves it.
 // Intermediate lifecycle events are no-ops even when subscribed.
-func (s *Sink) prEvent(p notify.Payload) map[string]any {
+func (s *Channel) prEvent(p notify.Payload) map[string]any {
 	pr := p.PR
 	var action, severity string
 	switch p.Event {

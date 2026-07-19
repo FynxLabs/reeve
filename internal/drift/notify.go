@@ -4,7 +4,7 @@ import "github.com/thefynx/reeve/internal/notify"
 
 // NotifyPayloads flattens a RunOutput into notification payloads, one per
 // item with a non-silent event. This is the drift producer's adapter onto
-// the shared sink framework.
+// the shared channel framework.
 func NotifyPayloads(out *RunOutput) []notify.Payload {
 	if out == nil {
 		return nil

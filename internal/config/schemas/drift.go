@@ -9,7 +9,13 @@ type Drift struct {
 	Freshness             DriftFreshness      `yaml:"freshness"`
 	Schedules             map[string]Schedule `yaml:"schedules"`
 	PermanentSuppressions []SuppressionYAML   `yaml:"permanent_suppressions"`
-	Sinks                 []SinkYAML          `yaml:"sinks"`
+	Channels              []ChannelYAML       `yaml:"channels"`
+	// DeprecatedSinks is the pre-v0.3 spelling of Channels. drift.yaml's
+	// `sinks:` key shipped in v0.2.0, so the loader keeps accepting it as a
+	// deprecated alias: it is mapped onto Channels at load time (with a
+	// deprecation warning), and setting both keys is an error.
+	// `reeve migrate-config` rewrites `sinks:` to `channels:`.
+	DeprecatedSinks []ChannelYAML `yaml:"sinks,omitempty"`
 }
 
 type DriftScope struct {
@@ -70,7 +76,7 @@ type SuppressionYAML struct {
 	Reason string `yaml:"reason"`
 }
 
-// DriftPayload tunes the webhook sink's payload shape.
+// DriftPayload tunes the webhook channel's payload shape.
 type DriftPayload struct {
 	Format      string            `yaml:"format,omitempty"`
 	DedupeKey   string            `yaml:"dedupe_key,omitempty"`

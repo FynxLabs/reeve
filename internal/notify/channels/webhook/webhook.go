@@ -1,4 +1,4 @@
-// Package webhook is the generic webhook sink. Ships `raw` format only
+// Package webhook is the generic webhook channel. Ships `raw` format only
 // (event payload as JSON). Named presets are out-of-scope until a user
 // provides a real target payload.
 package webhook
@@ -15,9 +15,9 @@ func init() {
 	notify.Register("webhook", New)
 }
 
-// Sink publishes events as HTTP POST with an optional header map.
+// Channel publishes events as HTTP POST with an optional header map.
 // Deliveries retry with backoff on 5xx/network errors (notify.PostJSON).
-type Sink struct {
+type Channel struct {
 	name    string
 	url     string
 	headers map[string]string
@@ -27,8 +27,8 @@ type Sink struct {
 }
 
 // New is the registered constructor.
-func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
-	return &Sink{
+func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
+	return &Channel{
 		name:    cfg.EffectiveName(),
 		url:     cfg.URL,
 		headers: cfg.Headers,
@@ -38,10 +38,10 @@ func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink
 	}, nil
 }
 
-func (s *Sink) Name() string               { return s.name }
-func (s *Sink) Subscribes() []notify.Event { return s.events }
+func (s *Channel) Name() string               { return s.name }
+func (s *Channel) Subscribes() []notify.Event { return s.events }
 
-func (s *Sink) Deliver(ctx context.Context, p notify.Payload) error {
+func (s *Channel) Deliver(ctx context.Context, p notify.Payload) error {
 	body, err := json.Marshal(payloadJSON(p))
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (s *Sink) Deliver(ctx context.Context, p notify.Payload) error {
 }
 
 // payloadJSON keeps the drift wire format byte-for-byte compatible with the
-// previous drift-only sink; PR-flow events get an analogous raw shape.
+// previous drift-only channel; PR-flow events get an analogous raw shape.
 func payloadJSON(p notify.Payload) map[string]any {
 	if p.Drift != nil {
 		d := p.Drift

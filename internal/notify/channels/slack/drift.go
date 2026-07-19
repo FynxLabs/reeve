@@ -11,7 +11,7 @@ import (
 
 // deliverDrift posts one message per drift event (dashboard-style; drift
 // runs are usually daily and bucket-side idempotency covers re-runs).
-func (s *Sink) deliverDrift(ctx context.Context, p notify.Payload) error {
+func (s *Channel) deliverDrift(ctx context.Context, p notify.Payload) error {
 	text := buildDriftMessage(p)
 	blocks := []slack.Block{
 		slack.Header(fmt.Sprintf("reeve · drift · %s", labelDriftEvent(p.Event))),
