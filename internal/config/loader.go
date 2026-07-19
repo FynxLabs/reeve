@@ -139,7 +139,7 @@ func Load(root string) (*Config, error) {
 			// `channels:`. Prefer `channels:`; both at once is ambiguous.
 			if len(d.DeprecatedSinks) > 0 {
 				if len(d.Channels) > 0 {
-					return nil, fmt.Errorf("%s: both channels: and sinks: are set; sinks: is a deprecated alias for channels: - merge the entries under channels:", f)
+					return nil, fmt.Errorf("%s: both channels: and sinks: are set; sinks: is a deprecated alias of channels: - merge everything under the channels: key", f)
 				}
 				slog.Warn("drift.yaml sinks: is deprecated; rename it to channels: (or run `reeve migrate-config`)", "file", f)
 				d.Channels = d.DeprecatedSinks
