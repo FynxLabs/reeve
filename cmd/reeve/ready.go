@@ -11,6 +11,7 @@ import (
 
 	"github.com/thefynx/reeve/internal/blob/factory"
 	"github.com/thefynx/reeve/internal/config"
+	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/run"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
 )
@@ -89,10 +90,12 @@ func runReady(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	backend := run.BuildSlackBackend(cfg.Notifications, store)
-	if err := run.NotifySlackReady(ctx, backend, cfg.Notifications,
-		pr, sha, runURL, prMeta.Title, prMeta.Author, nil, nil); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "slack notify: %v\n", err)
+	sinks := run.BuildNotifySinks(ctx, cfg.Notifications, store)
+	if err := run.NotifyPREvent(ctx, sinks, notify.EventReady, run.PRNotifyInput{
+		PR: pr, CommitSHA: sha, RunURL: runURL,
+		PRTitle: prMeta.Title, PRAuthor: prMeta.Author,
+	}); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "notify: %v\n", err)
 	}
 
 	comment := "<!-- reeve:ready -->\n:white_check_mark: **Plan complete.** Ready for approval."

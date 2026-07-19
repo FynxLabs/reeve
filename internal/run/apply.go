@@ -23,6 +23,7 @@ import (
 	"github.com/thefynx/reeve/internal/core/render"
 	"github.com/thefynx/reeve/internal/core/summary"
 	"github.com/thefynx/reeve/internal/iac"
+	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/observability/annotations"
 	reeveotel "github.com/thefynx/reeve/internal/observability/otel"
 	"github.com/thefynx/reeve/internal/vcs"
@@ -276,22 +277,25 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 
 	now := time.Now()
 
-	// Slack: notify applying before the loop (creates message on apply trigger path).
+	// Notify approved + applying before the loop (creates the message on
+	// the apply trigger path).
 	if in.PRNumber > 0 && in.Notifications != nil {
-		slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
+		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob)
 		preSummaries := make([]summary.StackSummary, 0, len(target))
 		for _, s := range target {
 			preSummaries = append(preSummaries, summary.StackSummary{
 				Project: s.Project, Stack: s.Name, Env: s.Env,
 			})
 		}
-		if err := NotifySlackApproved(ctx, slackBackend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, preSummaries); err != nil {
-			slog.Warn("slack notify approved failed", "err", err, "pr", in.PRNumber)
+		preInput := PRNotifyInput{
+			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
+			PRTitle: pr.Title, PRAuthor: pr.Author, Stacks: preSummaries,
 		}
-		if err := NotifySlackApplying(ctx, slackBackend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, preSummaries); err != nil {
-			slog.Warn("slack notify applying failed", "err", err, "pr", in.PRNumber)
+		if err := NotifyPREvent(ctx, sinks, notify.EventApproved, preInput); err != nil {
+			slog.Warn("notify approved failed", "err", err, "pr", in.PRNumber)
+		}
+		if err := NotifyPREvent(ctx, sinks, notify.EventApplying, preInput); err != nil {
+			slog.Warn("notify applying failed", "err", err, "pr", in.PRNumber)
 		}
 	}
 
@@ -537,14 +541,17 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		}
 	}
 
-	// 7. Slack notification (runs last, captures everything above). The
-	// apply has already shipped at this point; a Slack failure must not
-	// abort the run.
+	// 7. Notifications (run last, capture everything above). The apply has
+	// already shipped at this point; a notification failure must not abort
+	// the run.
 	if in.PRNumber > 0 && in.Notifications != nil {
-		backend := BuildSlackBackend(in.Notifications, in.Blob)
-		if err := NotifySlackApplied(ctx, backend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, pr.Title, pr.Author, summaries, anyBlocked); err != nil {
-			slog.Warn("slack notify applied failed", "err", err, "pr", in.PRNumber)
+		sinks := BuildNotifySinks(ctx, in.Notifications, in.Blob)
+		ev := ApplyOutcomeEvent(summaries, anyBlocked)
+		if err := NotifyPREvent(ctx, sinks, ev, PRNotifyInput{
+			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
+			PRTitle: pr.Title, PRAuthor: pr.Author, Stacks: summaries,
+		}); err != nil {
+			slog.Warn("notify applied failed", "err", err, "pr", in.PRNumber, "event", ev)
 		}
 	}
 

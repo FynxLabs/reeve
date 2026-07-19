@@ -11,6 +11,7 @@ import (
 
 	"github.com/thefynx/reeve/internal/blob/factory"
 	"github.com/thefynx/reeve/internal/config"
+	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/run"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
 )
@@ -84,10 +85,12 @@ func runApproved(cmd *cobra.Command, _ []string) error {
 		sha = prMeta.HeadSHA
 	}
 
-	backend := run.BuildSlackBackend(cfg.Notifications, store)
-	if err := run.NotifySlackApproved(ctx, backend, cfg.Notifications,
-		pr, sha, runURL, prMeta.Title, prMeta.Author, nil); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "slack notify: %v\n", err)
+	sinks := run.BuildNotifySinks(ctx, cfg.Notifications, store)
+	if err := run.NotifyPREvent(ctx, sinks, notify.EventApproved, run.PRNotifyInput{
+		PR: pr, CommitSHA: sha, RunURL: runURL,
+		PRTitle: prMeta.Title, PRAuthor: prMeta.Author,
+	}); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "notify: %v\n", err)
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "PR #%d approved notification sent\n", pr)
