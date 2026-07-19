@@ -18,6 +18,7 @@ type Event string
 
 const (
 	// PR-flow events (produced by the run pipeline).
+	EventPlanning Event = schemas.SinkEventPlanning // preview run started
 	EventPlan     Event = schemas.SinkEventPlan     // preview finished, pending approval
 	EventReady    Event = schemas.SinkEventReady    // /reeve ready (or auto_ready)
 	EventApproved Event = schemas.SinkEventApproved // preconditions passed, apply imminent
@@ -25,6 +26,9 @@ const (
 	EventApplied  Event = schemas.SinkEventApplied  // apply finished successfully
 	EventFailed   Event = schemas.SinkEventFailed   // apply errored
 	EventBlocked  Event = schemas.SinkEventBlocked  // apply blocked (gates/locks)
+	// EventBreakGlass is reserved for emergency-override runs: a valid
+	// subscription (the deployment timeline renders it) with no producer yet.
+	EventBreakGlass Event = schemas.SinkEventBreakGlass
 
 	// Drift events (produced by the drift runner).
 	EventDriftDetected Event = schemas.SinkEventDriftDetected
@@ -33,9 +37,20 @@ const (
 	EventCheckFailed   Event = schemas.SinkEventCheckFailed
 )
 
-// PREvents lists every PR-flow event in lifecycle order.
+// PREvents lists the core PR-flow lifecycle events in order. The legacy
+// Slack trigger-onward default subscription derives from this list, so it
+// deliberately EXCLUDES the timeline-only additions (planning, break_glass):
+// adding them here would silently widen existing sinks' subscriptions.
 func PREvents() []Event {
 	return []Event{EventPlan, EventReady, EventApproved, EventApplying, EventApplied, EventFailed, EventBlocked}
+}
+
+// TimelinePREvents lists every PR-flow event the deployment timeline
+// renders, in lifecycle order: the core set plus preview-started and the
+// reserved break-glass event. Timeline sinks subscribe to this set by
+// default.
+func TimelinePREvents() []Event {
+	return append(append([]Event{EventPlanning}, PREvents()...), EventBreakGlass)
 }
 
 // DriftEvents lists every drift event.

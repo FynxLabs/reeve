@@ -52,6 +52,7 @@ func (s SinkYAML) EffectiveName() string {
 // runner. The strings are shared with internal/notify's Event constants.
 const (
 	// PR-flow events.
+	SinkEventPlanning = "planning" // preview run started
 	SinkEventPlan     = "plan"     // preview finished, pending approval
 	SinkEventReady    = "ready"    // /reeve ready (or auto_ready)
 	SinkEventApproved = "approved" // preconditions passed, apply imminent
@@ -59,6 +60,10 @@ const (
 	SinkEventApplied  = "applied"  // apply finished successfully
 	SinkEventFailed   = "failed"   // apply errored
 	SinkEventBlocked  = "blocked"  // apply blocked (gates/locks)
+	// SinkEventBreakGlass is reserved for emergency-override runs. It is a
+	// valid subscription (the deployment timeline renders it) but no producer
+	// emits it yet.
+	SinkEventBreakGlass = "break_glass"
 
 	// Drift events.
 	SinkEventDriftDetected = "drift_detected"
@@ -69,6 +74,7 @@ const (
 
 // ValidSinkEvents enumerates every valid `on:` entry, in documentation order.
 var ValidSinkEvents = []string{
+	SinkEventPlanning,
 	SinkEventPlan,
 	SinkEventReady,
 	SinkEventApproved,
@@ -76,6 +82,7 @@ var ValidSinkEvents = []string{
 	SinkEventApplied,
 	SinkEventFailed,
 	SinkEventBlocked,
+	SinkEventBreakGlass,
 	SinkEventDriftDetected,
 	SinkEventDriftOngoing,
 	SinkEventDriftResolved,

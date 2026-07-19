@@ -197,11 +197,24 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// sinkDefaultsSubscriptions reports whether a sink type has a non-empty
+// default subscription when `on:` is omitted, and is therefore exempt from
+// the empty-`on` warning: slack defaults to every lifecycle event at or
+// after its trigger, and the timeline sinks default to every PR-flow
+// timeline event.
+func sinkDefaultsSubscriptions(typ string) bool {
+	switch typ {
+	case "slack", "timeline_slack", "timeline_github":
+		return true
+	}
+	return false
+}
+
 // validateSinks checks every sink declaration (notifications.yaml `sinks:`
 // and drift.yaml `sinks:`): `on:` entries must be known event names, and an
 // empty subscription list draws a warning because the sink will never fire.
-// (The legacy notifications `slack:` block is exempt from the empty-`on`
-// warning - it defaults to all events at or after its trigger.)
+// (Types with default subscriptions - see sinkDefaultsSubscriptions - are
+// exempt.)
 func (c *Config) validateSinks() error {
 	check := func(file string, sinks []schemas.SinkYAML) error {
 		for _, s := range sinks {
@@ -214,7 +227,7 @@ func (c *Config) validateSinks() error {
 						file, s.EffectiveName(), ev, strings.Join(schemas.ValidSinkEvents, ", "))
 				}
 			}
-			if len(s.On) == 0 && s.Type != "slack" {
+			if len(s.On) == 0 && !sinkDefaultsSubscriptions(s.Type) {
 				slog.Warn("notification sink subscribes to no events and will never fire; set on:",
 					"file", file, "sink", s.EffectiveName(), "type", s.Type)
 			}
