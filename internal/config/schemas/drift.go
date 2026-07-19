@@ -9,7 +9,7 @@ type Drift struct {
 	Freshness             DriftFreshness      `yaml:"freshness"`
 	Schedules             map[string]Schedule `yaml:"schedules"`
 	PermanentSuppressions []SuppressionYAML   `yaml:"permanent_suppressions"`
-	Sinks                 []DriftSinkYAML     `yaml:"sinks"`
+	Sinks                 []SinkYAML          `yaml:"sinks"`
 }
 
 type DriftScope struct {
@@ -70,23 +70,7 @@ type SuppressionYAML struct {
 	Reason string `yaml:"reason"`
 }
 
-// DriftSinkYAML is intentionally polymorphic - Type chooses the adapter.
-type DriftSinkYAML struct {
-	Type           string            `yaml:"type"`
-	Name           string            `yaml:"name,omitempty"`
-	On             []string          `yaml:"on"`
-	Channel        string            `yaml:"channel,omitempty"`
-	Grouping       string            `yaml:"grouping,omitempty"`
-	URL            string            `yaml:"url,omitempty"`
-	Headers        map[string]string `yaml:"headers,omitempty"`
-	Payload        DriftPayload      `yaml:"payload,omitempty"`
-	IntegrationKey string            `yaml:"integration_key,omitempty"`
-	SeverityMap    map[string]string `yaml:"severity_map,omitempty"`
-	Emitter        string            `yaml:"emitter,omitempty"`
-	Labels         []string          `yaml:"labels,omitempty"`
-	Assignees      []string          `yaml:"assignees,omitempty"`
-}
-
+// DriftPayload tunes the webhook sink's payload shape.
 type DriftPayload struct {
 	Format      string            `yaml:"format,omitempty"`
 	DedupeKey   string            `yaml:"dedupe_key,omitempty"`

@@ -1,9 +1,46 @@
 package schemas
 
 // Notifications is .reeve/notifications.yaml.
+//
+// Two shapes are supported:
+//   - v1 (legacy): a single `slack:` block. Still accepted; it is mapped
+//     onto the sink model internally (see EffectiveSinks).
+//   - v2: a generic `sinks:` list (type + settings + `on:` subscriptions).
+//
+// `reeve migrate-config` rewrites v1 files to v2.
 type Notifications struct {
 	Header `yaml:",inline"`
 	Slack  *SlackConfig `yaml:"slack,omitempty"`
+	Sinks  []SinkYAML   `yaml:"sinks,omitempty"`
+}
+
+// EffectiveSinks returns the declared sinks with the legacy `slack:` block
+// mapped onto the generic sink model. Old configs keep working unchanged:
+// slack.events maps to `on:` and trigger/icons/rules carry over.
+func (n *Notifications) EffectiveSinks() []SinkYAML {
+	if n == nil {
+		return nil
+	}
+	out := make([]SinkYAML, 0, len(n.Sinks)+1)
+	out = append(out, n.Sinks...)
+	if n.Slack != nil {
+		enabled := n.Slack.Enabled
+		on := make([]string, 0, len(n.Slack.Events))
+		for _, e := range n.Slack.Events {
+			on = append(on, string(e))
+		}
+		out = append(out, SinkYAML{
+			Type:      "slack",
+			Enabled:   &enabled,
+			On:        on,
+			Channel:   n.Slack.Channel,
+			AuthToken: n.Slack.AuthToken,
+			Trigger:   n.Slack.Trigger,
+			Icons:     n.Slack.Icons,
+			Rules:     n.Slack.Rules,
+		})
+	}
+	return out
 }
 
 // SlackTrigger controls when the first Slack message is created.
