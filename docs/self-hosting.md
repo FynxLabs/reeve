@@ -357,11 +357,22 @@ wired OTEL.
 ```bash
 reeve locks list                    # shows holder + queue depth
 reeve locks explain <project/stack> # detail for one stack
+reeve locks leave <project/stack> --pr N  # remove a closed/abandoned PR
+reeve locks leave --pr N            # ...from every lock in the bucket
 ```
 
 Long queue depths on a stack indicate apply contention - usually a
 symptom of too-coarse stack granularity or PRs that take too long to
 merge after `/reeve apply`.
+
+Lock holders are identified by **PR + run ID**. A second concurrent run
+of the same PR is refused ("another run of this PR holds the lock")
+rather than applied in parallel, and only the run that acquired a lock
+can release it. A successful apply automatically leaves every lock its
+PR still appeared in; for PRs closed while holding or queued, use
+`reeve locks leave --pr N` so the queue doesn't promote a dead PR.
+Promotion from the queue grants a lease of the configured `locking.ttl`
+(default 4h).
 
 ### Audit trail
 

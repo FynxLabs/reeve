@@ -55,7 +55,7 @@ retention:
   max_age: 720h                    # default 720h (1 month); 0 disables pruning
 
 locking:
-  ttl: 4h                          # default 4h
+  ttl: 4h                          # default 4h; also bounds the lease of holders promoted from the queue
   queue: fifo                      # v1: fifo (only option)
   reaper_interval: 15m             # informational; reaper is opportunistic
   admin_override:

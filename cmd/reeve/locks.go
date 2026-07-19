@@ -11,6 +11,7 @@ import (
 	"github.com/thefynx/reeve/internal/blob/factory"
 	blocks "github.com/thefynx/reeve/internal/blob/locks"
 	"github.com/thefynx/reeve/internal/config"
+	"github.com/thefynx/reeve/internal/run"
 )
 
 func newLocksCmd() *cobra.Command {
@@ -44,28 +45,39 @@ func newLocksCmd() *cobra.Command {
 	unlock.Flags().String("reason", "", "Required reason for the override (surfaces in logs)")
 	unlock.Flags().String("actor", "", "User performing the override (default: $GITHUB_ACTOR or $USER)")
 
-	cmd.AddCommand(list, explain, reap, unlock)
+	leave := &cobra.Command{
+		Use:   "leave [project/stack]",
+		Short: "Remove a PR from a lock's holder/queue (closed or abandoned PR cleanup); omit the stack to sweep every lock",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  locksLeave,
+	}
+	leave.Flags().Int("pr", 0, "PR number to remove (required)")
+
+	cmd.AddCommand(list, explain, reap, unlock, leave)
 	return cmd
 }
 
-func openLocks(cmd *cobra.Command) (*blocks.Store, error) {
+// openLocks opens the lock store and returns the loaded config alongside
+// it so callers can thread config-derived settings (locking.ttl, admin
+// override) without re-loading.
+func openLocks(cmd *cobra.Command) (*blocks.Store, *config.Config, error) {
 	root, _ := os.Getwd()
 	cfg, err := config.Load(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	store, err := factory.Open(context.Background(), cfg.Shared.Bucket, root)
 	if err != nil {
-		return nil, fmt.Errorf("open bucket: %w", err)
+		return nil, nil, fmt.Errorf("open bucket: %w", err)
 	}
-	return blocks.New(store), nil
+	return blocks.New(store), cfg, nil
 }
 
 func locksList(cmd *cobra.Command, _ []string) error {
-	s, err := openLocks(cmd)
+	s, _, err := openLocks(cmd)
 	if err != nil {
 		return err
 	}
@@ -97,7 +109,7 @@ func locksExplain(cmd *cobra.Command, args []string) error {
 	if parts == nil {
 		return fmt.Errorf("expected project/stack, got %q", ref)
 	}
-	s, err := openLocks(cmd)
+	s, _, err := openLocks(cmd)
 	if err != nil {
 		return err
 	}
@@ -126,11 +138,11 @@ func locksExplain(cmd *cobra.Command, args []string) error {
 }
 
 func locksReap(cmd *cobra.Command, _ []string) error {
-	s, err := openLocks(cmd)
+	s, cfg, err := openLocks(cmd)
 	if err != nil {
 		return err
 	}
-	n, err := s.ReapAll(context.Background())
+	n, err := s.ReapAll(context.Background(), run.LockTTL(cfg.Shared))
 	if err != nil {
 		return err
 	}
@@ -145,12 +157,8 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("expected project/stack, got %q", ref)
 	}
 
-	root, _ := os.Getwd()
-	cfg, err := config.Load(root)
+	s, cfg, err := openLocks(cmd)
 	if err != nil {
-		return err
-	}
-	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
@@ -171,11 +179,7 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	s, err := openLocks(cmd)
-	if err != nil {
-		return err
-	}
-	l, err := s.ForceUnlock(context.Background(), parts[0], parts[1])
+	l, err := s.ForceUnlock(context.Background(), parts[0], parts[1], run.LockTTL(cfg.Shared))
 	if err != nil {
 		return err
 	}
@@ -183,6 +187,45 @@ func locksUnlock(cmd *cobra.Command, args []string) error {
 		parts[0], parts[1], actor, reason)
 	if l.Holder != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "promoted PR #%d from queue\n", l.Holder.PR)
+	}
+	return nil
+}
+
+// locksLeave removes a PR from a lock's holder/queue (or from every lock
+// when no stack is given). This is the escape hatch for PRs that were
+// closed or merged while still holding or queued on locks - without it an
+// abandoned PR could be promoted to holder and block everyone until TTL.
+func locksLeave(cmd *cobra.Command, args []string) error {
+	pr := flagInt(cmd, "pr")
+	if pr <= 0 {
+		return fmt.Errorf("locks leave: --pr is required")
+	}
+	s, cfg, err := openLocks(cmd)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	ttl := run.LockTTL(cfg.Shared)
+	w := cmd.OutOrStdout()
+	if len(args) == 0 {
+		n, err := s.LeaveAll(ctx, pr, "", ttl)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "removed PR #%d from %d lock(s)\n", pr, n)
+		return nil
+	}
+	parts := splitRef(args[0])
+	if parts == nil {
+		return fmt.Errorf("expected project/stack, got %q", args[0])
+	}
+	l, err := s.Leave(ctx, parts[0], parts[1], pr, "", ttl)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "removed PR #%d from %s/%s\n", pr, parts[0], parts[1])
+	if l.Holder != nil {
+		fmt.Fprintf(w, "holder is now PR #%d (expires %s)\n", l.Holder.PR, l.Holder.ExpiresAt)
 	}
 	return nil
 }

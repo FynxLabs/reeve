@@ -223,8 +223,20 @@ locking:
   queue: fifo
 ```
 
+`ttl` bounds every lease - including holders promoted from the queue when
+the previous holder releases or expires.
+
+Locks identify their holder by **PR + run**: re-running the same workflow
+run refreshes the lease, but a *second concurrent run of the same PR*
+(double `/reeve apply`, workflow re-run while the first is still going) is
+refused with "another run of this PR holds the lock" instead of applying
+concurrently. Once the first run finishes - or its lease expires - the
+next attempt proceeds normally.
+
 `reeve locks list` inspects the live state. `reeve locks explain <stack>`
-shows holder + queue. `reeve rules explain <stack>` shows the merged rule
+shows holder + queue. `reeve locks leave <project/stack> --pr N` removes a
+closed or abandoned PR from a lock's holder/queue (omit the stack to sweep
+every lock). `reeve rules explain <stack>` shows the merged rule
 resolution.
 
 ## 8. Turn on drift detection
