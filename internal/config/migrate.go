@@ -12,11 +12,6 @@ import (
 
 // Migrator applies per-config_type version bumps. Each registered
 // migration converts version N→N+1 for a single file.
-//
-// v1 is the only supported version today, so the registry is empty.
-// Adding a migration for e.g. shared v1→v2 looks like:
-//
-//	registry[migrationKey{ConfigType: "shared", From: 1}] = func(node *yaml.Node) error { ... }
 type Migrator struct {
 	registry map[migrationKey]migrationFn
 }
@@ -31,9 +26,91 @@ type migrationFn func(*yaml.Node) error
 // NewMigrator returns a Migrator with the built-in migrations registered.
 func NewMigrator() *Migrator {
 	m := &Migrator{registry: map[migrationKey]migrationFn{}}
-	// Example placeholder - wired when v2 lands.
-	// m.registry[migrationKey{"shared", 1}] = migrateSharedV1ToV2
+	m.registry[migrationKey{ConfigType: "notifications", From: 1}] = migrateNotificationsV1ToV2
 	return m
+}
+
+// migrateNotificationsV1ToV2 rewrites the legacy `slack:` block into an
+// entry of the generic `sinks:` list:
+//
+//	slack:                      sinks:
+//	  enabled: true               - type: slack
+//	  channel: "#x"        →        enabled: true
+//	  events: [plan]                channel: "#x"
+//	                                on: [plan]
+//
+// All other keys (auth_token, trigger, icons, rules) carry over verbatim;
+// `events` is renamed to `on`. Value nodes are reused so comments and
+// styles survive. A file without a `slack:` block only gets its version
+// bumped. The runtime keeps accepting v1, so running this is optional.
+func migrateNotificationsV1ToV2(root *yaml.Node) error {
+	m := docMapping(root)
+	if m == nil {
+		return fmt.Errorf("notifications: expected a mapping document")
+	}
+	slackIdx := -1
+	sinksIdx := -1
+	for i := 0; i < len(m.Content); i += 2 {
+		switch m.Content[i].Value {
+		case "slack":
+			slackIdx = i
+		case "sinks":
+			sinksIdx = i
+		}
+	}
+	if slackIdx < 0 {
+		return nil // nothing to rewrite; version bump only
+	}
+	slackVal := m.Content[slackIdx+1]
+	if slackVal.Kind != yaml.MappingNode {
+		return fmt.Errorf("notifications: slack: expected a mapping")
+	}
+
+	sink := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	sink.Content = append(sink.Content, scalarNode("type"), scalarNode("slack"))
+	for i := 0; i < len(slackVal.Content); i += 2 {
+		k, v := slackVal.Content[i], slackVal.Content[i+1]
+		if k.Value == "events" {
+			k = scalarNode("on")
+			k.HeadComment = slackVal.Content[i].HeadComment
+			k.LineComment = slackVal.Content[i].LineComment
+		}
+		sink.Content = append(sink.Content, k, v)
+	}
+
+	if sinksIdx >= 0 {
+		// A sinks list already exists (mixed v1 file): append the converted
+		// slack entry and drop the slack key.
+		seq := m.Content[sinksIdx+1]
+		if seq.Kind != yaml.SequenceNode {
+			return fmt.Errorf("notifications: sinks: expected a sequence")
+		}
+		seq.Content = append(seq.Content, sink)
+		m.Content = append(m.Content[:slackIdx], m.Content[slackIdx+2:]...)
+		return nil
+	}
+
+	seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{sink}}
+	m.Content[slackIdx] = scalarNode("sinks")
+	m.Content[slackIdx].HeadComment = slackVal.HeadComment
+	m.Content[slackIdx+1] = seq
+	return nil
+}
+
+// docMapping unwraps a document node to its top-level mapping.
+func docMapping(root *yaml.Node) *yaml.Node {
+	n := root
+	if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
+		n = n.Content[0]
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil
+	}
+	return n
+}
+
+func scalarNode(v string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v}
 }
 
 // MigrateDirectory walks .reeve/ and migrates each file to the latest

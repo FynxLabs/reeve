@@ -72,11 +72,14 @@ func Load(root string) (*Config, error) {
 				return nil, fmt.Errorf("%s: parse header: %w", f, err)
 			}
 		}
-		if hdr.Version != 1 {
-			return nil, fmt.Errorf("%s: unsupported version %d (want 1)", f, hdr.Version)
-		}
 		if hdr.ConfigType == "" {
 			return nil, fmt.Errorf("%s: missing config_type", f)
+		}
+		if max := maxSchemaVersion(hdr.ConfigType); hdr.Version < 1 || hdr.Version > max {
+			if max == 1 {
+				return nil, fmt.Errorf("%s: unsupported version %d (want 1)", f, hdr.Version)
+			}
+			return nil, fmt.Errorf("%s: unsupported version %d (want 1..%d)", f, hdr.Version, max)
 		}
 
 		switch hdr.ConfigType {
@@ -165,6 +168,17 @@ func Load(root string) (*Config, error) {
 	return cfg, nil
 }
 
+// maxSchemaVersion returns the highest supported schema version for a
+// config_type. notifications gained v2 (generic `sinks:` list) - v1 (the
+// legacy `slack:` block) remains fully supported and is mapped onto the
+// sink model internally. `reeve migrate-config` rewrites v1 to v2.
+func maxSchemaVersion(configType string) int {
+	if configType == "notifications" {
+		return 2
+	}
+	return 1
+}
+
 // Validate runs cross-file checks. Phase 1: require at least one engine
 // config and a bucket.
 func (c *Config) Validate() error {
@@ -176,6 +190,54 @@ func (c *Config) Validate() error {
 	}
 	if c.Shared.Bucket.Type == "" {
 		return errors.New("shared.yaml: bucket.type is required")
+	}
+	if err := c.validateSinks(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateSinks checks every sink declaration (notifications.yaml `sinks:`
+// and drift.yaml `sinks:`): `on:` entries must be known event names, and an
+// empty subscription list draws a warning because the sink will never fire.
+// (The legacy notifications `slack:` block is exempt from the empty-`on`
+// warning - it defaults to all events at or after its trigger.)
+func (c *Config) validateSinks() error {
+	check := func(file string, sinks []schemas.SinkYAML) error {
+		for _, s := range sinks {
+			if s.Type == "" {
+				return fmt.Errorf("%s: sink %q: type is required", file, s.EffectiveName())
+			}
+			for _, ev := range s.On {
+				if !schemas.IsValidSinkEvent(ev) {
+					return fmt.Errorf("%s: sink %q: unknown event %q in on: (valid: %s)",
+						file, s.EffectiveName(), ev, strings.Join(schemas.ValidSinkEvents, ", "))
+				}
+			}
+			if len(s.On) == 0 && s.Type != "slack" {
+				slog.Warn("notification sink subscribes to no events and will never fire; set on:",
+					"file", file, "sink", s.EffectiveName(), "type", s.Type)
+			}
+		}
+		return nil
+	}
+	if c.Notifications != nil {
+		if err := check("notifications.yaml", c.Notifications.Sinks); err != nil {
+			return err
+		}
+		if c.Notifications.Slack != nil {
+			for _, ev := range c.Notifications.Slack.Events {
+				if !schemas.IsValidSinkEvent(string(ev)) {
+					return fmt.Errorf("notifications.yaml: slack.events: unknown event %q (valid: %s)",
+						ev, strings.Join(schemas.ValidSinkEvents, ", "))
+				}
+			}
+		}
+	}
+	if c.Drift != nil {
+		if err := check("drift.yaml", c.Drift.Sinks); err != nil {
+			return err
+		}
 	}
 	return nil
 }
