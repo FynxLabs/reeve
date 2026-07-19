@@ -4,6 +4,7 @@
 |---|---|
 | [Getting started](getting-started.md) | Zero-to-first-PR-comment walkthrough: install from source, create `.reeve/`, add the workflow, move to real storage, add OIDC, tighten approvals, enable drift. |
 | [Configuration reference](configuration.md) | Every `.reeve/*.yaml` schema - `shared`, `engine`, `auth`, `notifications`, `observability`, `drift`, `user`. Token expansion, lint, migration. |
+| [Notifications](notifications.md) | The shared notification-sink framework: sink types (Slack / webhook / PagerDuty / GitHub issues / OTEL annotation), `on:` event subscriptions, delivery guarantees, legacy `slack:` migration, adding a destination. |
 | [Auth providers](auth.md) | OIDC / WIF / federated / secret-manager / GitHub App / local-dev provider catalog, binding resolution, IAM setup recipes, fork-PR policy. |
 | [Drift detection](drift.md) | Event lifecycle, bootstrap modes, schedules, sinks (Slack / webhook / PagerDuty / GitHub issues / OTEL annotation), metrics. |
 | [Policy hooks](policy-hooks.md) | Generic command-hook model, OPA/Conftest/CrossGuard/custom recipes, exit-code semantics, redaction. |

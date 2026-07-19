@@ -262,6 +262,15 @@ These are listed in reports but never trigger events.
 
 ## Sinks
 
+Drift sinks ride the shared notification-sink framework
+(`internal/notify`) — the same adapters that carry PR-flow notifications.
+Declare them under `sinks:` in `drift.yaml` (below), or in
+`notifications.yaml` with drift events in `on:`; both feed the same
+dispatch. One sink implementation serves both producers — see
+[notifications.md](notifications.md) for the event list, delivery
+guarantees (concurrent dispatch, timeouts, retry with backoff), and how
+to add a destination.
+
 ### Slack
 
 One message per run per channel, no state tracking. Use a dedicated
