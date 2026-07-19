@@ -173,9 +173,6 @@ func TestRenderSlackGate(t *testing.T) {
 	if n.Channels[0].Channel != "#infra-deploys" {
 		t.Errorf("channel = %q", n.Channels[0].Channel)
 	}
-	if got := len(n.EffectiveChannels()); got != 1 {
-		t.Errorf("effective channels = %d, want 1", got)
-	}
 }
 
 func TestRenderAllGatesOn(t *testing.T) {

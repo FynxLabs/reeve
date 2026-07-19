@@ -3,8 +3,6 @@ package config
 import (
 	"strings"
 	"testing"
-
-	"github.com/thefynx/reeve/internal/config/schemas"
 )
 
 const sharedYAMLMin = `version: 1
@@ -38,37 +36,15 @@ slack:
     - environments: [prod]
 `
 
-func TestLegacyNotificationsV1StillLoads(t *testing.T) {
+func TestLegacySlackBlockRejectedWithHint(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml":        sharedYAMLMin,
 		"pulumi.yaml":        engineYAMLMin,
 		"notifications.yaml": legacyNotifications,
 	})
-	cfg, err := Load(root)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-
-	channels := cfg.Notifications.EffectiveChannels()
-	if len(channels) != 1 {
-		t.Fatalf("EffectiveChannels: %+v", channels)
-	}
-	s := channels[0]
-	if s.Type != "slack" || !s.IsEnabled() || s.Channel != "#infra-deploys" ||
-		s.AuthToken != "xoxb-test" || s.Trigger != schemas.SlackTriggerPlan {
-		t.Fatalf("mapped channel: %+v", s)
-	}
-	if len(s.On) != 3 || s.On[0] != "plan" || s.On[2] != "failed" {
-		t.Fatalf("events → on: %v", s.On)
-	}
-	if s.Icons == nil || s.Icons.Engine != ":pulumi:" {
-		t.Fatalf("icons: %+v", s.Icons)
-	}
-	if len(s.Rules) != 1 || s.Rules[0].Environments[0] != "prod" {
-		t.Fatalf("rules: %+v", s.Rules)
+	_, err := Load(root)
+	if err == nil || !strings.Contains(err.Error(), "migrate-config") {
+		t.Fatalf("want conversion hint for slack: block, got %v", err)
 	}
 }
 
@@ -96,7 +72,7 @@ channels:
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	channels := cfg.Notifications.EffectiveChannels()
+	channels := cfg.Notifications.Channels
 	if len(channels) != 2 {
 		t.Fatalf("channels: %+v", channels)
 	}
@@ -165,27 +141,6 @@ channels:
 	}
 }
 
-func TestLegacySlackEventsValidated(t *testing.T) {
-	root := writeReeve(t, map[string]string{
-		"shared.yaml": sharedYAMLMin,
-		"pulumi.yaml": engineYAMLMin,
-		"notifications.yaml": `version: 1
-config_type: notifications
-slack:
-  enabled: true
-  channel: "#x"
-  events: [aplied]
-`,
-	})
-	cfg, err := Load(root)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "slack.events") {
-		t.Fatalf("want slack.events error, got %v", err)
-	}
-}
-
 func TestDriftChannelsLoad(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": sharedYAMLMin,
@@ -213,35 +168,6 @@ channels:
 	}
 }
 
-func TestDriftSinksAliasStillLoads(t *testing.T) {
-	// drift.yaml `sinks:` shipped in v0.2.0; it must keep loading as a
-	// deprecated alias, mapped onto Channels.
-	root := writeReeve(t, map[string]string{
-		"shared.yaml": sharedYAMLMin,
-		"pulumi.yaml": engineYAMLMin,
-		"drift.yaml": `version: 1
-config_type: drift
-sinks:
-  - type: webhook
-    url: https://example.test/hook
-    on: [drift_detected, check_failed]
-`,
-	})
-	cfg, err := Load(root)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-	if len(cfg.Drift.Channels) != 1 || cfg.Drift.Channels[0].Type != "webhook" {
-		t.Fatalf("alias should map onto Channels: %+v", cfg.Drift.Channels)
-	}
-	if cfg.Drift.DeprecatedSinks != nil {
-		t.Fatalf("DeprecatedSinks should be cleared after mapping: %+v", cfg.Drift.DeprecatedSinks)
-	}
-}
-
 func TestDriftBothSinksAndChannelsRejected(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": sharedYAMLMin,
@@ -259,15 +185,7 @@ sinks:
 `,
 	})
 	_, err := Load(root)
-	if err == nil || !strings.Contains(err.Error(), "both channels: and sinks:") {
-		t.Fatalf("want both-set error, got %v", err)
-	}
-}
-
-func TestDisabledLegacySlackMapsToDisabledChannel(t *testing.T) {
-	n := &schemas.Notifications{Slack: &schemas.SlackConfig{Enabled: false, Channel: "#x"}}
-	channels := n.EffectiveChannels()
-	if len(channels) != 1 || channels[0].IsEnabled() {
-		t.Fatalf("disabled slack should map to a disabled channel: %+v", channels)
+	if err == nil || !strings.Contains(err.Error(), "migrate-config") {
+		t.Fatalf("want conversion hint for sinks: key, got %v", err)
 	}
 }

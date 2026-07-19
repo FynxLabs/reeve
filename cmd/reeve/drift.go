@@ -227,7 +227,9 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	if cfg.Drift != nil {
 		channelCfgs = append(channelCfgs, cfg.Drift.Channels...)
 	}
-	channelCfgs = append(channelCfgs, cfg.Notifications.EffectiveChannels()...)
+	if cfg.Notifications != nil {
+		channelCfgs = append(channelCfgs, cfg.Notifications.Channels...)
+	}
 	channels, serr := notify.Build(ctx, channelCfgs, notify.Deps{
 		Blob:       store,
 		Issues:     issues,
