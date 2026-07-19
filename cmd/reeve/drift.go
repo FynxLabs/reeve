@@ -14,10 +14,11 @@ import (
 	authfac "github.com/thefynx/reeve/internal/auth/factory"
 	"github.com/thefynx/reeve/internal/blob/factory"
 	"github.com/thefynx/reeve/internal/config"
+	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/drift"
-	sinkfac "github.com/thefynx/reeve/internal/drift/sinks/factory"
 	"github.com/thefynx/reeve/internal/iac/pulumi"
+	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/run"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
 )
@@ -205,26 +206,35 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		return nil
 	}
 
-	// Dispatch to configured drift sinks.
+	// Dispatch to configured sinks via the shared notify framework:
+	// drift.yaml sinks plus any notifications.yaml sinks subscribed to
+	// drift events.
 	repoFull := os.Getenv("GITHUB_REPOSITORY")
-	owner, repo := "", ""
-	if parts := strings.SplitN(repoFull, "/", 2); len(parts) == 2 {
-		owner, repo = parts[0], parts[1]
+	var issues notify.IssueClient
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		if parts := strings.SplitN(repoFull, "/", 2); len(parts) == 2 {
+			if client, err := gh.New(ctx, tok, parts[0], parts[1]); err == nil {
+				issues = client
+			}
+		}
 	}
-	annotationEmitters := run.BuildAnnotationEmitters(cfg.Observability)
-	sinks, serr := sinkfac.Build(ctx, cfg.Drift, sinkfac.Options{
-		SlackToken:         os.Getenv("SLACK_BOT_TOKEN"),
-		GitHubToken:        os.Getenv("GITHUB_TOKEN"),
-		GitHubOwner:        owner,
-		GitHubRepo:         repo,
-		AnnotationEmitters: annotationEmitters,
+	var sinkCfgs []schemas.SinkYAML
+	if cfg.Drift != nil {
+		sinkCfgs = append(sinkCfgs, cfg.Drift.Sinks...)
+	}
+	sinkCfgs = append(sinkCfgs, cfg.Notifications.EffectiveSinks()...)
+	sinks, serr := notify.Build(ctx, sinkCfgs, notify.Deps{
+		Blob:       store,
+		Issues:     issues,
+		Emitters:   run.BuildAnnotationEmitters(cfg.Observability),
+		SlackToken: os.Getenv("SLACK_BOT_TOKEN"),
+		RepoFull:   repoFull,
 	})
 	if serr != nil {
 		return serr
 	}
 	if len(sinks) > 0 {
-		// Import the sinks package from its own path to avoid a cycle.
-		errs := dispatchSinks(ctx, sinks, out)
+		errs := notify.Dispatch(ctx, sinks, drift.NotifyPayloads(out))
 		for _, e := range errs {
 			fmt.Fprintf(cmd.ErrOrStderr(), "sink error: %v\n", e)
 		}

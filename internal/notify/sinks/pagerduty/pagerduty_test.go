@@ -1,0 +1,109 @@
+package pagerduty
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/thefynx/reeve/internal/notify"
+)
+
+func testServer(t *testing.T) (*httptest.Server, *[]map[string]any) {
+	t.Helper()
+	var got []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var m map[string]any
+		_ = json.Unmarshal(body, &m)
+		got = append(got, m)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &got
+}
+
+func newTestSink(t *testing.T, cfg schemas.SinkYAML, url string) *Sink {
+	t.Helper()
+	s, err := New(context.Background(), cfg, notify.Deps{HTTP: &http.Client{Timeout: 5 * time.Second}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := s.(*Sink)
+	sink.endpoint = url
+	return sink
+}
+
+func TestDriftEventWireFormat(t *testing.T) {
+	srv, got := testServer(t)
+	s := newTestSink(t, schemas.SinkYAML{
+		Type: "pagerduty", IntegrationKey: "key123",
+		SeverityMap: map[string]string{"prod": "critical"},
+		On:          []string{"drift_detected", "drift_resolved"},
+	}, srv.URL)
+
+	err := s.Deliver(context.Background(), notify.Payload{
+		Event: notify.EventDriftDetected,
+		Drift: &notify.DriftPayload{Project: "net", Stack: "prod", Env: "prod", RunID: "r1", Add: 1},
+	})
+	if err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	m := (*got)[0]
+	if m["routing_key"] != "key123" || m["event_action"] != "trigger" || m["dedup_key"] != "reeve-drift-net/prod" {
+		t.Fatalf("event: %v", m)
+	}
+	payload := m["payload"].(map[string]any)
+	if payload["severity"] != "critical" {
+		t.Fatalf("severity_map not applied: %v", payload)
+	}
+
+	// Resolution maps to event_action resolve with the same dedup key.
+	err = s.Deliver(context.Background(), notify.Payload{
+		Event: notify.EventDriftResolved,
+		Drift: &notify.DriftPayload{Project: "net", Stack: "prod", Env: "dev"},
+	})
+	if err != nil {
+		t.Fatalf("Deliver resolved: %v", err)
+	}
+	m = (*got)[1]
+	if m["event_action"] != "resolve" || m["dedup_key"] != "reeve-drift-net/prod" {
+		t.Fatalf("resolve event: %v", m)
+	}
+	if m["payload"].(map[string]any)["severity"] != "warning" {
+		t.Fatalf("default severity: %v", m)
+	}
+}
+
+func TestPREventsTriggerAndResolve(t *testing.T) {
+	srv, got := testServer(t)
+	s := newTestSink(t, schemas.SinkYAML{
+		Type: "pagerduty", IntegrationKey: "key123",
+		On: []string{"failed", "applied", "applying"},
+	}, srv.URL)
+
+	pr := &notify.PRPayload{PR: 4, RepoFull: "org/repo"}
+	if err := s.Deliver(context.Background(), notify.Payload{Event: notify.EventFailed, PR: pr}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Deliver(context.Background(), notify.Payload{Event: notify.EventApplied, PR: pr}); err != nil {
+		t.Fatal(err)
+	}
+	// Intermediate lifecycle events are no-ops.
+	if err := s.Deliver(context.Background(), notify.Payload{Event: notify.EventApplying, PR: pr}); err != nil {
+		t.Fatal(err)
+	}
+	if len(*got) != 2 {
+		t.Fatalf("want 2 PD events, got %d", len(*got))
+	}
+	if (*got)[0]["event_action"] != "trigger" || (*got)[1]["event_action"] != "resolve" {
+		t.Fatalf("actions: %v", *got)
+	}
+	if (*got)[0]["dedup_key"] != "reeve-pr-org/repo-4" || (*got)[1]["dedup_key"] != (*got)[0]["dedup_key"] {
+		t.Fatalf("dedup keys: %v", *got)
+	}
+}
