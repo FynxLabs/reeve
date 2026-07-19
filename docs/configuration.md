@@ -177,6 +177,12 @@ Run artifacts under `runs/` (manifests, applied-state pointers) are pruned at ru
 - Only a reviewer's **most recent** review counts. A reviewer who approves
   and later requests changes (or whose approval is dismissed) no longer
   counts toward the gate.
+- `freshness: <duration>` (opt-in, e.g. `24h`): an approval older than the
+  window at evaluation time does not count and must be re-given. Stale
+  approvals are called out in the rule trace and the missing list, so a
+  blocked apply says exactly whose approval expired. `0`/unset means no
+  freshness constraint. An approval without a submission timestamp fails
+  closed when freshness is set.
 
 ### CODEOWNERS resolution
 
@@ -196,6 +202,15 @@ gate for that file.
 
 Team slugs in CODEOWNERS are expanded the same way as `approvers` entries:
 reeve resolves `org/team` → member logins via the VCS API before evaluation.
+
+**Email owners are unenforceable.** GitHub allows email addresses as
+CODEOWNERS entries (e.g. `docs@example.com`), but reeve has no
+commit-email → login resolution, so email owners are excluded from the
+gate: a path owned by both an email and a login/team still requires the
+login/team's approval, and a path owned *only* by emails adds no
+requirement (the evaluation trace notes the skipped entries instead of
+wedging the gate forever). `reeve lint` warns about email owners in
+CODEOWNERS.
 
 Inspect the merged result:
 
