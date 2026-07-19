@@ -54,7 +54,7 @@ type Options struct {
 	// window instead of the bare freeze_windows pointer comment.
 	FreezeWindowExample bool
 
-	// SlackChannel, when set, writes notifications.yaml with a v2 `sinks:`
+	// SlackChannel, when set, writes notifications.yaml with a v2 `channels:`
 	// slack entry for the channel. Empty writes no notifications file.
 	SlackChannel string
 }
@@ -264,11 +264,11 @@ func renderNotifications(opts Options) []byte {
 	b.WriteString(`version: 2
 config_type: notifications
 
-# Generic notification sinks. Each sink subscribes to lifecycle events via
+# Generic notification channels. Each channel subscribes to lifecycle events via
 # on: - valid events are plan, ready, approved, applying, applied, failed,
-# blocked (drift_* events are for drift.yaml sinks). Details:
+# blocked (drift_* events are for drift.yaml channels). Details:
 # docs/notifications.md
-sinks:
+channels:
   - type: slack
 `)
 	fmt.Fprintf(&b, "    channel: %q\n", opts.SlackChannel)

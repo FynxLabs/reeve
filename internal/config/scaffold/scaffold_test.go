@@ -162,19 +162,19 @@ func TestRenderSlackGate(t *testing.T) {
 		t.Fatal("notifications.yaml missing")
 	}
 	if n.Version != 2 {
-		t.Errorf("notifications version = %d, want 2 (sinks model)", n.Version)
+		t.Errorf("notifications version = %d, want 2 (channels model)", n.Version)
 	}
 	if n.Slack != nil {
-		t.Error("must write a v2 sinks: entry, not the legacy slack: block")
+		t.Error("must write a v2 channels: entry, not the legacy slack: block")
 	}
-	if len(n.Sinks) != 1 || n.Sinks[0].Type != "slack" {
-		t.Fatalf("sinks = %+v", n.Sinks)
+	if len(n.Channels) != 1 || n.Channels[0].Type != "slack" {
+		t.Fatalf("channels = %+v", n.Channels)
 	}
-	if n.Sinks[0].Channel != "#infra-deploys" {
-		t.Errorf("channel = %q", n.Sinks[0].Channel)
+	if n.Channels[0].Channel != "#infra-deploys" {
+		t.Errorf("channel = %q", n.Channels[0].Channel)
 	}
-	if got := len(n.EffectiveSinks()); got != 1 {
-		t.Errorf("effective sinks = %d, want 1", got)
+	if got := len(n.EffectiveChannels()); got != 1 {
+		t.Errorf("effective channels = %d, want 1", got)
 	}
 }
 
@@ -192,8 +192,8 @@ func TestRenderAllGatesOn(t *testing.T) {
 	if *def.RequiredApprovals != 3 || def.Freshness != "48h" || len(def.Approvers) != 1 {
 		t.Errorf("gates lost in combination: %+v", def)
 	}
-	if cfg.Notifications == nil || len(cfg.Notifications.Sinks) != 1 {
-		t.Error("slack sink lost in combination")
+	if cfg.Notifications == nil || len(cfg.Notifications.Channels) != 1 {
+		t.Error("slack channel lost in combination")
 	}
 	if len(cfg.Engines[0].Engine.Stacks) != 1 {
 		t.Error("stacks lost in combination")

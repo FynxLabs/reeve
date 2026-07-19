@@ -110,7 +110,7 @@ func runInitWizard(decls []discovery.Declaration) (scaffold.Options, error) {
 			Value(&opts.FreezeWindowExample),
 		huh.NewConfirm().
 			Title("Notifications: send run updates to Slack?").
-			Description("Writes notifications.yaml with a v2 sinks: entry.").
+			Description("Writes notifications.yaml with a v2 channels: entry.").
 			Value(&slackEnabled),
 	)).Run(); err != nil {
 		return opts, err

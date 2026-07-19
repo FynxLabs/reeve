@@ -45,7 +45,7 @@ Modes:
   interactive (default on a terminal): a short wizard walks through the
   optional gates - approvals (CODEOWNERS-based or an explicit approver list
   plus required count), a commented freeze-window example, a Slack
-  notification sink, and an approval-freshness window. Gates you skip are
+  notification channel, and an approval-freshness window. Gates you skip are
   written as commented best-practice examples, off by default.
 
   --non-interactive / -n (auto-selected when stdin is not a terminal, and
