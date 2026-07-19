@@ -59,7 +59,9 @@ bindings:
 3. `match.mode: preview|apply|drift` narrows a binding to one run mode.
    No `mode:` means "all modes".
 4. `override:` replaces entries from earlier, more general bindings with
-   the same logical scope (e.g. replaces `aws-*` with `aws-payments-strict`).
+   the same logical scope, derived from the providers' declared `type`
+   (e.g. an `aws_oidc` override replaces every AWS-scoped provider
+   regardless of naming).
 5. Two providers of the same logical scope bound to one stack (e.g. two
    `aws_oidc` roles) is an error at lint time.
 

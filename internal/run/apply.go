@@ -324,7 +324,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		rules.TeamMembers = teamMembers
 		approvalsRes := approvals.Evaluate(rules, rawApprovals, approvals.PR{
 			Number: in.PRNumber, HeadSHA: approvalHeadSHA, Author: pr.Author,
-		}, coResolved, pr.Author)
+		}, coResolved, pr.Author, now)
 		slog.Debug("approvals evaluated",
 			"stack", s.Ref(),
 			"satisfied", approvalsRes.Satisfied,
