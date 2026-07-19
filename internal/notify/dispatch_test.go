@@ -12,13 +12,13 @@ import (
 func TestDispatchFiltersBySubscription(t *testing.T) {
 	var mu sync.Mutex
 	var got []Event
-	s := &fakeSink{name: "a", events: []Event{EventApplied}, fn: func(_ context.Context, p Payload) error {
+	s := &fakeChannel{name: "a", events: []Event{EventApplied}, fn: func(_ context.Context, p Payload) error {
 		mu.Lock()
 		got = append(got, p.Event)
 		mu.Unlock()
 		return nil
 	}}
-	errs := Dispatch(context.Background(), []Sink{s}, []Payload{
+	errs := Dispatch(context.Background(), []Channel{s}, []Payload{
 		{Event: EventPlan, PR: &PRPayload{}},
 		{Event: EventApplied, PR: &PRPayload{}},
 		{Event: EventDriftDetected, Drift: &DriftPayload{}},
@@ -31,8 +31,8 @@ func TestDispatchFiltersBySubscription(t *testing.T) {
 	}
 }
 
-func TestDispatchDeliversConcurrentlyAcrossSinks(t *testing.T) {
-	// Both sinks block until the other has started - only concurrent
+func TestDispatchDeliversConcurrentlyAcrossChannels(t *testing.T) {
+	// Both channels block until the other has started - only concurrent
 	// delivery lets this finish.
 	arrived := make(chan struct{}, 2)
 	proceed := make(chan struct{})
@@ -50,21 +50,21 @@ func TestDispatchDeliversConcurrentlyAcrossSinks(t *testing.T) {
 			return errors.New("no concurrency")
 		}
 	}
-	a := &fakeSink{name: "a", events: []Event{EventApplied}, fn: wait}
-	b := &fakeSink{name: "b", events: []Event{EventApplied}, fn: wait}
-	errs := Dispatch(context.Background(), []Sink{a, b}, []Payload{{Event: EventApplied, PR: &PRPayload{}}})
+	a := &fakeChannel{name: "a", events: []Event{EventApplied}, fn: wait}
+	b := &fakeChannel{name: "b", events: []Event{EventApplied}, fn: wait}
+	errs := Dispatch(context.Background(), []Channel{a, b}, []Payload{{Event: EventApplied, PR: &PRPayload{}}})
 	if len(errs) != 0 {
 		t.Fatalf("errs: %v", errs)
 	}
 }
 
-func TestDispatchOrderedWithinSink(t *testing.T) {
+func TestDispatchOrderedWithinChannel(t *testing.T) {
 	var got []Event
-	s := &fakeSink{name: "a", events: []Event{EventApproved, EventApplying}, fn: func(_ context.Context, p Payload) error {
-		got = append(got, p.Event) // single sink goroutine: no race
+	s := &fakeChannel{name: "a", events: []Event{EventApproved, EventApplying}, fn: func(_ context.Context, p Payload) error {
+		got = append(got, p.Event) // single channel goroutine: no race
 		return nil
 	}}
-	Dispatch(context.Background(), []Sink{s}, []Payload{
+	Dispatch(context.Background(), []Channel{s}, []Payload{
 		{Event: EventApproved, PR: &PRPayload{}},
 		{Event: EventApplying, PR: &PRPayload{}},
 	})
@@ -73,32 +73,32 @@ func TestDispatchOrderedWithinSink(t *testing.T) {
 	}
 }
 
-func TestDispatchTimesOutHungSink(t *testing.T) {
-	hung := &fakeSink{name: "hung", events: []Event{EventApplied}, fn: func(ctx context.Context, _ Payload) error {
+func TestDispatchTimesOutHungChannel(t *testing.T) {
+	hung := &fakeChannel{name: "hung", events: []Event{EventApplied}, fn: func(ctx context.Context, _ Payload) error {
 		<-ctx.Done() // honors ctx: returns on cancellation
 		return ctx.Err()
 	}}
-	fast := &fakeSink{name: "fast", events: []Event{EventApplied}}
+	fast := &fakeChannel{name: "fast", events: []Event{EventApplied}}
 	start := time.Now()
-	errs := DispatchWith(context.Background(), []Sink{hung, fast},
+	errs := DispatchWith(context.Background(), []Channel{hung, fast},
 		[]Payload{{Event: EventApplied, PR: &PRPayload{}}},
 		DispatchOptions{DeliveryTimeout: 50 * time.Millisecond})
 	if time.Since(start) > 3*time.Second {
 		t.Fatalf("dispatch blocked too long")
 	}
 	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "hung") {
-		t.Fatalf("want one error from hung sink, got %v", errs)
+		t.Fatalf("want one error from hung channel, got %v", errs)
 	}
 }
 
-func TestDispatchAbandonsSinkIgnoringContext(t *testing.T) {
+func TestDispatchAbandonsChannelIgnoringContext(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
-	stuck := &fakeSink{name: "stuck", events: []Event{EventApplied, EventFailed}, fn: func(context.Context, Payload) error {
+	stuck := &fakeChannel{name: "stuck", events: []Event{EventApplied, EventFailed}, fn: func(context.Context, Payload) error {
 		<-release // ignores ctx entirely
 		return nil
 	}}
-	errs := DispatchWith(context.Background(), []Sink{stuck},
+	errs := DispatchWith(context.Background(), []Channel{stuck},
 		[]Payload{{Event: EventApplied, PR: &PRPayload{}}, {Event: EventFailed, PR: &PRPayload{}}},
 		DispatchOptions{DeliveryTimeout: 30 * time.Millisecond})
 	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "timed out") {
@@ -108,9 +108,9 @@ func TestDispatchAbandonsSinkIgnoringContext(t *testing.T) {
 
 func TestDispatchCollectsErrors(t *testing.T) {
 	boom := errors.New("boom")
-	bad := &fakeSink{name: "bad", events: []Event{EventApplied}, fn: func(context.Context, Payload) error { return boom }}
-	good := &fakeSink{name: "good", events: []Event{EventApplied}}
-	errs := Dispatch(context.Background(), []Sink{bad, good}, []Payload{{Event: EventApplied, PR: &PRPayload{}}})
+	bad := &fakeChannel{name: "bad", events: []Event{EventApplied}, fn: func(context.Context, Payload) error { return boom }}
+	good := &fakeChannel{name: "good", events: []Event{EventApplied}}
+	errs := Dispatch(context.Background(), []Channel{bad, good}, []Payload{{Event: EventApplied, PR: &PRPayload{}}})
 	if len(errs) != 1 || !errors.Is(errs[0], boom) || !strings.Contains(errs[0].Error(), "bad") {
 		t.Fatalf("errs: %v", errs)
 	}

@@ -135,6 +135,16 @@ func Load(root string) (*Config, error) {
 			if err := strictDecode(data, &d); err != nil {
 				return nil, fmt.Errorf("%s: %w", f, err)
 			}
+			// `sinks:` shipped in v0.2.0 and remains a deprecated alias for
+			// `channels:`. Prefer `channels:`; both at once is ambiguous.
+			if len(d.DeprecatedSinks) > 0 {
+				if len(d.Channels) > 0 {
+					return nil, fmt.Errorf("%s: both channels: and sinks: are set; sinks: is a deprecated alias for channels: - merge the entries under channels:", f)
+				}
+				slog.Warn("drift.yaml sinks: is deprecated; rename it to channels: (or run `reeve migrate-config`)", "file", f)
+				d.Channels = d.DeprecatedSinks
+				d.DeprecatedSinks = nil
+			}
 			cfg.Drift = &d
 		case "observability":
 			if prev, ok := seenType["observability"]; ok {
@@ -169,9 +179,9 @@ func Load(root string) (*Config, error) {
 }
 
 // maxSchemaVersion returns the highest supported schema version for a
-// config_type. notifications gained v2 (generic `sinks:` list) - v1 (the
+// config_type. notifications gained v2 (generic `channels:` list) - v1 (the
 // legacy `slack:` block) remains fully supported and is mapped onto the
-// sink model internally. `reeve migrate-config` rewrites v1 to v2.
+// channel model internally. `reeve migrate-config` rewrites v1 to v2.
 func maxSchemaVersion(configType string) int {
 	if configType == "notifications" {
 		return 2
@@ -191,51 +201,51 @@ func (c *Config) Validate() error {
 	if c.Shared.Bucket.Type == "" {
 		return errors.New("shared.yaml: bucket.type is required")
 	}
-	if err := c.validateSinks(); err != nil {
+	if err := c.validateChannels(); err != nil {
 		return err
 	}
 	return nil
 }
 
-// validateSinks checks every sink declaration (notifications.yaml `sinks:`
-// and drift.yaml `sinks:`): `on:` entries must be known event names, and an
-// empty subscription list draws a warning because the sink will never fire.
+// validateChannels checks every channel declaration (notifications.yaml `channels:`
+// and drift.yaml `channels:`): `on:` entries must be known event names, and an
+// empty subscription list draws a warning because the channel will never fire.
 // (The legacy notifications `slack:` block is exempt from the empty-`on`
 // warning - it defaults to all events at or after its trigger.)
-func (c *Config) validateSinks() error {
-	check := func(file string, sinks []schemas.SinkYAML) error {
-		for _, s := range sinks {
+func (c *Config) validateChannels() error {
+	check := func(file string, channels []schemas.ChannelYAML) error {
+		for _, s := range channels {
 			if s.Type == "" {
-				return fmt.Errorf("%s: sink %q: type is required", file, s.EffectiveName())
+				return fmt.Errorf("%s: channel %q: type is required", file, s.EffectiveName())
 			}
 			for _, ev := range s.On {
-				if !schemas.IsValidSinkEvent(ev) {
-					return fmt.Errorf("%s: sink %q: unknown event %q in on: (valid: %s)",
-						file, s.EffectiveName(), ev, strings.Join(schemas.ValidSinkEvents, ", "))
+				if !schemas.IsValidChannelEvent(ev) {
+					return fmt.Errorf("%s: channel %q: unknown event %q in on: (valid: %s)",
+						file, s.EffectiveName(), ev, strings.Join(schemas.ValidChannelEvents, ", "))
 				}
 			}
 			if len(s.On) == 0 && s.Type != "slack" {
-				slog.Warn("notification sink subscribes to no events and will never fire; set on:",
-					"file", file, "sink", s.EffectiveName(), "type", s.Type)
+				slog.Warn("notification channel subscribes to no events and will never fire; set on:",
+					"file", file, "channel", s.EffectiveName(), "type", s.Type)
 			}
 		}
 		return nil
 	}
 	if c.Notifications != nil {
-		if err := check("notifications.yaml", c.Notifications.Sinks); err != nil {
+		if err := check("notifications.yaml", c.Notifications.Channels); err != nil {
 			return err
 		}
 		if c.Notifications.Slack != nil {
 			for _, ev := range c.Notifications.Slack.Events {
-				if !schemas.IsValidSinkEvent(string(ev)) {
+				if !schemas.IsValidChannelEvent(string(ev)) {
 					return fmt.Errorf("notifications.yaml: slack.events: unknown event %q (valid: %s)",
-						ev, strings.Join(schemas.ValidSinkEvents, ", "))
+						ev, strings.Join(schemas.ValidChannelEvents, ", "))
 				}
 			}
 		}
 	}
 	if c.Drift != nil {
-		if err := check("drift.yaml", c.Drift.Sinks); err != nil {
+		if err := check("drift.yaml", c.Drift.Channels); err != nil {
 			return err
 		}
 	}

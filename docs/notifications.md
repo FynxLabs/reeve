@@ -1,25 +1,25 @@
 # Notifications
 
-reeve publishes lifecycle events through a single **notification-sink
+reeve publishes lifecycle events through a single **notification-channel
 framework** (`internal/notify`). Two producers feed it:
 
 - the **PR flow** (plan → ready → approved → applying → applied/failed/blocked)
 - the **drift runner** (drift_detected / drift_ongoing / drift_resolved / check_failed)
 
 A destination is implemented once and can subscribe to events from either
-producer: the same Slack sink that tracks a PR's apply lifecycle can also
+producer: the same Slack channel that tracks a PR's apply lifecycle can also
 receive drift alerts, and a webhook can be pointed at both.
 
-## Declaring sinks
+## Declaring channels
 
-Sinks are declared in `.reeve/notifications.yaml` (v2 shape) as a generic
+Channels are declared in `.reeve/notifications.yaml` (v2 shape) as a generic
 list — `type` picks the adapter, `on:` picks the events:
 
 ```yaml
 version: 2
 config_type: notifications
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-deploys"
     auth_token: ${env:SLACK_BOT_TOKEN}
@@ -40,9 +40,11 @@ sinks:
       Authorization: "Bearer ${env:HOOK_TOKEN}"
 ```
 
-Drift-only sinks can also live in `drift.yaml` under `sinks:` (same shape,
-same adapters) — that file remains fully supported. See
-[drift.md](drift.md#sinks) for the drift-specific rendering of each type.
+Drift-only channels can also live in `drift.yaml` under `channels:` (same shape,
+same adapters) — that file remains fully supported. drift.yaml's pre-v0.3
+spelling `sinks:` is still accepted as a deprecated alias (`reeve
+migrate-config` rewrites it; declaring both keys is an error). See
+[drift.md](drift.md#channels) for the drift-specific rendering of each type.
 
 ### Events
 
@@ -62,12 +64,12 @@ Valid `on:` values, in lifecycle order:
 | `drift_resolved` | drift | Was drifted, now clean |
 | `check_failed` | drift | Drift check errored |
 
-Unknown names in `on:` fail `reeve lint` / config load. A sink with an
+Unknown names in `on:` fail `reeve lint` / config load. A channel with an
 empty `on:` list draws a warning — it will never fire (exception: a Slack
-sink defaults to every PR-flow event at or after its `trigger`, preserving
+channel defaults to every PR-flow event at or after its `trigger`, preserving
 the legacy behavior).
 
-### Sink types
+### Channel types
 
 | Type | Destination | Notes |
 | --- | --- | --- |
@@ -77,14 +79,14 @@ the legacy behavior).
 | `github_issue` | GitHub issue per drifted stack | Drift events only; `labels`, `assignees`. Requires `GITHUB_TOKEN` with `issues: write` |
 | `otel_annotation` | Annotation emitters (Grafana/Datadog/Dash0) | Maps drift + apply lifecycle onto annotation events; configure emitters in `observability.yaml` |
 
-Common fields on every sink: `type`, `name` (defaults to the type),
+Common fields on every channel: `type`, `name` (defaults to the type),
 `enabled` (defaults to `true`), `on`.
 
 ### Delivery guarantees
 
-- Sinks receive events **concurrently** — one hung endpoint cannot starve
+- Channels receive events **concurrently** — one hung endpoint cannot starve
   the others. Each delivery is bounded by a timeout.
-- HTTP sinks (webhook, pagerduty) share an HTTP client with a sane
+- HTTP channels (webhook, pagerduty) share an HTTP client with a sane
   timeout and retry transient failures (network errors, 5xx, 429) with
   bounded exponential backoff.
 - Notification failures are logged, never fatal: they cannot abort a plan
@@ -95,7 +97,7 @@ Common fields on every sink: `type`, `name` (defaults to the type),
 ## Legacy shape (v1)
 
 The pre-v0.3 shape — a single `slack:` block — keeps working unchanged and
-is mapped onto the sink model internally (`slack.events` becomes `on:`):
+is mapped onto the channel model internally (`slack.events` becomes `on:`):
 
 ```yaml
 version: 1
@@ -109,12 +111,12 @@ slack:
   events: [plan, applied, failed]
 ```
 
-Run `reeve migrate-config` to rewrite it to the v2 `sinks:` shape
+Run `reeve migrate-config` to rewrite it to the v2 `channels:` shape
 (originals are backed up as `*.bak`; `--dry-run` previews). Migration is
 optional — v1 files load forever.
 
 `comments.*` in `shared.yaml` (PR comment rendering) is unchanged and
-unrelated to sinks.
+unrelated to channels.
 
 ## The Slack PR message lifecycle
 
@@ -125,23 +127,23 @@ rules).
 ## Adding a destination
 
 One interface implementation serves both producers. In
-`internal/notify/sinks/<name>`:
+`internal/notify/channels/<name>`:
 
 ```go
-func init() { notify.Register("my_sink", New) }
+func init() { notify.Register("my_channel", New) }
 
-func New(_ context.Context, cfg schemas.SinkYAML, deps notify.Deps) (notify.Sink, error) {
+func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
     // return (nil, nil) to skip when an optional dependency is missing
 }
 
-func (s *Sink) Name() string                { ... }
-func (s *Sink) Subscribes() []notify.Event  { ... } // usually notify.ParseEvents(cfg.On)
-func (s *Sink) Deliver(ctx context.Context, p notify.Payload) error {
+func (s *Channel) Name() string                { ... }
+func (s *Channel) Subscribes() []notify.Event  { ... } // usually notify.ParseEvents(cfg.On)
+func (s *Channel) Deliver(ctx context.Context, p notify.Payload) error {
     // p.Drift != nil for drift events, p.PR != nil for PR-flow events
 }
 ```
 
 Then add the package to `internal/notify/all` (or import it directly in a
-custom build). Sinks self-register; the factory resolves purely by the
+custom build). Channels self-register; the factory resolves purely by the
 config `type:` string — no core code changes needed (see the modularity
 contract in `openspec/specs/architecture`).

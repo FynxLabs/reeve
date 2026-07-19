@@ -1,7 +1,7 @@
-// Package notify is the shared notification-sink framework. Both producers
+// Package notify is the shared notification-channel framework. Both producers
 // (the drift runner and the PR-flow pipeline) publish events through it; a
-// destination implements Sink once and can subscribe to events from either
-// producer. Concrete sinks live in subpackages under internal/notify/sinks
+// destination implements Channel once and can subscribe to events from either
+// producer. Concrete channels live in subpackages under internal/notify/channels
 // and self-register via Register in their init(), so a build can compile in
 // a subset (see the modularity contract in openspec/specs/architecture).
 package notify
@@ -12,25 +12,25 @@ import (
 	"github.com/thefynx/reeve/internal/config/schemas"
 )
 
-// Event names a lifecycle event a sink can subscribe to. The string values
-// are the `on:` names in config (schemas.ValidSinkEvents).
+// Event names a lifecycle event a channel can subscribe to. The string values
+// are the `on:` names in config (schemas.ValidChannelEvents).
 type Event string
 
 const (
 	// PR-flow events (produced by the run pipeline).
-	EventPlan     Event = schemas.SinkEventPlan     // preview finished, pending approval
-	EventReady    Event = schemas.SinkEventReady    // /reeve ready (or auto_ready)
-	EventApproved Event = schemas.SinkEventApproved // preconditions passed, apply imminent
-	EventApplying Event = schemas.SinkEventApplying // apply loop started
-	EventApplied  Event = schemas.SinkEventApplied  // apply finished successfully
-	EventFailed   Event = schemas.SinkEventFailed   // apply errored
-	EventBlocked  Event = schemas.SinkEventBlocked  // apply blocked (gates/locks)
+	EventPlan     Event = schemas.ChannelEventPlan     // preview finished, pending approval
+	EventReady    Event = schemas.ChannelEventReady    // /reeve ready (or auto_ready)
+	EventApproved Event = schemas.ChannelEventApproved // preconditions passed, apply imminent
+	EventApplying Event = schemas.ChannelEventApplying // apply loop started
+	EventApplied  Event = schemas.ChannelEventApplied  // apply finished successfully
+	EventFailed   Event = schemas.ChannelEventFailed   // apply errored
+	EventBlocked  Event = schemas.ChannelEventBlocked  // apply blocked (gates/locks)
 
 	// Drift events (produced by the drift runner).
-	EventDriftDetected Event = schemas.SinkEventDriftDetected
-	EventDriftOngoing  Event = schemas.SinkEventDriftOngoing
-	EventDriftResolved Event = schemas.SinkEventDriftResolved
-	EventCheckFailed   Event = schemas.SinkEventCheckFailed
+	EventDriftDetected Event = schemas.ChannelEventDriftDetected
+	EventDriftOngoing  Event = schemas.ChannelEventDriftOngoing
+	EventDriftResolved Event = schemas.ChannelEventDriftResolved
+	EventCheckFailed   Event = schemas.ChannelEventCheckFailed
 )
 
 // PREvents lists every PR-flow event in lifecycle order.
@@ -48,14 +48,14 @@ func DriftEvents() []Event {
 func ParseEvents(on []string) []Event {
 	out := make([]Event, 0, len(on))
 	for _, s := range on {
-		if schemas.IsValidSinkEvent(s) {
+		if schemas.IsValidChannelEvent(s) {
 			out = append(out, Event(s))
 		}
 	}
 	return out
 }
 
-// Payload is what every sink receives per delivery. Exactly one of Drift or
+// Payload is what every channel receives per delivery. Exactly one of Drift or
 // PR is non-nil, matching the event's producer.
 type Payload struct {
 	Event Event
@@ -64,7 +64,7 @@ type Payload struct {
 }
 
 // DriftPayload is one stack's drift-check outcome, flattened from
-// drift.RunOutput so sinks do not depend on the drift package.
+// drift.RunOutput so channels do not depend on the drift package.
 type DriftPayload struct {
 	Project     string
 	Stack       string
@@ -110,15 +110,15 @@ type StackResult struct {
 // Total is the change-count sum, used for no-op detection.
 func (s StackResult) Total() int { return s.Add + s.Change + s.Delete + s.Replace }
 
-// Sink delivers events. Implementations are expected to be reentrant-safe,
+// Channel delivers events. Implementations are expected to be reentrant-safe,
 // side-effect-only, and to honor ctx cancellation (Dispatch enforces a
 // per-delivery timeout through ctx).
-type Sink interface {
+type Channel interface {
 	Name() string
-	// Subscribes returns the event types this sink wants to receive.
+	// Subscribes returns the event types this channel wants to receive.
 	Subscribes() []Event
 	// Deliver publishes one event. Return error only for unrecoverable
-	// failures; sinks swallow transient errors internally (Deliver-level
-	// retries for HTTP sinks live in PostJSON).
+	// failures; channels swallow transient errors internally (Deliver-level
+	// retries for HTTP channels live in PostJSON).
 	Deliver(ctx context.Context, p Payload) error
 }

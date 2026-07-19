@@ -17,17 +17,17 @@ type DispatchOptions struct {
 	DeliveryTimeout time.Duration
 }
 
-// Dispatch delivers every subscribed payload to every sink. Sinks run
-// concurrently (one hung endpoint cannot starve the others); within a sink,
-// payloads deliver in order so stateful sinks (Slack message upserts) stay
-// consistent. Each delivery is bounded by a timeout; a sink that overruns it
+// Dispatch delivers every subscribed payload to every channel. Channels run
+// concurrently (one hung endpoint cannot starve the others); within a channel,
+// payloads deliver in order so stateful channels (Slack message upserts) stay
+// consistent. Each delivery is bounded by a timeout; a channel that overruns it
 // is abandoned for the rest of the batch. Errors are collected, never fatal.
-func Dispatch(ctx context.Context, sinks []Sink, payloads []Payload) []error {
-	return DispatchWith(ctx, sinks, payloads, DispatchOptions{})
+func Dispatch(ctx context.Context, channels []Channel, payloads []Payload) []error {
+	return DispatchWith(ctx, channels, payloads, DispatchOptions{})
 }
 
 // DispatchWith is Dispatch with explicit options.
-func DispatchWith(ctx context.Context, sinks []Sink, payloads []Payload, opts DispatchOptions) []error {
+func DispatchWith(ctx context.Context, channels []Channel, payloads []Payload, opts DispatchOptions) []error {
 	timeout := opts.DeliveryTimeout
 	if timeout <= 0 {
 		timeout = DefaultDeliveryTimeout
@@ -44,9 +44,9 @@ func DispatchWith(ctx context.Context, sinks []Sink, payloads []Payload, opts Di
 		mu.Unlock()
 	}
 
-	for _, s := range sinks {
+	for _, s := range channels {
 		wg.Add(1)
-		go func(s Sink) {
+		go func(s Channel) {
 			defer wg.Done()
 			subs := s.Subscribes()
 			for _, p := range payloads {
@@ -54,19 +54,19 @@ func DispatchWith(ctx context.Context, sinks []Sink, payloads []Payload, opts Di
 					continue
 				}
 				if err := ctx.Err(); err != nil {
-					record(fmt.Errorf("sink %s: %w", s.Name(), err))
+					record(fmt.Errorf("channel %s: %w", s.Name(), err))
 					return
 				}
 				err, timedOut := deliverBounded(ctx, s, p, timeout)
 				if timedOut {
-					// The Deliver goroutine may still be running (a sink
-					// that ignores ctx); abandon this sink rather than
+					// The Deliver goroutine may still be running (a channel
+					// that ignores ctx); abandon this channel rather than
 					// racing further deliveries against it.
-					record(fmt.Errorf("sink %s: event %s: delivery timed out after %s (skipping remaining deliveries)", s.Name(), p.Event, timeout))
+					record(fmt.Errorf("channel %s: event %s: delivery timed out after %s (skipping remaining deliveries)", s.Name(), p.Event, timeout))
 					return
 				}
 				if err != nil {
-					record(fmt.Errorf("sink %s: event %s: %w", s.Name(), p.Event, err))
+					record(fmt.Errorf("channel %s: event %s: %w", s.Name(), p.Event, err))
 				}
 			}
 		}(s)
@@ -76,9 +76,9 @@ func DispatchWith(ctx context.Context, sinks []Sink, payloads []Payload, opts Di
 }
 
 // deliverBounded runs Deliver under a per-delivery timeout. timedOut is true
-// only when the sink failed to return by the deadline (i.e. it also ignored
+// only when the channel failed to return by the deadline (i.e. it also ignored
 // ctx cancellation for the grace we give it).
-func deliverBounded(ctx context.Context, s Sink, p Payload, timeout time.Duration) (err error, timedOut bool) {
+func deliverBounded(ctx context.Context, s Channel, p Payload, timeout time.Duration) (err error, timedOut bool) {
 	dctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	done := make(chan error, 1)
@@ -89,7 +89,7 @@ func deliverBounded(ctx context.Context, s Sink, p Payload, timeout time.Duratio
 	case err := <-done:
 		return err, false
 	case <-dctx.Done():
-		// Grace period: a well-behaved sink returns promptly once its ctx
+		// Grace period: a well-behaved channel returns promptly once its ctx
 		// is cancelled - prefer its real error over a bare timeout.
 		select {
 		case err := <-done:

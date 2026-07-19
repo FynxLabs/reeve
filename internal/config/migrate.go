@@ -11,9 +11,12 @@ import (
 )
 
 // Migrator applies per-config_type version bumps. Each registered
-// migration converts version N→N+1 for a single file.
+// migration converts version N→N+1 for a single file. It also applies
+// same-version rewrites: spelling modernisations (deprecated aliases) that
+// do not change the schema version.
 type Migrator struct {
 	registry map[migrationKey]migrationFn
+	rewrites map[string]rewriteFn
 }
 
 type migrationKey struct {
@@ -23,17 +26,55 @@ type migrationKey struct {
 
 type migrationFn func(*yaml.Node) error
 
+// rewriteFn modernises a file in place without a version bump. It reports
+// whether it changed anything.
+type rewriteFn func(*yaml.Node) (bool, error)
+
 // NewMigrator returns a Migrator with the built-in migrations registered.
 func NewMigrator() *Migrator {
-	m := &Migrator{registry: map[migrationKey]migrationFn{}}
+	m := &Migrator{registry: map[migrationKey]migrationFn{}, rewrites: map[string]rewriteFn{}}
 	m.registry[migrationKey{ConfigType: "notifications", From: 1}] = migrateNotificationsV1ToV2
+	m.rewrites["drift"] = rewriteDriftSinksToChannels
 	return m
 }
 
+// rewriteDriftSinksToChannels renames drift.yaml's deprecated `sinks:` key
+// (shipped in v0.2.0) to `channels:`. The loader accepts `sinks:` as an
+// alias, so running this is optional but silences the deprecation warning.
+// A file that already uses `channels:` (or has neither key) is untouched;
+// a file with both keys is left for the loader to reject.
+func rewriteDriftSinksToChannels(root *yaml.Node) (bool, error) {
+	m := docMapping(root)
+	if m == nil {
+		return false, fmt.Errorf("drift: expected a mapping document")
+	}
+	sinksIdx, channelsIdx := -1, -1
+	for i := 0; i < len(m.Content); i += 2 {
+		switch m.Content[i].Value {
+		case "channels":
+			channelsIdx = i
+		case "sinks":
+			sinksIdx = i
+		}
+	}
+	if sinksIdx < 0 || channelsIdx >= 0 {
+		// Nothing to rename, or channels: already present (both-keys is a
+		// loader error; renaming would create a duplicate key).
+		return false, nil
+	}
+	key := m.Content[sinksIdx]
+	renamed := scalarNode("channels")
+	renamed.HeadComment = key.HeadComment
+	renamed.LineComment = key.LineComment
+	renamed.FootComment = key.FootComment
+	m.Content[sinksIdx] = renamed
+	return true, nil
+}
+
 // migrateNotificationsV1ToV2 rewrites the legacy `slack:` block into an
-// entry of the generic `sinks:` list:
+// entry of the generic `channels:` list:
 //
-//	slack:                      sinks:
+//	slack:                      channels:
 //	  enabled: true               - type: slack
 //	  channel: "#x"        →        enabled: true
 //	  events: [plan]                channel: "#x"
@@ -49,13 +90,13 @@ func migrateNotificationsV1ToV2(root *yaml.Node) error {
 		return fmt.Errorf("notifications: expected a mapping document")
 	}
 	slackIdx := -1
-	sinksIdx := -1
+	channelsIdx := -1
 	for i := 0; i < len(m.Content); i += 2 {
 		switch m.Content[i].Value {
 		case "slack":
 			slackIdx = i
-		case "sinks":
-			sinksIdx = i
+		case "channels":
+			channelsIdx = i
 		}
 	}
 	if slackIdx < 0 {
@@ -66,8 +107,8 @@ func migrateNotificationsV1ToV2(root *yaml.Node) error {
 		return fmt.Errorf("notifications: slack: expected a mapping")
 	}
 
-	sink := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	sink.Content = append(sink.Content, scalarNode("type"), scalarNode("slack"))
+	channel := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	channel.Content = append(channel.Content, scalarNode("type"), scalarNode("slack"))
 	for i := 0; i < len(slackVal.Content); i += 2 {
 		k, v := slackVal.Content[i], slackVal.Content[i+1]
 		if k.Value == "events" {
@@ -75,23 +116,23 @@ func migrateNotificationsV1ToV2(root *yaml.Node) error {
 			k.HeadComment = slackVal.Content[i].HeadComment
 			k.LineComment = slackVal.Content[i].LineComment
 		}
-		sink.Content = append(sink.Content, k, v)
+		channel.Content = append(channel.Content, k, v)
 	}
 
-	if sinksIdx >= 0 {
-		// A sinks list already exists (mixed v1 file): append the converted
+	if channelsIdx >= 0 {
+		// A channels list already exists (mixed v1 file): append the converted
 		// slack entry and drop the slack key.
-		seq := m.Content[sinksIdx+1]
+		seq := m.Content[channelsIdx+1]
 		if seq.Kind != yaml.SequenceNode {
-			return fmt.Errorf("notifications: sinks: expected a sequence")
+			return fmt.Errorf("notifications: channels: expected a sequence")
 		}
-		seq.Content = append(seq.Content, sink)
+		seq.Content = append(seq.Content, channel)
 		m.Content = append(m.Content[:slackIdx], m.Content[slackIdx+2:]...)
 		return nil
 	}
 
-	seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{sink}}
-	m.Content[slackIdx] = scalarNode("sinks")
+	seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{channel}}
+	m.Content[slackIdx] = scalarNode("channels")
 	m.Content[slackIdx].HeadComment = slackVal.HeadComment
 	m.Content[slackIdx+1] = seq
 	return nil
@@ -176,6 +217,14 @@ func (m *Migrator) migrateOne(path string, dryRun bool) error {
 		}
 		cur++
 		changed = true
+	}
+
+	if rw, ok := m.rewrites[configType]; ok {
+		did, err := rw(&root)
+		if err != nil {
+			return err
+		}
+		changed = changed || did
 	}
 
 	if !changed {

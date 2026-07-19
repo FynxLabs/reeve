@@ -25,7 +25,7 @@ func driftPayload() notify.Payload {
 	}
 }
 
-func build(t *testing.T, cfg schemas.SinkYAML) notify.Sink {
+func build(t *testing.T, cfg schemas.ChannelYAML) notify.Channel {
 	t.Helper()
 	s, err := New(context.Background(), cfg, notify.Deps{HTTP: &http.Client{Timeout: 5 * time.Second}})
 	if err != nil {
@@ -44,7 +44,7 @@ func TestDriftWireFormatUnchanged(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := build(t, schemas.SinkYAML{
+	s := build(t, schemas.ChannelYAML{
 		Type: "webhook", URL: srv.URL,
 		Headers: map[string]string{"X-Token": "secret"},
 		On:      []string{"drift_detected"},
@@ -59,7 +59,7 @@ func TestDriftWireFormatUnchanged(t *testing.T) {
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)
 	}
-	// Exact key parity with the previous drift-only sink.
+	// Exact key parity with the previous drift-only channel.
 	for _, k := range []string{"event", "project", "stack", "env", "outcome", "counts", "fingerprint", "error", "run_id"} {
 		if _, ok := got[k]; !ok {
 			t.Fatalf("missing key %q in %v", k, got)
@@ -82,7 +82,7 @@ func TestPRPayloadShape(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := build(t, schemas.SinkYAML{Type: "webhook", URL: srv.URL, On: []string{"applied"}})
+	s := build(t, schemas.ChannelYAML{Type: "webhook", URL: srv.URL, On: []string{"applied"}})
 	err := s.Deliver(context.Background(), notify.Payload{
 		Event: notify.EventApplied,
 		PR: &notify.PRPayload{
@@ -116,7 +116,7 @@ func TestDeliverRetriesOn5xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := build(t, schemas.SinkYAML{Type: "webhook", URL: srv.URL, On: []string{"drift_detected"}})
+	s := build(t, schemas.ChannelYAML{Type: "webhook", URL: srv.URL, On: []string{"drift_detected"}})
 	if err := s.Deliver(context.Background(), driftPayload()); err != nil {
 		t.Fatalf("Deliver should retry through the 503: %v", err)
 	}
