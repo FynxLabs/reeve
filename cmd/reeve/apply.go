@@ -25,7 +25,19 @@ func newApplyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Run apply for approved stacks",
-		RunE:  runApply,
+		Long: `Run apply for the stacks affected by the PR, after evaluating locks,
+preconditions, approvals, and freeze windows.
+
+Exit codes:
+  0  every targeted stack applied cleanly or was a no-op, or every stack was
+     blocked by preconditions/locks. Blocked is a deliberate non-failure:
+     gates held the apply back and nothing was attempted, so the check stays
+     green and a later re-run can proceed.
+  1  one or more stacks FAILED to apply (engine, auth, or lock-storage
+     error), the run was cancelled by a signal, post-apply persistence
+     failed, or the run itself errored before applying (config, VCS,
+     storage). A failed apply is never a green check.`,
+		RunE: runApply,
 	}
 	addPreviewFlags(cmd)
 	cmd.Flags().String("actor", "", "User triggering the apply (default: $GITHUB_ACTOR)")
@@ -171,6 +183,12 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Exit-code contract: failed stacks always exit nonzero (a failed apply
+	// must never render as a green check); blocked-only exits zero
+	// (preconditions held the run back - nothing was attempted, nothing broke).
+	if out.Failed {
+		return applyFailedError(out, pr)
+	}
 	if out.Blocked {
 		fmt.Fprintf(cmd.OutOrStdout(), "apply blocked by preconditions for one or more stacks (PR #%d, run_id=%s)\n", pr, out.RunID)
 		return nil
@@ -178,4 +196,10 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "apply complete (PR #%d, run_id=%s, %d stacks, %ds)\n",
 		pr, out.RunID, len(out.Stacks), out.DurationSec)
 	return nil
+}
+
+// applyFailedError builds the nonzero-exit error naming every failed stack.
+func applyFailedError(out *run.ApplyOutput, pr int) error {
+	return fmt.Errorf("apply failed for %d stack(s): %s (PR #%d, run_id=%s)",
+		len(out.FailedStacks), strings.Join(out.FailedStacks, ", "), pr, out.RunID)
 }

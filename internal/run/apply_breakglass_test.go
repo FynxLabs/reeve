@@ -43,13 +43,15 @@ func (f *bgEngine) Apply(ctx context.Context, s discovery.Stack, opts iac.ApplyO
 	return iac.ApplyResult{Counts: summary.Counts{Add: 1}}, nil
 }
 
-// bgVCS is a fake applyVCS with no approvals and configurable CODEOWNERS.
+// bgVCS is a fake applyVCS with configurable approvals and CODEOWNERS.
+// Break-glass tests leave approvalsList nil (approvals gate would fail).
 type bgVCS struct {
-	changed    []string
-	headSHA    string
-	codeowners string
-	comments   map[string][]string // marker → bodies (upserts)
-	posted     []string            // plain PostComment bodies
+	changed       []string
+	headSHA       string
+	codeowners    string
+	approvalsList []approvals.Approval
+	comments      map[string][]string // marker → bodies (upserts)
+	posted        []string            // plain PostComment bodies
 }
 
 func (f *bgVCS) ListChangedFiles(ctx context.Context, _ int) ([]string, error) {
@@ -78,7 +80,7 @@ func (f *bgVCS) ChecksGreen(ctx context.Context, _ string, _ vcs.ChecksGreenOpts
 func (f *bgVCS) CompareBranches(ctx context.Context, _, _ string) (int, error) { return 0, nil }
 func (f *bgVCS) Name() string                                                  { return "fake" }
 func (f *bgVCS) ListApprovals(ctx context.Context, _ approvals.PR) ([]approvals.Approval, error) {
-	return nil, nil // NO approvals: the approvals gate would fail normally
+	return f.approvalsList, nil // nil in break-glass tests: gate would fail normally
 }
 func (f *bgVCS) FetchCodeowners(ctx context.Context) (string, error) { return f.codeowners, nil }
 func (f *bgVCS) ListTeamMembers(ctx context.Context, slug string) ([]string, error) {

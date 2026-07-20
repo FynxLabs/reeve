@@ -105,6 +105,14 @@ type ApplyOutput struct {
 	RunID       string
 	DurationSec int
 	Blocked     bool // true if any stack was blocked by preconditions
+	// Failed is true when at least one stack's apply errored (lock storage,
+	// auth resolution, or engine failure). Callers MUST exit nonzero on it -
+	// a failed apply is never a green run. Blocked without Failed is a
+	// deliberate non-failure (preconditions held the run back; exit zero).
+	Failed bool
+	// FailedStacks lists the "project/stack" refs with StatusError, in run
+	// order, for the caller's exit-error summary line.
+	FailedStacks []string
 }
 
 // Apply runs apply for stacks affected by the PR. For each stack:
@@ -114,7 +122,7 @@ type ApplyOutput struct {
 // 4. Release lock (promotes queue).
 // 5. Emit audit entry.
 // The PR comment is updated at the end with the aggregated results.
-func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
+func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) {
 	start := time.Now()
 	runID := fmt.Sprintf("apply-%d-%s", in.RunNumber, shortSHA(in.CommitSHA))
 
@@ -125,9 +133,16 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 
 	// OTEL root span for this run. Finished at return.
 	ctx, endRun := in.OTEL.StartRunSpan(ctx, "apply", in.PRNumber, in.CommitSHA)
-	// "outcome" is filled in at return below.
+	// "outcome" is filled in along the way: explicit blocked/failed paths set
+	// it directly; any error return that did not set a more specific outcome
+	// is recorded as "error" so early failures never end the span "success".
 	outcome := "success"
-	defer func() { endRun(outcome) }()
+	defer func() {
+		if retErr != nil && outcome == "success" {
+			outcome = "error"
+		}
+		endRun(outcome)
+	}()
 
 	// Annotation: apply started.
 	PostAnnotation(ctx, in.Annotations, annotations.EventApplyStarted,
@@ -714,13 +729,28 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	PostAnnotation(ctx, in.Annotations, runEvent,
 		"", "", "", outcome, "", in.PRNumber, in.CommitSHA)
 
+	failedRefs := failedStackRefs(summaries)
 	return &ApplyOutput{
-		Stacks:      summaries,
-		CommentBody: body,
-		RunID:       runID,
-		DurationSec: dur,
-		Blocked:     anyBlocked,
+		Stacks:       summaries,
+		CommentBody:  body,
+		RunID:        runID,
+		DurationSec:  dur,
+		Blocked:      anyBlocked,
+		Failed:       len(failedRefs) > 0,
+		FailedStacks: failedRefs,
 	}, nil
+}
+
+// failedStackRefs returns the refs of stacks whose apply errored, in run
+// order. Non-empty means the run must surface a nonzero exit.
+func failedStackRefs(ss []summary.StackSummary) []string {
+	var refs []string
+	for _, s := range ss {
+		if s.Status == summary.StatusError {
+			refs = append(refs, s.Ref())
+		}
+	}
+	return refs
 }
 
 func gatesToTrace(r preconditions.Result) []summary.GateTrace {

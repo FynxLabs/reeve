@@ -69,13 +69,7 @@ func changedStacksDetail(ss []summary.StackSummary) string {
 }
 
 func failedStacksDetail(ss []summary.StackSummary) string {
-	var refs []string
-	for _, s := range ss {
-		if s.Status == summary.StatusError {
-			refs = append(refs, s.Ref())
-		}
-	}
-	return strings.Join(refs, ", ")
+	return strings.Join(failedStackRefs(ss), ", ")
 }
 
 func blockedStacksDetail(ss []summary.StackSummary) string {
