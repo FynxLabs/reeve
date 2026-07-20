@@ -15,7 +15,7 @@ import (
 	"github.com/thefynx/reeve/internal/config"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/drift"
-	"github.com/thefynx/reeve/internal/iac/pulumi"
+	"github.com/thefynx/reeve/internal/iac"
 	"github.com/thefynx/reeve/internal/vcs/codeowners"
 )
 
@@ -31,6 +31,17 @@ func newLintCmd() *cobra.Command {
 			}
 			if err := cfg.Validate(); err != nil {
 				return err
+			}
+			// Engine configs: every engine.type must resolve to a compiled-in
+			// engine, so a typo'd (or not-yet-shipped) type fails the CI gate
+			// here instead of at run time.
+			engines := make([]iac.Engine, len(cfg.Engines))
+			for i, ec := range cfg.Engines {
+				e, err := iac.New(ec.Engine)
+				if err != nil {
+					return err
+				}
+				engines[i] = e
 			}
 			// Freeze windows: reject unparseable cron or duration here so a
 			// typo fails the CI gate instead of silently disabling the freeze.
@@ -73,10 +84,10 @@ func newLintCmd() *cobra.Command {
 				// Collect declared stack refs for the conflict check.
 				var stacks []string
 				engineCfg := cfg.Engines[0]
-				engine := pulumi.New(engineCfg.Engine.Binary.Path)
+				engine := engines[0]
 				enum, err := engine.EnumerateStacks(context.Background(), root)
 				if err != nil {
-					return fmt.Errorf("enumerate stacks (is pulumi installed and the project valid?): %w", err)
+					return fmt.Errorf("enumerate stacks (is %s installed and the project valid?): %w", engine.Name(), err)
 				}
 				decls := make([]discovery.Declaration, 0, len(engineCfg.Engine.Stacks))
 				for _, s := range engineCfg.Engine.Stacks {

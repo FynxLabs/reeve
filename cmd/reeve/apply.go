@@ -16,7 +16,7 @@ import (
 	blocks "github.com/thefynx/reeve/internal/blob/locks"
 	"github.com/thefynx/reeve/internal/config"
 	"github.com/thefynx/reeve/internal/core/breakglass"
-	"github.com/thefynx/reeve/internal/iac/pulumi"
+	"github.com/thefynx/reeve/internal/iac"
 	"github.com/thefynx/reeve/internal/run"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
 )
@@ -124,7 +124,10 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	}
 
 	engineCfg := cfg.Engines[0]
-	engine := pulumi.New(engineCfg.Engine.Binary.Path)
+	engine, err := iac.New(engineCfg.Engine)
+	if err != nil {
+		return err
+	}
 
 	authReg, err := authfac.Build(ctx, cfg.Auth)
 	if err != nil {

@@ -19,7 +19,7 @@ import (
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/drift"
-	"github.com/thefynx/reeve/internal/iac/pulumi"
+	"github.com/thefynx/reeve/internal/iac"
 	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/run"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
@@ -95,7 +95,10 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		return err
 	}
 	engineCfg := cfg.Engines[0]
-	engine := pulumi.New(engineCfg.Engine.Binary.Path)
+	engine, err := iac.New(engineCfg.Engine)
+	if err != nil {
+		return err
+	}
 
 	// Build the auth resolver on top of the auth registry.
 	authReg, err := authfac.Build(ctx, cfg.Auth)
