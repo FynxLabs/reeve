@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/thefynx/reeve/internal/core/envref"
 	"github.com/thefynx/reeve/internal/notify"
 	slackchannel "github.com/thefynx/reeve/internal/notify/channels/slack"
 	slackapi "github.com/thefynx/reeve/internal/slack"
@@ -39,7 +40,7 @@ type SlackChannel struct {
 // without a token (auth_token or Deps.SlackToken) or a blob store, matching
 // the framework's unmet-optional-dependency convention.
 func NewSlack(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
-	token := slackchannel.ExpandEnvRef(cfg.AuthToken)
+	token := envref.Expand(cfg.AuthToken)
 	if token == "" {
 		token = deps.SlackToken
 	}
