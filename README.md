@@ -102,16 +102,41 @@ jobs:
           # slack-token: ${{ secrets.SLACK_BOT_TOKEN }}   # optional
 ```
 
+### Pinning and binaries
+
+How you pin the action decides where its binary comes from. A per-runner
+cache (keyed on the action's source hash) sits in front of every path, so
+all of this only matters on a cache miss:
+
+| Pin                | Binary source                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| `@vX.Y.Z`          | Signed release tarball from that release, verified against its `checksums.txt`                          |
+| `@master` / `@next`| Rolling edge binary whose name embeds the exact source hash of the checked-out action source (unsigned) |
+| anything else      | Built from source on the runner (SHA pins, feature branches, forks)                                     |
+
+Prebuilt paths save the ~30s+ Go toolchain setup + build on first runs. Any
+download or checksum failure falls back to the source build automatically -
+the run never breaks because a binary wasn't available.
+
 ### PR commands
 
 | Event / Comment              | What it does                                                    |
 | ---------------------------- | --------------------------------------------------------------- |
-| PR opened / push             | `reeve run preview` runs automatically, posts plan comment      |
+| PR opened / reopened / push  | `reeve run preview` runs automatically, posts plan comment      |
 | PR converted from draft      | `reeve run ready` runs automatically (if `auto_ready: true`)    |
 | `/reeve preview` or `/reeve plan` | Re-runs plan for this PR                               |
 | `/reeve ready`               | Marks PR ready for approval, posts comment, notifies Slack      |
 | `/reeve apply` or `/reeve up` | Applies all planned stacks (subject to approval gates)         |
+| `/reeve unlock [project/stack]` | Frees this PR's stack locks (all, or just one)               |
 | `/reeve help`                | Posts a comment listing available commands                      |
+
+Commands also work mention-style (`@reeve apply`); accepted prefixes are set
+by the `command-prefix` input (default `"/reeve,@reeve"`). Other
+`pull_request` actions (labels, assignees, edits) and all bot-authored
+comments are ignored, so reeve's own comments never re-trigger a run.
+Review approvals don't trigger runs unless you opt in with
+`run-on-approval: "true"` (the apply gate re-checks approvals anyway; opting
+in only buys the automatic approved-state notification).
 
 > Draft PRs cannot be applied. Convert to ready for review first.
 

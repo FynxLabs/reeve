@@ -93,7 +93,7 @@ func TestParsePreviewGroupedSummary(t *testing.T) {
 				"inputs":{
 					"accountId":"0fdf4fa7c335d942f6ec062a4433addf",
 					"tunnelId":"74aa6dbe-a42f-4551-921b-e6adc39a6151",
-					"config":{"ingresses":[{"hostname":"applepay-dev1.stg.credova.com","service":"http://localhost:3000"},{"service":"http_status:404"}]},
+					"config":{"ingresses":[{"hostname":"tunnel-dev1.stg.example.com","service":"http://localhost:3000"},{"service":"http_status:404"}]},
 					"token":{"4dabf18193072939515e22adb298388d":"1b47061264138c4ac30d75fd1eb44270","ciphertext":"AAAA"}
 				}}},
 			{"op":"update",
@@ -111,7 +111,7 @@ func TestParsePreviewGroupedSummary(t *testing.T) {
 	for _, want := range []string{
 		"+ Apple Pay Abel-config  (cloudflare:ZeroTrustTunnelCloudflaredConfig)",
 		`+     accountId: "0fdf4fa7c335d942f6ec062a4433addf"`,
-		`+     config: {ingresses: [{hostname: "applepay-dev1.stg.credova.com", service: "http://localhost:3000"}, {service: "http_status:404"}]}`,
+		`+     config: {ingresses: [{hostname: "tunnel-dev1.stg.example.com", service: "http://localhost:3000"}, {service: "http_status:404"}]}`,
 		"+     token: [secret]",
 		"~ web  (aws:Instance)",
 		`~     instanceType: "t3.small" => "t3.large"`,

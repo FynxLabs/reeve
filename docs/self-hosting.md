@@ -218,12 +218,19 @@ permissions:
 
 reeve expects these events:
 
-- `pull_request` (`opened`, `synchronize`, `reopened`) - fires `preview`
+- `pull_request` (`opened`, `reopened`, `synchronize`) - fires `preview`
 - `pull_request` (`ready_for_review`) - fires `ready` (if `auto_ready: true` and plan succeeded)
-- `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update)
-- `issue_comment` (`created`, body starts with `/reeve apply` (or `/reeve up`), `/reeve ready`, `/reeve preview` (or `/reeve plan`), or `/reeve help`) - fires respective command
+- `pull_request` (any other action, e.g. `labeled`, `assigned`, `edited`) - no-op
+- `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update), **only** when the action input `run-on-approval` is `"true"`; skipped by default since the apply gate re-checks approvals anyway
+- `issue_comment` (`created`, first word matches a `command-prefix` entry - default `/reeve` or `@reeve` - followed by `apply` (or `up`), `ready`, `preview` (or `plan`), or `help`) - fires respective command; comments authored by bots (user type `Bot` or login ending in `[bot]`) are always skipped to prevent self-trigger loops
 - `schedule` - fires `drift run`
 - `workflow_dispatch` - manual re-runs
+
+For run coalescing, use a `concurrency` group keyed per PR with
+`cancel-in-progress` limited to preview runs: previews never take apply
+locks, so cancelling one loses nothing, while an apply holds per-stack locks
+that only the run itself releases - never cancel an apply mid-run. See the
+workflow in [getting-started](getting-started.md#4-add-the-github-actions-workflow).
 
 ### GitHub App (optional but recommended for multi-repo)
 
@@ -301,14 +308,32 @@ overriding the workflow's default token.
 
 ## Distribution
 
-reeve has not cut a release. The only supported distribution today is
-**build from source in CI** - clone `FynxLabs/reeve`, run
-`go build ./cmd/reeve`, invoke the resulting binary.
+Tagged releases (`vX.Y.Z`) ship per-platform tarballs with a
+`checksums.txt` signed via cosign keyless, a container image on GHCR, and
+a Homebrew tap - all produced by goreleaser from
+`.github/workflows/release.yml`. Building from source
+(`go build ./cmd/reeve`) always remains supported.
 
-`.goreleaser.yaml`, the Homebrew formula block, the GHCR image pipeline,
-and the `cosign` signing steps are all wired up but haven't been run.
-When the first release is cut, signed release tarballs + a container
-image + a Homebrew tap will land; update this section at the same time.
+### Pinning and binaries (GitHub Action)
+
+The composite action resolves its binary in three tiers, cache first:
+
+| Pin                 | Binary source                                                                    |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `@vX.Y.Z`           | Signed release tarball, verified against the release's `checksums.txt`           |
+| `@master` / `@next` | Rolling edge binary from the `edge-<branch>` prerelease, matched to the action's exact source hash (unsigned, auto-fallback to source build) |
+| anything else       | Built from source on the runner (SHA pins, branches, forks)                      |
+
+A per-runner cache keyed `reeve-<os>-<arch>-<source hash>` fronts all
+three paths; only a cache miss triggers a download or build. The edge
+assets are published by `.github/workflows/edge-build.yml` on every push
+to `master`/`next` and are named after the source hash they were built
+from, so the action can prove an edge binary corresponds to the source it
+checked out - no hash match means it silently builds from source instead.
+Prebuilt binaries save the ~30s+ Go toolchain + build cost on cache
+misses. Edge builds are unsigned; if your supply-chain policy requires
+signatures, pin `@vX.Y.Z` (or a commit SHA, which always builds from the
+pinned source).
 
 ---
 
@@ -316,8 +341,10 @@ image + a Homebrew tap will land; update this section at the same time.
 
 ### Binary
 
-Until releases exist: `git pull` the reeve repo and rebuild. CI jobs
-that build from source pick up the new SHA on their next run.
+`brew upgrade reeve`, or grab the latest release tarball. CI jobs pick up
+new binaries per the pinning table above: `@vX.Y.Z` pins move when you
+edit the workflow; `@master`/`@next` pins track each push via edge
+binaries (or a source build while the edge build is still running).
 
 ### Config schema
 
@@ -357,11 +384,34 @@ wired OTEL.
 ```bash
 reeve locks list                    # shows holder + queue depth
 reeve locks explain <project/stack> # detail for one stack
+reeve locks unlock <project/stack>  # force-clear one holder, promote its queue
+reeve locks unlock <project/stack> --pr N  # remove a closed/abandoned PR instead
+reeve locks unlock --pr N           # ...from every lock that PR is in
+reeve locks unlock --pr N --force   # ...even a holder whose lease is active (mid-apply)
 ```
 
 Long queue depths on a stack indicate apply contention - usually a
 symptom of too-coarse stack granularity or PRs that take too long to
 merge after `/reeve apply`.
+
+Lock holders are identified by **PR + run ID**. A second concurrent run
+of the same PR is refused ("another run of this PR holds the lock")
+rather than applied in parallel, and only the run that acquired a lock
+can release it. A successful apply automatically removes its PR from every lock it
+still appeared in; for PRs closed while holding or queued, use
+`reeve locks unlock --pr N` so the queue doesn't promote a dead PR - or
+comment `/reeve unlock` on the PR itself, which does the same thing
+scoped to that PR (add `project/stack` to free just one lock). If the
+PR still holds a lock with an active lease - usually an apply mid-run -
+the unlock is refused and reeve comments back "this PR is in the middle
+of an apply; comment `/reeve unlock --force` if you are sure". Queue
+entries are always removed; only an active holder needs `--force`.
+Promotion from the queue grants a lease of the configured `locking.ttl`
+(default 4h).
+
+`locking.admin_override` gates only the force paths (`locks unlock`
+without `--pr`), which can clear other PRs' holders. PR-scoped removal
+is self-service: it cannot touch another PR's entries.
 
 ### Audit trail
 

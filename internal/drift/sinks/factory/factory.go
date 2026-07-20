@@ -4,7 +4,9 @@ package factory
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	gh "github.com/google/go-github/v66/github"
 	"golang.org/x/oauth2"
@@ -37,7 +39,7 @@ func Build(ctx context.Context, cfg *schemas.Drift, opts Options) ([]sinks.Sink,
 	}
 	var out []sinks.Sink
 	for _, sk := range cfg.Sinks {
-		events := parseEvents(sk.On)
+		events := parseEvents(nameOr(sk.Name, sk.Type), sk.On)
 		switch sk.Type {
 		case "slack":
 			if opts.SlackToken == "" {
@@ -94,19 +96,24 @@ func Build(ctx context.Context, cfg *schemas.Drift, opts Options) ([]sinks.Sink,
 	return out, nil
 }
 
-func parseEvents(on []string) []sinks.Event {
+// parseEvents maps the sink's `on:` list to events. Unknown names are
+// dropped with a loud warning (reeve lint rejects them outright); a sink
+// that ends up with an empty subscription never fires, so that gets a
+// warning too instead of silently doing nothing.
+func parseEvents(sinkName string, on []string) []sinks.Event {
 	out := make([]sinks.Event, 0, len(on))
 	for _, s := range on {
-		switch s {
-		case "drift_detected":
-			out = append(out, drift.EventDriftDetected)
-		case "drift_ongoing":
-			out = append(out, drift.EventDriftOngoing)
-		case "drift_resolved":
-			out = append(out, drift.EventDriftResolved)
-		case "check_failed":
-			out = append(out, drift.EventCheckFailed)
+		ev, ok := drift.ParseEventName(s)
+		if !ok {
+			slog.Warn("drift sink: unknown event in on: list; ignoring",
+				"sink", sinkName, "event", s, "valid", strings.Join(drift.KnownEventNames(), ", "))
+			continue
 		}
+		out = append(out, ev)
+	}
+	if len(out) == 0 {
+		slog.Warn("drift sink subscribes to no events and will never fire",
+			"sink", sinkName, "on", strings.Join(on, ", "))
 	}
 	return out
 }
