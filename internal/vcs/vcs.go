@@ -23,6 +23,26 @@ type CommentCapabilities struct {
 	SupportsEdit bool // GitHub + GitLab = true; false triggers append fallback
 }
 
+// CommentApprovalConfig configures the opt-in pr_comment approval source. The
+// adapter reads historical PR comments directly (not the dispatched event), so
+// it MUST re-enforce the same author_association authorization gate that
+// action.yml applies to `/reeve ...` commands - a comment from an unauthorized
+// commenter is not vouched for by anything upstream. All fields are populated
+// from the same action inputs that gate command dispatch.
+type CommentApprovalConfig struct {
+	// Command is the full trigger phrase, e.g. "/reeve approve". Its first
+	// token is accepted as a command prefix in addition to CommandPrefixes;
+	// its remaining tokens form the verb that must follow the prefix.
+	Command string
+	// CommandPrefixes is the set of accepted comment prefixes (default
+	// "/reeve" and "@reeve"), mirroring the action's command-prefix input.
+	CommandPrefixes []string
+	// AllowedAssociations is the author_association allowlist (e.g. OWNER,
+	// MEMBER, COLLABORATOR). Values are compared case-insensitively. A comment
+	// whose author_association is not listed never counts as an approval.
+	AllowedAssociations []string
+}
+
 // ChecksGreenOpts controls which check_runs ChecksGreen treats as "self" and
 // therefore skips when computing the green/red verdict. The defaults (zero
 // value) skip nothing - callers must populate this from their CI environment.
