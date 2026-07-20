@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,7 +84,7 @@ func newLintCmd() *cobra.Command {
 				var stacks []string
 				engineCfg := cfg.Engines[0]
 				engine := engines[0]
-				enum, err := engine.EnumerateStacks(context.Background(), root)
+				enum, err := engine.EnumerateStacks(cmd.Context(), root)
 				if err != nil {
 					return fmt.Errorf("enumerate stacks (is %s installed and the project valid?): %w", engine.Name(), err)
 				}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -89,7 +88,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	// Stack scan: filesystem walks for Pulumi.yaml projects and terraform
 	// root modules (no engine binaries needed), clustered into suggested
 	// declarations - the same path as `reeve stacks discover --write`.
-	pulumiEnum, scanErr := pulumi.New("").EnumerateStacks(context.Background(), root)
+	pulumiEnum, scanErr := pulumi.New("").EnumerateStacks(cmd.Context(), root)
 	if scanErr != nil {
 		fmt.Fprintf(w, "warning: pulumi stack scan failed (%v); continuing with an empty stacks: block\n", scanErr)
 	}
