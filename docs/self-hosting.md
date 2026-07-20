@@ -308,14 +308,32 @@ overriding the workflow's default token.
 
 ## Distribution
 
-reeve has not cut a release. The only supported distribution today is
-**build from source in CI** - clone `FynxLabs/reeve`, run
-`go build ./cmd/reeve`, invoke the resulting binary.
+Tagged releases (`vX.Y.Z`) ship per-platform tarballs with a
+`checksums.txt` signed via cosign keyless, a container image on GHCR, and
+a Homebrew tap - all produced by goreleaser from
+`.github/workflows/release.yml`. Building from source
+(`go build ./cmd/reeve`) always remains supported.
 
-`.goreleaser.yaml`, the Homebrew formula block, the GHCR image pipeline,
-and the `cosign` signing steps are all wired up but haven't been run.
-When the first release is cut, signed release tarballs + a container
-image + a Homebrew tap will land; update this section at the same time.
+### Pinning and binaries (GitHub Action)
+
+The composite action resolves its binary in three tiers, cache first:
+
+| Pin                 | Binary source                                                                    |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `@vX.Y.Z`           | Signed release tarball, verified against the release's `checksums.txt`           |
+| `@master` / `@next` | Rolling edge binary from the `edge-<branch>` prerelease, matched to the action's exact source hash (unsigned, auto-fallback to source build) |
+| anything else       | Built from source on the runner (SHA pins, branches, forks)                      |
+
+A per-runner cache keyed `reeve-<os>-<arch>-<source hash>` fronts all
+three paths; only a cache miss triggers a download or build. The edge
+assets are published by `.github/workflows/edge-build.yml` on every push
+to `master`/`next` and are named after the source hash they were built
+from, so the action can prove an edge binary corresponds to the source it
+checked out - no hash match means it silently builds from source instead.
+Prebuilt binaries save the ~30s+ Go toolchain + build cost on cache
+misses. Edge builds are unsigned; if your supply-chain policy requires
+signatures, pin `@vX.Y.Z` (or a commit SHA, which always builds from the
+pinned source).
 
 ---
 
@@ -323,8 +341,10 @@ image + a Homebrew tap will land; update this section at the same time.
 
 ### Binary
 
-Until releases exist: `git pull` the reeve repo and rebuild. CI jobs
-that build from source pick up the new SHA on their next run.
+`brew upgrade reeve`, or grab the latest release tarball. CI jobs pick up
+new binaries per the pinning table above: `@vX.Y.Z` pins move when you
+edit the workflow; `@master`/`@next` pins track each push via edge
+binaries (or a source build while the edge build is still running).
 
 ### Config schema
 

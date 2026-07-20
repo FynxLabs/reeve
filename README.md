@@ -102,6 +102,22 @@ jobs:
           # slack-token: ${{ secrets.SLACK_BOT_TOKEN }}   # optional
 ```
 
+### Pinning and binaries
+
+How you pin the action decides where its binary comes from. A per-runner
+cache (keyed on the action's source hash) sits in front of every path, so
+all of this only matters on a cache miss:
+
+| Pin                | Binary source                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| `@vX.Y.Z`          | Signed release tarball from that release, verified against its `checksums.txt`                          |
+| `@master` / `@next`| Rolling edge binary whose name embeds the exact source hash of the checked-out action source (unsigned) |
+| anything else      | Built from source on the runner (SHA pins, feature branches, forks)                                     |
+
+Prebuilt paths save the ~30s+ Go toolchain setup + build on first runs. Any
+download or checksum failure falls back to the source build automatically -
+the run never breaks because a binary wasn't available.
+
 ### PR commands
 
 | Event / Comment              | What it does                                                    |

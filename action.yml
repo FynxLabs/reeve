@@ -5,10 +5,17 @@ branding:
   icon: shield
   color: blue
 
-# NOTE: This composite action is pre-release. It builds reeve from source
-# on every run (~30s for the first cache-miss, seconds after). When a
-# first release is cut, the install step will switch to downloading a
-# signed release tarball.
+# NOTE: Install is three-tier, cache first:
+#   1. Cache hit on the source hash -> reuse the cached binary (seconds).
+#   2. Cache miss -> try a prebuilt binary:
+#        @vX.Y.Z       -> that release's tarball, verified against the
+#                         release's checksums.txt (signed release pipeline).
+#        @master/@next -> the rolling edge-<branch> prerelease asset whose
+#                         name embeds this exact source hash, so the binary
+#                         provably matches the checked-out action source
+#                         (unsigned; published by edge-build.yml).
+#   3. Any other ref (SHA pins, branches, forks), or any download/verify
+#      failure -> build from source (~30s on the first miss), as before.
 
 inputs:
   command:
@@ -90,9 +97,9 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        HASH=$(find "$ACTION_PATH" \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -type f \
-          -exec sha256sum {} + | sort | sha256sum | cut -d' ' -f1)
-        echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+        # Shared with edge-build.yml so the cache key / edge-asset hash can
+        # never drift from the hash the edge builds were named with.
+        echo "hash=$("$ACTION_PATH/.github/scripts/source-hash.sh" "$ACTION_PATH")" >> "$GITHUB_OUTPUT"
 
     - name: Restore reeve binary cache
       id: reeve-cache
@@ -101,20 +108,46 @@ runs:
         path: ${{ runner.temp }}/reeve-bin/reeve
         key: reeve-${{ runner.os }}-${{ runner.arch }}-${{ steps.reeve-hash.outputs.hash }}
 
-    - name: Set up Go (from reeve's go.mod)
+    # On a cache miss, try a prebuilt binary before reaching for the Go
+    # toolchain (see the NOTE at the top for the ref semantics). The script
+    # never fails the job: any problem (missing asset, checksum mismatch,
+    # network, unsupported arch) logs why and reports fetched=false, which
+    # re-enables the source-build steps below. actions/cache's post step
+    # saves whatever ends up at the cached path, downloaded or built alike.
+    - name: Fetch prebuilt binary
+      id: reeve-fetch
       if: steps.reeve-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        REEVE_REF: ${{ github.action_ref }}
+        REEVE_REPO: ${{ github.action_repository }}
+        REEVE_SRCHASH: ${{ steps.reeve-hash.outputs.hash }}
+        REEVE_OS: ${{ runner.os }}
+        REEVE_ARCH: ${{ runner.arch }}
+        REEVE_DEST: ${{ runner.temp }}/reeve-bin/reeve
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        "$ACTION_PATH/.github/scripts/fetch-binary.sh"
+
+    - name: Set up Go (from reeve's go.mod)
+      if: steps.reeve-cache.outputs.cache-hit != 'true' && steps.reeve-fetch.outputs.fetched != 'true'
       uses: actions/setup-go@v6
       with:
         go-version-file: ${{ github.action_path }}/go.mod
         cache-dependency-path: ${{ github.action_path }}/go.sum
 
     - name: Build reeve
-      if: steps.reeve-cache.outputs.cache-hit != 'true'
+      if: steps.reeve-cache.outputs.cache-hit != 'true' && steps.reeve-fetch.outputs.fetched != 'true'
       shell: bash
+      env:
+        SRCHASH: ${{ steps.reeve-hash.outputs.hash }}
       run: |
         set -euo pipefail
         mkdir -p "$RUNNER_TEMP/reeve-bin"
-        go build -trimpath -ldflags='-s -w' -o "$RUNNER_TEMP/reeve-bin/reeve" ./cmd/reeve
+        go build -trimpath -ldflags="-s -w -X main.version=source-${SRCHASH:0:12}" \
+          -o "$RUNNER_TEMP/reeve-bin/reeve" ./cmd/reeve
       working-directory: ${{ github.action_path }}
 
     - name: Add reeve to PATH

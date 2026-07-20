@@ -183,6 +183,27 @@ never re-trigger a run.
 Open a PR. reeve posts a comment within ~30 seconds showing the plan for
 every stack touched by the changed files.
 
+### Pinning and binaries
+
+The `uses:` ref decides where the action gets its `reeve` binary. A
+per-runner cache keyed on the action's source hash always comes first - on a
+cache hit nothing is downloaded or built:
+
+- **`@vX.Y.Z`** - downloads that release's signed tarball and verifies it
+  against the release's `checksums.txt`.
+- **`@master` / `@next`** - downloads a rolling *edge* binary from the
+  `edge-<branch>` prerelease. Edge assets are named with the sha256 hash of
+  the source they were built from; the action only uses one whose hash
+  matches the action source it just checked out, so the binary provably
+  corresponds to your pinned ref. Edge builds are unsigned (signed
+  distribution is the `vX.Y.Z` releases).
+- **Anything else** (a SHA pin, a feature branch, a fork) - builds from
+  source on the runner, as does any download or checksum failure. Fallback
+  is automatic and logged; a missing binary never fails your run.
+
+The prebuilt paths skip the Go toolchain setup + compile, saving ~30s+ on
+first runs and cache misses.
+
 ## 5. Move the bucket to real storage
 
 Filesystem buckets work great for smoke tests but every CI run starts fresh,
