@@ -28,12 +28,16 @@ type GCPSecretManager struct {
 func (p *GCPSecretManager) ProviderName() string { return p.Name }
 func (p *GCPSecretManager) Type() string         { return "gcp_secret_manager" }
 
+// secretManagerBase is a package var only so tests can point the lookup
+// at an httptest server; production behavior is unchanged.
+var secretManagerBase = "https://secretmanager.googleapis.com"
+
 func (p *GCPSecretManager) Acquire(ctx context.Context) (*auth.Credential, error) {
 	token := os.Getenv("CLOUDSDK_AUTH_ACCESS_TOKEN")
 	if token == "" {
 		return nil, fmt.Errorf("gcp_secret_manager: no CLOUDSDK_AUTH_ACCESS_TOKEN; bind a gcp_wif provider first")
 	}
-	url := fmt.Sprintf("https://secretmanager.googleapis.com/v1/%s:access", p.SecretName)
+	url := fmt.Sprintf("%s/v1/%s:access", secretManagerBase, p.SecretName)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
