@@ -190,11 +190,19 @@ type EngineSecretsProvider struct {
 
 // PolicyHookYAML is one entry in engine.policy_hooks.
 type PolicyHookYAML struct {
-	Name     string   `yaml:"name"`
-	Command  []string `yaml:"command"`
-	OnFail   string   `yaml:"on_fail"` // block | warn (default block)
-	Required bool     `yaml:"required"`
+	Name    string   `yaml:"name"`
+	Command []string `yaml:"command"`
+	OnFail  string   `yaml:"on_fail"` // block | warn (default block)
+	// Required controls what happens when command[0] is not on PATH.
+	// nil (omitted) defaults to TRUE - a missing scanner binary fails the
+	// run instead of silently skipping the policy gate. Set
+	// `required: false` to explicitly opt in to the silent skip.
+	Required *bool `yaml:"required,omitempty"`
 }
+
+// IsRequired resolves the fail-closed default: an omitted `required:` means
+// the hook is required.
+func (h PolicyHookYAML) IsRequired() bool { return h.Required == nil || *h.Required }
 
 type EngineBinary struct {
 	Path    string `yaml:"path"`
