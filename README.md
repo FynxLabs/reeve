@@ -23,7 +23,8 @@ no vendor backend, no telemetry, no account - you own everything.
    plan - edited in place on every push.
 3. Gates `/reeve apply` behind approvals, CODEOWNERS, required checks,
    up-to-date base, preview freshness, policy hooks, per-stack FIFO locks,
-   and freeze windows.
+   and freeze windows — with an opt-in, justification-gated, loudly-audited
+   [break-glass](docs/break-glass.md) override for emergencies.
 4. Writes locks, run artifacts, and audit entries to **your** bucket (S3 /
    GCS / Azure Blob / R2 / local filesystem).
 5. Acquires **short-lived federated credentials** (AWS OIDC, GCP WIF, Azure
@@ -58,7 +59,15 @@ go build -o bin/reeve ./cmd/reeve
 
 ## Configure
 
-Create `.reeve/` in your repo:
+Scaffold `.reeve/` in your repo - `reeve init` discovers your Pulumi stacks
+and walks you through approvals, freeze windows, and notifications (use
+`--non-interactive` for a zero-prompt safe baseline):
+
+```bash
+reeve init
+```
+
+Or write the two files by hand:
 
 ```yaml
 # .reeve/shared.yaml
@@ -111,6 +120,7 @@ jobs:
 | `/reeve preview` or `/reeve plan` | Re-runs plan for this PR                               |
 | `/reeve ready`               | Marks PR ready for approval, posts comment, notifies Slack      |
 | `/reeve apply` or `/reeve up` | Applies all planned stacks (subject to approval gates)         |
+| `/reeve breakglass "<justification>" apply` | Emergency apply: overrides approvals (and freeze unless disabled), never locks/checks; loudly audited. Requires `break_glass:` config |
 | `/reeve unlock [project/stack]` | Frees this PR's stack locks (all, or just one)               |
 | `/reeve help`                | Posts a comment listing available commands                      |
 
@@ -150,6 +160,7 @@ mise run release-check # goreleaser config validation
 
 - [Getting started](docs/getting-started.md) - zero-to-PR-comment in 10 minutes
 - [Configuration reference](docs/configuration.md) - every config_type
+- [Break-glass apply](docs/break-glass.md) - emergency override: config, command, audit
 - [Auth providers](docs/auth.md) - OIDC/WIF/federated/secret managers
 - [Drift detection](docs/drift.md) - schedules, channels, bootstrap modes
 - [Policy hooks](docs/policy-hooks.md) - OPA, Conftest, CrossGuard, custom

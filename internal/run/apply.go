@@ -17,6 +17,7 @@ import (
 	blocks "github.com/thefynx/reeve/internal/blob/locks"
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/approvals"
+	"github.com/thefynx/reeve/internal/core/breakglass"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	corelocks "github.com/thefynx/reeve/internal/core/locks"
 	"github.com/thefynx/reeve/internal/core/preconditions"
@@ -83,6 +84,18 @@ type ApplyInput struct {
 	// Force re-applies even when this commit is already recorded as applied,
 	// bypassing the already-applied guard.
 	Force bool
+	// BreakGlass, when non-nil, requests an emergency apply: approvals are
+	// overridden (freeze too, unless disabled in config), authorization is
+	// resolved against the PR HEAD's break_glass config, and the run is
+	// loudly audited. Locks and every other gate still apply.
+	BreakGlass *BreakGlassRequest
+}
+
+// BreakGlassRequest carries the operator-supplied emergency context.
+type BreakGlassRequest struct {
+	// Justification is mandatory and non-empty; it lands verbatim in the
+	// audit record and the PR comment.
+	Justification string
 }
 
 // ApplyOutput bundles the artifacts from an apply run.
@@ -104,6 +117,11 @@ type ApplyOutput struct {
 func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	start := time.Now()
 	runID := fmt.Sprintf("apply-%d-%s", in.RunNumber, shortSHA(in.CommitSHA))
+
+	// Break-glass fail-fast: a missing justification never starts a run.
+	if in.BreakGlass != nil && strings.TrimSpace(in.BreakGlass.Justification) == "" {
+		return nil, errors.New("break-glass apply requires a non-empty justification")
+	}
 
 	// OTEL root span for this run. Finished at return.
 	ctx, endRun := in.OTEL.StartRunSpan(ctx, "apply", in.PRNumber, in.CommitSHA)
@@ -245,6 +263,12 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	for _, s := range target {
 		stackRules = append(stackRules, approvals.Resolve(appCfg, s.Ref()))
 	}
+	// Break-glass internal_list may name "org/team" slugs; feed them into
+	// the same expansion pass so membership checks can resolve.
+	bgCfg := toBreakGlassConfig(in.Shared)
+	if in.BreakGlass != nil && len(bgCfg.InternalList) > 0 {
+		stackRules = append(stackRules, approvals.Rules{Approvers: bgCfg.InternalList})
+	}
 	// Also expand any teams referenced in CODEOWNERS so matchesOne can
 	// resolve them. Without this, a path owned by @org/team that isn't in
 	// any stack approval rule never gets expanded and the gate always fails.
@@ -277,8 +301,46 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 
 	now := time.Now()
 
+	// Break-glass authorization. Head-resolved: the config and CODEOWNERS
+	// used here come from the PR HEAD (self-add is by design); the audit
+	// record flags same-PR modification of the authorizing files below.
+	// Fail-closed: unconfigured, unsupported-source, or unauthorized all
+	// stop the run here - before any lock, credential, or engine call.
+	var bgDecision *breakglass.Decision
+	var bgTouched []string
+	if in.BreakGlass != nil {
+		dec, bgErr := breakglass.Authorize(bgCfg, breakglass.Inputs{
+			Actor:       in.Actor,
+			OwnedPaths:  coResolved,
+			TeamMembers: teamMembers,
+		})
+		if bgErr != nil {
+			timeline.add(ctx, "⛔", "break-glass refused", bgErr.Error())
+			outcome = "blocked"
+			return nil, fmt.Errorf("break-glass authorization: %w", bgErr)
+		}
+		if !dec.Authorized {
+			detail := fmt.Sprintf("actor %s is not authorized: %s", in.Actor, strings.Join(dec.Trace, "; "))
+			timeline.add(ctx, "⛔", "break-glass denied", detail)
+			outcome = "blocked"
+			return nil, fmt.Errorf("break-glass denied: %s", detail)
+		}
+		bgDecision = &dec
+		bgTouched = breakglass.AuthorizingPathsTouched(changed)
+		slog.Warn("BREAK-GLASS apply authorized",
+			"actor", in.Actor, "source", dec.Source,
+			"justification", in.BreakGlass.Justification,
+			"authorizing_config_modified_in_pr", len(bgTouched) > 0)
+		detail := fmt.Sprintf("actor %s authorized via %s — justification: %q", in.Actor, dec.Source, in.BreakGlass.Justification)
+		if len(bgTouched) > 0 {
+			detail += fmt.Sprintf(" — ⚠️ authorizing config modified in this PR (%s)", strings.Join(bgTouched, ", "))
+		}
+		timeline.add(ctx, "🚨", "break-glass override", detail)
+	}
+
 	// Notify approved + applying before the loop (creates the message on
-	// the apply trigger path).
+	// the apply trigger path). A break-glass run emits break_glass instead
+	// of approved - approvals were bypassed, not granted.
 	if in.PRNumber > 0 && in.Notifications != nil {
 		channels := BuildNotifyChannels(ctx, in.Notifications, in.Blob, in.VCS)
 		preSummaries := make([]summary.StackSummary, 0, len(target))
@@ -291,8 +353,14 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: pr.Title, PRAuthor: pr.Author, Stacks: preSummaries,
 		}
-		if err := NotifyPREvent(ctx, channels, notify.EventApproved, preInput); err != nil {
-			slog.Warn("notify approved failed", "err", err, "pr", in.PRNumber)
+		if bgDecision != nil {
+			if err := NotifyPREvent(ctx, channels, notify.EventBreakGlass, preInput); err != nil {
+				slog.Warn("notify break_glass failed", "err", err, "pr", in.PRNumber)
+			}
+		} else {
+			if err := NotifyPREvent(ctx, channels, notify.EventApproved, preInput); err != nil {
+				slog.Warn("notify approved failed", "err", err, "pr", in.PRNumber)
+			}
 		}
 		if err := NotifyPREvent(ctx, channels, notify.EventApplying, preInput); err != nil {
 			slog.Warn("notify applying failed", "err", err, "pr", in.PRNumber)
@@ -302,6 +370,8 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// 3. Per-stack: acquire lock → eval gates → apply or block.
 	summaries := make([]summary.StackSummary, 0, len(target))
 	anyBlocked := false
+	overriddenSeen := map[preconditions.GateID]bool{}
+	var overriddenGates []string
 	for _, s := range target {
 		ss := summary.StackSummary{
 			Project: s.Project, Stack: s.Name, Env: s.Env,
@@ -428,8 +498,17 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			LockBlockedByPR:    lockBlockedBy,
 			InFreeze:           inFreeze,
 			FreezeName:         freezeName,
+
+			BreakGlass:               bgDecision != nil,
+			BreakGlassOverrideFreeze: bgCfg.OverrideFreeze,
 		}
 		pcResult := preconditions.Evaluate(preCfg, pcInputs)
+		for _, g := range pcResult.Overridden {
+			if !overriddenSeen[g] {
+				overriddenSeen[g] = true
+				overriddenGates = append(overriddenGates, string(g))
+			}
+		}
 		ss.Gates = gatesToTrace(pcResult)
 		ss.BlockedBy = lockBlockedBy
 		slog.Debug("preconditions evaluated", "stack", s.Ref(), "blocked", pcResult.Blocked, "gates", ss.Gates)
@@ -503,6 +582,16 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		commentStyle = in.Shared.Comments.Style
 	}
 	dur := int(time.Since(start).Seconds())
+	var bgNote *render.BreakGlassNote
+	if bgDecision != nil {
+		bgNote = &render.BreakGlassNote{
+			Actor:              in.Actor,
+			Justification:      in.BreakGlass.Justification,
+			AuthorizedVia:      bgDecision.Source,
+			Overridden:         overriddenGates,
+			ConfigModifiedInPR: len(bgTouched) > 0,
+		}
+	}
 	body := render.Apply(render.ApplyInput{
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
@@ -512,6 +601,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		SortMode:    sortMode,
 		Style:       commentStyle,
 		StackView:   stackView(in.Shared),
+		BreakGlass:  bgNote,
 	})
 
 	// 5. Write run manifest.
@@ -596,9 +686,19 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			PR:         in.PRNumber,
 			CommitSHA:  in.CommitSHA,
 			Repo:       in.RepoFull,
+			RunURL:     in.CIRunURL,
 			Outcome:    aggregateOutcome(summaries, anyBlocked),
 			Stacks:     toAuditStacks(summaries),
 			DurationMS: time.Since(start).Milliseconds(),
+		}
+		if bgDecision != nil {
+			entry.BreakGlass = &audit.BreakGlass{
+				Justification:             in.BreakGlass.Justification,
+				AuthorizedVia:             bgDecision.Source,
+				OverriddenGates:           overriddenGates,
+				AuthorizingConfigModified: len(bgTouched) > 0,
+				AuthorizingPathsModified:  bgTouched,
+			}
 		}
 		if err := in.AuditWriter.Write(ctx, entry); err != nil && !errors.Is(err, blob.ErrPreconditionFailed) {
 			slog.Error("audit write failed - run already shipped",

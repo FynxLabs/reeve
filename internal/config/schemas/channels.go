@@ -60,9 +60,8 @@ const (
 	ChannelEventApplied  = "applied"  // apply finished successfully
 	ChannelEventFailed   = "failed"   // apply errored
 	ChannelEventBlocked  = "blocked"  // apply blocked (gates/locks)
-	// ChannelEventBreakGlass is reserved for emergency-override runs. It is a
-	// valid subscription (the deployment timeline renders it) but no producer
-	// emits it yet.
+	// ChannelEventBreakGlass fires when an emergency-override (break-glass)
+	// apply is authorized; the run pipeline emits it in place of approved.
 	ChannelEventBreakGlass = "break_glass"
 
 	// Drift events.

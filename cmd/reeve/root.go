@@ -52,6 +52,7 @@ No control plane, no SaaS backend, no telemetry, no account. The user owns all s
 		"log format: text | json (default text; env REEVE_LOG_FORMAT)")
 
 	root.AddCommand(
+		newInitCmd(),
 		newLintCmd(),
 		newStacksCmd(),
 		newRulesCmd(),
