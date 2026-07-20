@@ -6,11 +6,10 @@ package slack
 
 import (
 	"context"
-	"os"
-	"strings"
 
 	"github.com/thefynx/reeve/internal/blob"
 	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/thefynx/reeve/internal/core/envref"
 	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/slack"
 )
@@ -45,7 +44,7 @@ type Client interface {
 // (drift.yaml channels read SLACK_BOT_TOKEN); with no token the channel is
 // skipped, matching the previous factory behavior.
 func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
-	token := ExpandEnvRef(cfg.AuthToken)
+	token := envref.Expand(cfg.AuthToken)
 	if token == "" {
 		token = deps.SlackToken
 	}
@@ -97,14 +96,4 @@ func defaultPREvents(trigger schemas.SlackTrigger) []notify.Event {
 		}
 	}
 	return order[idx:]
-}
-
-// ExpandEnvRef unwraps "${env:NAME}"; other strings pass through. Config
-// loading already expands these, but channels may be built from configs that
-// skipped that pass.
-func ExpandEnvRef(s string) string {
-	if strings.HasPrefix(s, "${env:") && strings.HasSuffix(s, "}") {
-		return os.Getenv(strings.TrimSuffix(strings.TrimPrefix(s, "${env:"), "}"))
-	}
-	return s
 }
