@@ -75,6 +75,13 @@ type State struct {
 	Fingerprint      string    `json:"fingerprint,omitempty"`
 	// ConsecutiveErrors supports retry / backoff heuristics.
 	ConsecutiveErrors int `json:"consecutive_errors,omitempty"`
+	// LastNotifiedAt is when a drift alert for this stack last actually
+	// went out (drift_detected, or a renotify re-alert). Drives flap
+	// damping (behavior.renotify_after): a stack oscillating drifted/clean
+	// re-alerts only after the window elapses. Zero on state written by
+	// versions without damping - treated as "notified" so resolutions from
+	// legacy episodes still deliver.
+	LastNotifiedAt time.Time `json:"last_notified_at,omitempty"`
 }
 
 // Result is the current check output (passed into Classify).
@@ -98,6 +105,9 @@ func Classify(prev State, cur Result) (Event, State) {
 		OngoingSince:      prev.OngoingSince,
 		Fingerprint:       prev.Fingerprint,
 		ConsecutiveErrors: prev.ConsecutiveErrors,
+		// Carried across every transition (resolve included) - the flap
+		// damping window spans episodes by design.
+		LastNotifiedAt: prev.LastNotifiedAt,
 	}
 
 	switch cur.Outcome {
@@ -143,6 +153,54 @@ func Classify(prev State, cur Result) (Event, State) {
 
 	default:
 		return EventNone, next
+	}
+}
+
+// dampNotification applies flap damping to a classified event and returns
+// the event to dispatch to channels plus whether a drift alert actually goes
+// out now (the caller then stamps State.LastNotifiedAt).
+//
+// renotify == 0 (default) preserves the pre-damping behavior exactly: every
+// drift_detected notifies, drift_ongoing reaches only channels subscribed to
+// it, drift_resolved always notifies.
+//
+// renotify > 0 turns on damping:
+//   - drift_detected within renotify of the last alert is silenced - a stack
+//     oscillating drifted/clean re-alerts once per window, not every cycle.
+//     (This also covers fingerprint-change re-detections inside the window;
+//     the open incident already says the stack is drifted.)
+//   - drift_ongoing is silent until renotify elapses since the last alert,
+//     then re-fires AS drift_detected (so channels subscribed to detections
+//     re-trigger their incident) and restarts the window.
+//   - drift_resolved is delivered once per notified episode: if the episode
+//     being resolved never alerted (a damped flap), the recovery notice is
+//     suppressed too - channels never saw the detection, so there is nothing
+//     to resolve. Legacy state without LastNotifiedAt fails open (delivers).
+//
+// check_failed / check_recovered / none pass through untouched - damping is
+// strictly about drift alert noise.
+func dampNotification(prev State, ev Event, now time.Time, renotify time.Duration) (Event, bool) {
+	switch ev {
+	case EventDriftDetected:
+		if renotify > 0 && !prev.LastNotifiedAt.IsZero() && now.Sub(prev.LastNotifiedAt) < renotify {
+			return EventNone, false
+		}
+		return EventDriftDetected, true
+	case EventDriftOngoing:
+		if renotify <= 0 {
+			return EventDriftOngoing, false
+		}
+		if prev.LastNotifiedAt.IsZero() || now.Sub(prev.LastNotifiedAt) >= renotify {
+			return EventDriftDetected, true
+		}
+		return EventNone, false
+	case EventDriftResolved:
+		if prev.LastNotifiedAt.IsZero() || !prev.LastNotifiedAt.Before(prev.OngoingSince) {
+			return EventDriftResolved, false
+		}
+		return EventNone, false
+	default:
+		return ev, false
 	}
 }
 

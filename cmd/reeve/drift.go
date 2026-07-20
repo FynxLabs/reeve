@@ -175,6 +175,12 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		if cfg.Drift.Behavior.StateBootstrap.Mode != "" {
 			opts.BootstrapMode = cfg.Drift.Behavior.StateBootstrap.Mode
 		}
+		if ra := cfg.Drift.Behavior.RenotifyAfter; ra != "" {
+			// Validated at config load (validateDurations, extended units).
+			if d, err := config.ParseDurationExtended(ra); err == nil {
+				opts.RenotifyAfter = d
+			}
+		}
 		if w := cfg.Drift.Freshness.Window; w != "" && (cfg.Drift.Freshness.Enabled || flagBool(cmd, "if-stale")) {
 			if d, err := time.ParseDuration(w); err == nil {
 				opts.FreshnessWindow = d
