@@ -24,7 +24,9 @@ config_type: <shared|engine|auth|notifications|observability|drift|user>
 ```
 
 - `version` is per-file. Bumps affect only that schema.
-- `config_type` is one-per-file, except `engine` (one per unique `engine.type`).
+- `config_type` is one-per-file. Engine files are keyed by `engine.type`,
+  but reeve currently supports only one engine config per repo - loading
+  more than one is a validation error.
 - Unknown top-level keys fail `reeve lint`.
 
 A single-file `reeve.yaml` at repo root is supported for simple cases.
@@ -667,8 +669,11 @@ Catches:
 
 - Unknown top-level keys
 - Unsupported `version` values
-- Duplicate `config_type` (except `engine`)
-- Missing required fields (`bucket.type`, at least one engine)
+- Duplicate `config_type` (except `engine`, where the duplicate check is
+  per `engine.type`)
+- Missing required fields (`bucket.type`, an engine config)
+- More than one engine config (reeve currently supports one engine per
+  repo)
 - Auth provider scope conflicts (see [auth.md](auth.md))
 - `env_passthrough` without `i_understand_this_is_dangerous: true`
 
