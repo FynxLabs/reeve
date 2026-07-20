@@ -158,7 +158,7 @@ type Engine struct {
 }
 
 type EngineBody struct {
-	Type          string           `yaml:"type"` // pulumi | terraform | opentofu
+	Type          string           `yaml:"type"` // pulumi | terraform | tofu (OpenTofu)
 	Binary        EngineBinary     `yaml:"binary"`
 	State         EngineState      `yaml:"state,omitempty"`
 	Stacks        []StackDecl      `yaml:"stacks"`

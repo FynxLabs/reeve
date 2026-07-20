@@ -48,8 +48,17 @@ Every arrow leaves your trust boundary. `reeve` holds nothing.
 
 ## Status
 
-Pre-release. There is no published binary, no Homebrew tap, no GitHub
-Marketplace Action, and no container image yet. Run it from source:
+Alpha. [v0.2.0](https://github.com/FynxLabs/reeve/releases/latest) is the
+current release: per-platform tarballs (linux/darwin, amd64/arm64) with a
+sha256 `checksums.txt` whose cosign keyless signature ships alongside as
+`checksums.txt.bundle`. Rolling unsigned `edge-<branch>` prerelease
+builds back the GitHub Action fast-path (see the pinning table below).
+The release pipeline also publishes a container image
+(`ghcr.io/fynxlabs/reeve`) and is wired to push a Homebrew cask to
+`FynxLabs/brew-tap`. Expect breaking config changes until 1.0 (`reeve
+migrate-config` covers renames).
+
+Or build from source:
 
 ```bash
 git clone https://github.com/FynxLabs/reeve
@@ -122,7 +131,7 @@ all of this only matters on a cache miss:
 
 | Pin                | Binary source                                                                                           |
 | ------------------ | ------------------------------------------------------------------------------------------------------- |
-| `@vX.Y.Z`          | Signed release tarball from that release, verified against its `checksums.txt`                          |
+| `@vX.Y.Z`          | Release tarball from that release, verified against its cosign-signed `checksums.txt`                   |
 | `@master` / `@next`| Rolling edge binary whose name embeds the exact source hash of the checked-out action source (unsigned) |
 | anything else      | Built from source on the runner (SHA pins, feature branches, forks)                                     |
 
