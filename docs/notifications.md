@@ -4,7 +4,7 @@ reeve publishes lifecycle events through a single **notification-channel
 framework** (`internal/notify`). Two producers feed it:
 
 - the **PR flow** (plan → ready → approved → applying → applied/failed/blocked)
-- the **drift runner** (drift_detected / drift_ongoing / drift_resolved / check_failed)
+- the **drift runner** (drift_detected / drift_ongoing / drift_resolved / check_failed / check_recovered)
 
 A destination is implemented once and can subscribe to events from either
 producer: the same Slack channel that tracks a PR's apply lifecycle can also
@@ -65,6 +65,7 @@ Valid `on:` values, in lifecycle order:
 | `drift_ongoing` | drift | Still drifted since the last run |
 | `drift_resolved` | drift | Was drifted, now clean |
 | `check_failed` | drift | Drift check errored |
+| `check_recovered` | drift | First successful check after a failed one — the all-clear for `check_failed`. Channels subscribed to `check_failed` receive it implicitly where resolution matters (`pagerduty` resolves the incident, `github_issue` closes the issue) |
 
 Unknown names in `on:` fail `reeve lint` / config load. A channel with an
 empty `on:` list draws a warning — it will never fire (exceptions: a Slack

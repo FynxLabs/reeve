@@ -107,3 +107,54 @@ func TestPREventsTriggerAndResolve(t *testing.T) {
 		t.Fatalf("dedup keys: %v", *got)
 	}
 }
+
+// TestCheckEventsUseDistinctIncidentStream is the dedup-stomping
+// regression: check_failed/check_recovered must ride their own dedup key,
+// never the drift incident's, and a recovery must resolve the failure
+// incident.
+func TestCheckEventsUseDistinctIncidentStream(t *testing.T) {
+	srv, got := testServer(t)
+	s := newTestChannel(t, schemas.ChannelYAML{
+		Type: "pagerduty", IntegrationKey: "key123",
+		On: []string{"drift_detected", "drift_resolved", "check_failed"},
+	}, srv.URL)
+
+	drift := &notify.DriftPayload{Project: "net", Stack: "prod", Env: "prod", RunID: "r1", Error: "auth exploded"}
+	if err := s.Deliver(context.Background(), notify.Payload{Event: notify.EventCheckFailed, Drift: drift}); err != nil {
+		t.Fatalf("Deliver check_failed: %v", err)
+	}
+	m := (*got)[0]
+	if m["event_action"] != "trigger" || m["dedup_key"] != "reeve-drift-check::net/prod" {
+		t.Fatalf("check_failed must trigger on its own dedup key: %v", m)
+	}
+	if m["dedup_key"] == "reeve-drift-net/prod" {
+		t.Fatal("check_failed stomped the drift incident key")
+	}
+
+	if err := s.Deliver(context.Background(), notify.Payload{Event: notify.EventCheckRecovered, Drift: drift}); err != nil {
+		t.Fatalf("Deliver check_recovered: %v", err)
+	}
+	m = (*got)[1]
+	if m["event_action"] != "resolve" || m["dedup_key"] != "reeve-drift-check::net/prod" {
+		t.Fatalf("check_recovered must resolve the check incident: %v", m)
+	}
+}
+
+// TestCheckFailedSubscriptionImpliesRecovered: a config that predates the
+// recovery event must still get its incidents resolved.
+func TestCheckFailedSubscriptionImpliesRecovered(t *testing.T) {
+	srv, _ := testServer(t)
+	s := newTestChannel(t, schemas.ChannelYAML{
+		Type: "pagerduty", IntegrationKey: "k",
+		On: []string{"check_failed"},
+	}, srv.URL)
+	found := false
+	for _, ev := range s.Subscribes() {
+		if ev == notify.EventCheckRecovered {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("check_failed subscription must imply check_recovered")
+	}
+}

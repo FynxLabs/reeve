@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,6 +73,11 @@ type RunOutput struct {
 	Events     []Event  // parallel to Items (zero-value Event = none)
 	StartedAt  time.Time
 	FinishedAt time.Time
+	// OverlapWarning is set when the open-PR overlap scan could not check
+	// every PR (fetch failure or scan cap). The per-item OverlappingPRs are
+	// then a lower bound, never proof of "no overlap"; the report surfaces
+	// this warning naming the PRs that could not be checked.
+	OverlapWarning string
 }
 
 // Item is one stack's drift check outcome.
@@ -86,6 +93,11 @@ type Item struct {
 	DurationMS     int64
 	Suppressed     bool
 	OverlappingPRs []OverlappingPR
+	// CheckRecovered marks the first successful check after one or more
+	// failed ones. Carried separately from Event because recovery can
+	// coincide with any classification (including a silent EventNone);
+	// NotifyPayloads emits an additional check_recovered payload for it.
+	CheckRecovered bool
 }
 
 // OverlappingPR is an open PR that touches paths owned by a drifted stack.
@@ -159,31 +171,48 @@ func Run(ctx context.Context, opts Options) (*RunOutput, error) {
 	}
 	wg.Wait()
 
-	// Attach overlapping-PR info to drifted items.
+	// Attach overlapping-PR info to drifted items. One scan for every
+	// drifted path (the per-PR file listing is the expensive part; scanning
+	// once per drifted stack multiplied it), then match PRs to items
+	// locally. A scan failure degrades to a warning - it must never read as
+	// "no overlap".
+	overlapWarning := ""
 	if opts.PROverlap != nil {
+		pathByItem := map[int]string{}
+		var paths []string
 		for i, it := range items {
 			if it.Outcome != OutcomeDriftDetected {
 				continue
 			}
-			path := stackPath(targets, it.Project, it.Stack)
-			if path == "" {
-				continue
+			if path := stackPath(targets, it.Project, it.Stack); path != "" {
+				pathByItem[i] = path
+				paths = append(paths, path)
 			}
-			prs, err := opts.PROverlap.FindOverlappingPRs(ctx, []string{path})
-			if err == nil && len(prs) > 0 {
-				items[i].OverlappingPRs = prs
+		}
+		if len(paths) > 0 {
+			prs, err := opts.PROverlap.FindOverlappingPRs(ctx, paths)
+			for i, path := range pathByItem {
+				for _, pr := range prs {
+					if prTouchesPath(pr, path) {
+						items[i].OverlappingPRs = append(items[i].OverlappingPRs, pr)
+					}
+				}
+			}
+			if err != nil {
+				overlapWarning = "open-PR overlap scan incomplete - overlap info may be missing: " + err.Error()
 			}
 		}
 	}
 
 	finished := now()
 	out := &RunOutput{
-		RunID:      opts.RunID,
-		Items:      items,
-		Skipped:    skipped,
-		Events:     events,
-		StartedAt:  started,
-		FinishedAt: finished,
+		RunID:          opts.RunID,
+		Items:          items,
+		Skipped:        skipped,
+		Events:         events,
+		StartedAt:      started,
+		FinishedAt:     finished,
+		OverlapWarning: overlapWarning,
 	}
 
 	// Emit OTEL metrics for the whole run.
@@ -318,10 +347,32 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		ev = EventNone
 	}
 	item.Event = ev
+	// First success after failed checks: the check_failed condition has
+	// cleared. Recorded on the item (not as the classification event) so
+	// channels holding a check-failed incident/issue open get the
+	// all-clear even when the classification itself is silent.
+	item.CheckRecovered = prev.ConsecutiveErrors > 0 && item.Outcome != OutcomeError
 	if opts.StateStore != nil {
-		_ = opts.StateStore.Save(ctx, next)
+		if err := opts.StateStore.Save(ctx, next); err != nil {
+			// A lost save means the next run re-classifies from stale state
+			// (worst case: a duplicate alert). Never silently - log it.
+			slog.Warn("drift: state save failed", "stack", ref, "err", err)
+		}
 	}
 	return item, ev, false, ""
+}
+
+// prTouchesPath reports whether any of the PR's changed files fall under
+// the stack path (exact match or directory prefix). Mirrors the VCS
+// adapter's own path intersection so a multi-path scan can be re-split
+// per stack.
+func prTouchesPath(pr OverlappingPR, path string) bool {
+	for _, f := range pr.Paths {
+		if f == path || strings.HasPrefix(f, path+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // stackPath returns the filesystem path declared for a stack ref,
@@ -377,6 +428,9 @@ func WriteArtifacts(ctx context.Context, store blob.Store, out *RunOutput, repor
 		"finished_at": out.FinishedAt.Format(time.RFC3339),
 		"item_count":  len(out.Items),
 		"skipped":     out.Skipped,
+	}
+	if out.OverlapWarning != "" {
+		manifest["overlap_warning"] = out.OverlapWarning
 	}
 	mb, _ := json.MarshalIndent(manifest, "", "  ")
 	if _, err := store.Put(ctx, fmt.Sprintf("drift/runs/%s/manifest.json", out.RunID), bytes.NewReader(mb)); err != nil {

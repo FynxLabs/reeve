@@ -82,12 +82,23 @@ func latestApprovals(revs []*gh.PullRequestReview) []approvals.Approval {
 
 func (*Client) Name() string { return "pr_review" }
 
+// maxOverlapScanPRs caps how many open PRs the overlap scan inspects.
+// Each inspected PR costs a per-PR file listing (GitHub has no batch
+// endpoint for this), so an unbounded scan on a busy monorepo is an API
+// budget hazard. PRs beyond the cap (newest first, GitHub's default list
+// order) are reported as unchecked rather than silently skipped.
+const maxOverlapScanPRs = 100
+
 // ListOpenPRsTouchingPaths powers drift-overlap surfacing and "blocked by
-// PR #X" queries. Uses GitHub Search API: "is:pr is:open repo:owner/repo".
+// PR #X" queries. Lists open PRs, then intersects each PR's changed files
+// with paths.
+//
+// The scan degrades, never lies: a PR whose file list cannot be fetched
+// (or that falls beyond maxOverlapScanPRs) is reported in the returned
+// *approvals.OverlapScanError alongside the PARTIAL result set - callers
+// surface "could not check PR #N" instead of treating a failed fetch as
+// "no overlap".
 func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) ([]approvals.PR, error) {
-	// Simple implementation: list all open PRs, then per-PR ListFiles
-	// intersect with paths. For repos with many open PRs this is slow -
-	// Phase 7/8 can optimize with the GraphQL API if needed.
 	var prs []*gh.PullRequest
 	opt := &gh.PullRequestListOptions{State: "open", ListOptions: gh.ListOptions{PerPage: 100}}
 	for {
@@ -96,10 +107,18 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 			return nil, err
 		}
 		prs = append(prs, page...)
-		if resp.NextPage == 0 {
+		if resp.NextPage == 0 || len(prs) >= maxOverlapScanPRs {
 			break
 		}
 		opt.Page = resp.NextPage
+	}
+
+	var unchecked []int
+	if len(prs) > maxOverlapScanPRs {
+		for _, p := range prs[maxOverlapScanPRs:] {
+			unchecked = append(unchecked, p.GetNumber())
+		}
+		prs = prs[:maxOverlapScanPRs]
 	}
 
 	wanted := make(map[string]bool, len(paths))
@@ -108,10 +127,16 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 	}
 
 	var out []approvals.PR
+	var firstErr error
 	for _, p := range prs {
 		files, err := c.listFilesStrings(ctx, p.GetNumber())
 		if err != nil {
-			return nil, err
+			// A failed file fetch must not become "this PR doesn't overlap".
+			unchecked = append(unchecked, p.GetNumber())
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		hit := false
 		for _, f := range files {
@@ -129,6 +154,9 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 				Changed: files,
 			})
 		}
+	}
+	if len(unchecked) > 0 {
+		return out, &approvals.OverlapScanError{Unchecked: unchecked, Err: firstErr}
 	}
 	return out, nil
 }
@@ -197,14 +225,14 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGre
 			// (reeve's own current run is already skipped above).
 			if status != "completed" {
 				logger.Debug("check_run pending: not yet concluded", "name", name, "status", status)
-				failing = append(failing, name+":"+status)
+				failing = append(failing, name+":"+status+" (still running)")
 				continue
 			}
 			switch conclusion {
 			case "success", "skipped", "neutral":
 				continue
 			case "":
-				failing = append(failing, name+":pending")
+				failing = append(failing, name+":pending (still running)")
 			default:
 				failing = append(failing, name+":"+conclusion)
 			}
@@ -215,19 +243,34 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGre
 		checkOpt.Page = resp.NextPage
 	}
 
-	// Commit statuses (legacy, separate from check runs). Only "failure" /
-	// "error" combined states matter; "pending" reflects in-progress check
-	// runs already filtered above.
+	// Commit statuses (legacy, separate from check runs). A combined state of
+	// "pending" must block just like a non-completed check_run: a status that
+	// hasn't reported yet is a check still running, not a passing one.
+	// GitHub's own required-checks gate blocks on pending statuses too. The
+	// one subtlety: GitHub reports "pending" with an EMPTY status list when a
+	// commit has no statuses at all, so an empty list never blocks.
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
 	if err != nil {
 		return false, nil, fmt.Errorf("combined status: %w", err)
 	}
 	logger.Debug("combined_status", "state", st.GetState(), "n", len(st.Statuses))
-	if st.GetState() == "failure" || st.GetState() == "error" {
+	state := st.GetState()
+	if (state == "failure" || state == "error" || state == "pending") && len(st.Statuses) > 0 {
+		before := len(failing)
 		for _, s := range st.Statuses {
-			if s.GetState() != "success" && s.GetState() != "pending" {
+			switch s.GetState() {
+			case "success":
+			case "pending":
+				failing = append(failing, s.GetContext()+":pending (checks still running)")
+			default:
 				failing = append(failing, s.GetContext()+":"+s.GetState())
 			}
+		}
+		if len(failing) == before {
+			// Non-success combined state but every enumerated status looked
+			// fine - possible when >100 statuses paginate the culprit away.
+			// Fail closed with the combined verdict rather than passing.
+			failing = append(failing, "combined status:"+state)
 		}
 	}
 

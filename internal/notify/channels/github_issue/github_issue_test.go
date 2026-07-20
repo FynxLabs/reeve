@@ -132,3 +132,66 @@ func TestPRPayloadIsNoOp(t *testing.T) {
 		t.Fatal("PR payloads must not create issues")
 	}
 }
+
+// TestCheckFailedUsesSeparateIssue is the marker-stomping regression: a
+// check_failed event must never overwrite (or be closed by) the per-stack
+// drift issue.
+func TestCheckFailedUsesSeparateIssue(t *testing.T) {
+	f := &fakeIssues{byMarker: map[string]int{
+		"<!-- reeve:drift:net/prod -->": 7, // real drift issue already open
+	}}
+	s, err := New(context.Background(), schemas.ChannelYAML{
+		Type: "github_issue", On: []string{"drift_detected", "check_failed"},
+	}, notify.Deps{Issues: f})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p := payload(notify.EventCheckFailed)
+	p.Drift.Error = "auth exploded"
+	if err := s.Deliver(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.updated) != 0 {
+		t.Fatalf("check_failed must not touch the drift issue, updated %v", f.updated)
+	}
+	if len(f.created) != 1 || f.created[0] != "drift check failed: net/prod" {
+		t.Fatalf("want a dedicated check-failure issue, created %v", f.created)
+	}
+	if !strings.Contains(f.lastBody, "<!-- reeve:drift-check:net/prod -->") {
+		t.Fatalf("check issue must carry its own marker: %q", f.lastBody)
+	}
+	if !strings.Contains(f.lastBody, "auth exploded") {
+		t.Fatalf("check issue must carry the error: %q", f.lastBody)
+	}
+}
+
+func TestCheckRecoveredClosesCheckIssue(t *testing.T) {
+	f := &fakeIssues{byMarker: map[string]int{
+		"<!-- reeve:drift-check:net/prod -->": 8,
+		"<!-- reeve:drift:net/prod -->":       7,
+	}}
+	s, err := New(context.Background(), schemas.ChannelYAML{
+		Type: "github_issue", On: []string{"check_failed"}, // recovery implied
+	}, notify.Deps{Issues: f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subs := s.Subscribes()
+	implied := false
+	for _, ev := range subs {
+		if ev == notify.EventCheckRecovered {
+			implied = true
+		}
+	}
+	if !implied {
+		t.Fatal("check_failed subscription must imply check_recovered")
+	}
+
+	if err := s.Deliver(context.Background(), payload(notify.EventCheckRecovered)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.closed) != 1 || f.closed[0] != 8 {
+		t.Fatalf("check_recovered must close the check issue (not the drift issue): closed %v", f.closed)
+	}
+}

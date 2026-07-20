@@ -71,6 +71,11 @@ const (
 	ChannelEventDriftOngoing  = "drift_ongoing"
 	ChannelEventDriftResolved = "drift_resolved"
 	ChannelEventCheckFailed   = "check_failed"
+	// ChannelEventCheckRecovered fires when a drift check succeeds after one
+	// or more failed checks - the all-clear for check_failed. Stateful
+	// channels (pagerduty, github_issue) implicitly receive it whenever
+	// they subscribe to check_failed, so their incidents/issues resolve.
+	ChannelEventCheckRecovered = "check_recovered"
 )
 
 // ValidChannelEvents enumerates every valid `on:` entry, in documentation order.
@@ -88,6 +93,7 @@ var ValidChannelEvents = []string{
 	ChannelEventDriftOngoing,
 	ChannelEventDriftResolved,
 	ChannelEventCheckFailed,
+	ChannelEventCheckRecovered,
 }
 
 // IsValidChannelEvent reports whether name is a known `on:` event.
