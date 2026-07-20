@@ -96,7 +96,7 @@ func (p *Provider) Acquire(ctx context.Context) (*auth.Credential, error) {
 // unchanged.
 var (
 	stsEndpoint        = "https://sts.googleapis.com/v1/token"
-	iamCredentialsBase = "https://iamcredentials.googleapis.com"
+	iamCredentialsBase = "https://iamcredentials.googleapis.com" // #nosec G101 -- public API endpoint URL, not a credential
 )
 
 func exchangeSTS(ctx context.Context, oidcToken, wip string) (string, error) {
