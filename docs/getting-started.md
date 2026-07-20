@@ -38,12 +38,14 @@ At the repo root, run:
 reeve init
 ```
 
-`reeve init` scans the repo for Pulumi projects (the same scan as
-`reeve stacks discover`), shows what it found, and walks you through a short
-wizard: approvals (CODEOWNERS-based or an explicit approver list), an
-optional commented freeze-window example, an optional Slack notification
-channel, and an approval-freshness window. Everything you skip is written as a
-commented best-practice example you can enable later.
+`reeve init` scans the repo for Pulumi projects and Terraform root modules
+(the same scan as `reeve stacks discover`), shows what it found, and walks
+you through a short wizard: the IaC engine (pulumi, terraform, or OpenTofu -
+pick `tofu` explicitly, it reads the same `.tf` files as terraform),
+approvals (CODEOWNERS-based or an explicit approver list), an optional
+commented freeze-window example, an optional Slack notification channel, and
+an approval-freshness window. Everything you skip is written as a commented
+best-practice example you can enable later.
 
 Running in a script or CI (or passing `--non-interactive` / `-n`) skips all
 prompts and writes a safe baseline: engine detected from repo files, stacks
