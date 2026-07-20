@@ -202,6 +202,55 @@ Run artifacts under `runs/` (manifests, applied-state pointers) are pruned at ru
   freshness constraint. An approval without a submission timestamp fails
   closed when freshness is set.
 
+### Approval sources
+
+`approvals.sources` selects which signals count as approvals. Sources are
+gathered independently and **unioned** — a human who approves via *both* a
+review and a comment counts **once**.
+
+| Source | Default | Signal |
+| --- | --- | --- |
+| `pr_review` | **on** | A GitHub PR review whose current state is `APPROVED`. |
+| `pr_comment` | off (opt-in) | An authorized non-author posting `/reeve approve` in a PR comment. |
+
+- **Omitting the `sources` block** leaves `pr_review` as the only active
+  source — identical to reeve's original behavior. No existing config changes.
+- `pr_review` stays on unless you list it explicitly with `enabled: false`.
+- `pr_comment` is off unless you list it with `enabled: true`.
+
+```yaml
+approvals:
+  sources:
+    - type: pr_review
+      enabled: true
+    - type: pr_comment
+      enabled: true
+      command: "/reeve approve"   # trigger phrase; default "/reeve approve"
+```
+
+**`pr_comment` authorization (fail-closed).** A `/reeve approve` comment counts
+only when every condition holds:
+
+- Its first line is `<prefix> approve`, where `<prefix>` exactly matches a
+  configured command prefix (the action's `command-prefix`, default `/reeve`
+  and `@reeve`) — parsed the same way as every other `/reeve` command.
+- The commenter's `author_association` is in the same allowlist that gates
+  command dispatch (the action's `allowed-associations`, default `OWNER`,
+  `MEMBER`, `COLLABORATOR`). reeve **re-checks this at apply time** because it
+  reads historical comments directly, not the dispatched event, so an
+  unauthorized commenter's `/reeve approve` never counts.
+- The commenter is not a bot and is **not the PR author** (the same non-author
+  rule reviews follow — an author never self-approves).
+
+Comment approvals honor `dismiss_on_new_commit` (default on): each is stamped
+with the SHA that was HEAD when the comment was posted, so pushing a new commit
+invalidates it just like a stale review.
+
+> Posting `/reeve approve` also refreshes the approved-state notification
+> (Slack "ready to apply"), mirroring the `pull_request_review` path. The
+> comment itself is the approval — the apply gate re-reads it (and re-checks
+> authorization) at apply time; the comment never triggers an apply.
+
 ### CODEOWNERS resolution
 
 When `codeowners: true`, reeve parses the repo's `CODEOWNERS` file and
