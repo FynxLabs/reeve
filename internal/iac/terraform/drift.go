@@ -84,5 +84,6 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 		// fingerprints this set so a change in WHICH resources drift
 		// re-fires the alert.
 		DriftedURNs: changedAddresses(p.ResourceDrift),
+		Resources:   driftResources(p.ResourceDrift),
 	}, nil
 }
