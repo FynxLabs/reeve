@@ -77,8 +77,15 @@ scope:
 behavior:
   refresh_before_check: true       # default for drift (off for PR preview)
   max_parallel_stacks: 8
-  timeout_per_stack: 15m
+  timeout_per_stack: 15m           # wall-clock bound per stack attempt; unset = no bound
   retry_on_transient_error: 2      # 0 (default) = no retries
+
+  # timeout_per_stack caps a single stack's check attempt so one hung engine
+  # invocation can't stall the run. On overrun the engine process is cancelled
+  # and the stack is classified as a check error (check_failed) with the reason
+  # "stack check exceeded timeout_per_stack=15m"; the run continues with the
+  # other stacks. A timeout is a run error, NOT a transient - it is never
+  # retried, and because it bounds each attempt it also caps every retry.
 
   # Flap damping (unset = off): after a drift alert goes out for a stack,
   # further alerts stay silent until the drift resolves or this window
