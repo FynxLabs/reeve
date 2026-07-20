@@ -236,6 +236,13 @@ func (c *Config) Validate() error {
 	if c.Shared.Bucket.Type == "" {
 		return errors.New("shared.yaml: bucket.type is required")
 	}
+	// apply.trigger, when set, must be one of the two recognized modes. A
+	// typo (e.g. "mrege") must not silently fall back to the comment
+	// default and quietly disable the intended merge-mode auto-apply.
+	if t := c.Shared.Apply.Trigger; t != "" && t != schemas.ApplyTriggerComment && t != schemas.ApplyTriggerMerge {
+		return fmt.Errorf("shared.yaml: apply.trigger %q is invalid (want %q or %q)",
+			t, schemas.ApplyTriggerComment, schemas.ApplyTriggerMerge)
+	}
 	if err := c.validateChannels(); err != nil {
 		return err
 	}

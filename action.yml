@@ -229,6 +229,23 @@ runs:
               ready_for_review)
                 CMD="ready"
                 ;;
+              closed)
+                # Merge-triggered apply (the merge-then-apply / continuous-
+                # delivery flow). Only a MERGED close dispatches; a plain
+                # close (PR abandoned) runs nothing. We always dispatch the
+                # apply with --trigger-source merge and let the binary decide:
+                # the binary is the source of truth for the mode and no-ops
+                # unless apply.trigger is "merge", so a merge event in a
+                # comment-mode repo can never force an apply.
+                MERGED=$(jq -r '.pull_request.merged // false' < "$GITHUB_EVENT_PATH")
+                if [[ "$MERGED" == "true" ]]; then
+                  CMD="apply"
+                  EXTRA="$EXTRA --trigger-source merge"
+                else
+                  echo "pull_request closed without merge - skipping."
+                  exit 0
+                fi
+                ;;
               *)
                 echo "pull_request action '$ACTION' does not trigger reeve - skipping."
                 exit 0
@@ -286,6 +303,10 @@ runs:
             case "$VERB" in
               apply|up)
                 CMD="apply"
+                # Comment-initiated apply. The binary rejects this (no-op) when
+                # apply.trigger is "merge", so exactly one initiation path
+                # applies per repo.
+                EXTRA="$EXTRA --trigger-source comment"
                 # Re-apply an already-applied commit: "--force" or "force" as a token.
                 if [[ " $REST " == *" --force "* || " $REST " == *" force "* ]]; then
                   EXTRA="$EXTRA --force"

@@ -116,12 +116,23 @@ type FreezeWindowYAML struct {
 	Stacks   []string `yaml:"stacks"`
 }
 
+// Apply trigger modes. The trigger selects exactly ONE apply-initiation
+// path; it is a flow selector, never a gate, and never weakens approvals,
+// locks, freeze, checks, or preview freshness.
+const (
+	// ApplyTriggerComment applies only from a /reeve apply (or @reeve
+	// apply/up) PR comment. This is the default (apply-then-merge flow).
+	ApplyTriggerComment = "comment"
+	// ApplyTriggerMerge applies automatically when the PR is merged
+	// (merge-then-apply / continuous-delivery flow). Comment-initiated
+	// applies are rejected as a no-op in this mode.
+	ApplyTriggerMerge = "merge"
+)
+
 type ApplyConfig struct {
-	// Trigger: "comment" (default; requires /reeve apply) | "merge".
+	// Trigger selects the apply-initiation path: "comment" (default) |
+	// "merge". See the ApplyTrigger* constants and TriggerMode().
 	Trigger string `yaml:"trigger"`
-	// Command: the magic phrase in a PR comment that triggers apply.
-	// Defaults to "/reeve apply".
-	Command string `yaml:"command"`
 	// AllowForkPRs: if true, apply runs on fork PRs with full creds.
 	// Default false. Surfaces via preconditions GateFork.
 	AllowForkPRs bool `yaml:"allow_fork_prs"`
@@ -129,6 +140,17 @@ type ApplyConfig struct {
 	// comment + Slack notification) after a fully successful plan, and
 	// also when the PR transitions from draft to ready_for_review.
 	AutoReady bool `yaml:"auto_ready"`
+}
+
+// TriggerMode returns the resolved apply trigger mode, defaulting to
+// "comment" when unset. An unrecognized value is validated (and rejected)
+// by config.Validate; this accessor treats anything other than the exact
+// "merge" keyword as the safe comment default.
+func (a ApplyConfig) TriggerMode() string {
+	if a.Trigger == ApplyTriggerMerge {
+		return ApplyTriggerMerge
+	}
+	return ApplyTriggerComment
 }
 
 // BucketConfig fields carry `expand:"env"`: they are part of the enumerated
