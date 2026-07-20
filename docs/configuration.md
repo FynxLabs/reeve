@@ -64,6 +64,14 @@ locking:
     allowed: ["@org/sre-leads"]    # PR-scoped removal (--pr / "/reeve unlock") is
     requires_reason: true          # self-service and not gated here
 
+# Locks require a bucket that ENFORCES conditional writes (If-Match /
+# If-None-Match). Real S3, GCS, Azure Blob, current MinIO/R2, and the
+# filesystem backend all do; some older S3-compatibles accept the headers
+# but ignore them, which would turn locks into silent no-ops. reeve
+# probes this once per process on first lock use (two conditional writes
+# against a throwaway locks/.cas-probe/* key) and refuses to operate if
+# the bucket does not enforce conditions.
+
 approvals:
   sources:
     - type: pr_review              # default VCS reviews

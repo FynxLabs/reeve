@@ -25,6 +25,13 @@ state file:
 | `drift_ongoing` | Still drifted since the last run. **Silent by default.** |
 | `drift_resolved` | Was drifted, now clean |
 | `check_failed` | Run-level error (auth, network, engine crash) |
+| `check_recovered` | First successful check after a failed one — the all-clear for `check_failed` |
+
+`check_recovered` is emitted *alongside* the run's classification (it can
+accompany `drift_detected`, `drift_resolved`, or a silent no-change run),
+so stateful channels can resolve the incident/issue a `check_failed`
+opened. Subscribing to `check_failed` on the `pagerduty` or
+`github_issue` channel implicitly subscribes `check_recovered` too.
 
 **`drift_ongoing` is silent on purpose** - without the event lifecycle,
 alerting either spams every run or fires once and goes stale. The
@@ -76,6 +83,12 @@ behavior:
   # What "transient" means: network error, auth expiry. NOT engine crash,
   # plan-parse error, or policy failure.
 
+  # Exit code control: when a condition below is true and occurred this
+  # run, `reeve drift run` exits nonzero (naming the condition) so CI can
+  # gate on it. All three default to false = always exit 0.
+  #   drift_detected -> any stack fired the drift_detected event
+  #   drift_ongoing  -> any stack fired the drift_ongoing event
+  #   run_error      -> any check failed (check_failed / outcome error)
   exit_on:
     drift_detected: false          # don't fail CI on drift - alert instead
     drift_ongoing: false
@@ -297,10 +310,27 @@ to add a destination.
 > (or just rename the key by hand).
 
 Every channel declares which events it wants via `on:`. The drift events are
-`drift_detected`, `drift_ongoing`, `drift_resolved`, and `check_failed` -
-an unknown name is a hard config error (load and `reeve lint` both reject
-it, listing the valid names), and a channel whose `on:` list is empty logs a
-warning because it will never fire.
+`drift_detected`, `drift_ongoing`, `drift_resolved`, `check_failed`, and
+`check_recovered` - an unknown name is a hard config error (load and
+`reeve lint` both reject it, listing the valid names), and a channel whose
+`on:` list is empty logs a warning because it will never fire.
+
+### Delivery durability
+
+The drift baseline advances *before* notifications go out, so a lost
+delivery could otherwise be lost forever (the next run would compare
+against the new baseline and stay silent). To close that window, every
+payload is persisted as an undelivered marker in the bucket
+(`drift/pending-events/<project>/<stack>/<event>.json`) before dispatch
+and cleared only after every subscribed channel delivered it. The next
+`reeve drift run` redelivers leftover markers ahead of its own events
+(a fresh event for the same stack+event supersedes a stale pending one).
+
+Delivery is therefore **at-least-once**: if one channel fails, the next
+run redelivers to *all* channels, including ones that already succeeded.
+PagerDuty (dedup keys) and github_issue (marker upserts) are idempotent;
+Slack/webhook may repeat a message — a duplicate beats a silently lost
+alert.
 
 ### Slack
 
@@ -350,9 +380,17 @@ that's where the transformation logic belongs.
 
 ### PagerDuty
 
-Events API v2 with automatic `trigger` / `resolve` action selection:
-`drift_detected` triggers, `drift_resolved` resolves. Dedup key is
-`reeve-drift-<project>/<stack>`.
+Events API v2 with automatic `trigger` / `resolve` action selection.
+Every stack gets two independent incident streams so a check failure
+never stomps a real drift incident (and vice versa):
+
+| Dedup key | Triggered by | Resolved by |
+|---|---|---|
+| `reeve-drift-<project>/<stack>` | `drift_detected`, `drift_ongoing` | `drift_resolved` |
+| `reeve-drift-check::<project>/<stack>` | `check_failed` | `check_recovered` |
+
+Subscribing to `check_failed` implicitly subscribes `check_recovered`, so
+check-failure incidents always resolve once the check heals.
 
 ```yaml
 - type: pagerduty
@@ -369,6 +407,12 @@ Events API v2 with automatic `trigger` / `resolve` action selection:
 One open issue per drifted stack, identified by a hidden marker
 (`<!-- reeve:drift:<project>/<stack> -->`). On re-runs, the issue body
 updates. On `drift_resolved`, the issue closes.
+
+Check failures get their own issue per stack (marker
+`<!-- reeve:drift-check:<project>/<stack> -->`, title
+`drift check failed: <project>/<stack>`), opened on `check_failed` and
+closed on `check_recovered` — they never overwrite the drift issue.
+Subscribing to `check_failed` implicitly subscribes `check_recovered`.
 
 ```yaml
 - type: github_issue
@@ -439,6 +483,12 @@ includes them too:
 Long-lived IaC PRs over drifted stacks are compounding risk - the plan
 reviewers approved a week ago no longer matches reality. Incident
 tooling can use `overlapping_prs` to escalate.
+
+The scan runs once per drift run (all drifted paths in one pass over the
+open PRs, capped at 100 PRs). If some PRs could not be checked (a file
+listing failed, or the cap was hit), the run does **not** pretend "no
+overlap": the report and manifest carry a warning naming the PR numbers
+that could not be checked.
 
 ## Troubleshooting
 

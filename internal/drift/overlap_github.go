@@ -25,10 +25,11 @@ func NewGitHubPROverlap(client ghOverlapClient) PROverlapFinder {
 }
 
 func (g *ghOverlap) FindOverlappingPRs(ctx context.Context, paths []string) ([]OverlappingPR, error) {
+	// A non-nil error may accompany PARTIAL results (approvals.OverlapScanError:
+	// some PRs' file lists could not be fetched). Convert whatever WAS found
+	// and propagate the error so the runner can surface a warning instead of
+	// silently reporting "no overlap".
 	prs, err := g.client.ListOpenPRsTouchingPaths(ctx, paths)
-	if err != nil {
-		return nil, err
-	}
 	out := make([]OverlappingPR, 0, len(prs))
 	for _, p := range prs {
 		opened, _ := time.Parse(time.RFC3339, "")
@@ -40,5 +41,5 @@ func (g *ghOverlap) FindOverlappingPRs(ctx context.Context, paths []string) ([]O
 			Paths:    p.Changed,
 		})
 	}
-	return out, nil
+	return out, err
 }

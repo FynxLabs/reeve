@@ -50,6 +50,10 @@ func ReportMarkdown(out *RunOutput) string {
 				break
 			}
 		}
+		if out.OverlapWarning != "" {
+			fmt.Fprintf(&b, "> ⚠️ %s\n\n", out.OverlapWarning)
+		}
+
 		if anyOverlap {
 			b.WriteString("### ⚠️ Drifted stacks with open PRs\n\n")
 			b.WriteString("Long-lived IaC PRs over drifted infrastructure are compounding risk - ")

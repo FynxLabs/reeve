@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/thefynx/reeve/internal/config"
+	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/thefynx/reeve/internal/drift"
 )
 
 // driftRepo scaffolds a repo via init and chdirs into it.
@@ -178,5 +182,54 @@ func TestDriftStatusReadsStoredState(t *testing.T) {
 	}
 	if strings.Contains(out, "projects-api/dev") {
 		t.Errorf("--stack filter did not exclude other stacks:\n%s", out)
+	}
+}
+
+func TestDriftExitError(t *testing.T) {
+	mk := func(eo schemas.DriftExitOn) *config.Config {
+		return &config.Config{Drift: &schemas.Drift{Behavior: schemas.DriftBehavior{ExitOn: eo}}}
+	}
+	out := &drift.RunOutput{
+		Items: []drift.Item{
+			{Project: "a", Stack: "prod", Outcome: drift.OutcomeDriftDetected},
+			{Project: "b", Stack: "prod", Outcome: drift.OutcomeDriftDetected},
+			{Project: "c", Stack: "prod", Outcome: drift.OutcomeError},
+		},
+		Events: []drift.Event{drift.EventDriftDetected, drift.EventDriftOngoing, drift.EventCheckFailed},
+	}
+
+	// All conditions off (the default): exit 0 regardless of findings.
+	if err := driftExitError(mk(schemas.DriftExitOn{}), out); err != nil {
+		t.Fatalf("exit_on defaults must stay exit-0: %v", err)
+	}
+	// No drift.yaml at all: exit 0.
+	if err := driftExitError(&config.Config{}, out); err != nil {
+		t.Fatalf("nil drift config must stay exit-0: %v", err)
+	}
+
+	err := driftExitError(mk(schemas.DriftExitOn{DriftDetected: true}), out)
+	if err == nil || !strings.Contains(err.Error(), "exit_on.drift_detected") {
+		t.Fatalf("drift_detected condition: %v", err)
+	}
+	err = driftExitError(mk(schemas.DriftExitOn{DriftOngoing: true}), out)
+	if err == nil || !strings.Contains(err.Error(), "exit_on.drift_ongoing") {
+		t.Fatalf("drift_ongoing condition: %v", err)
+	}
+	err = driftExitError(mk(schemas.DriftExitOn{RunError: true}), out)
+	if err == nil || !strings.Contains(err.Error(), "exit_on.run_error") {
+		t.Fatalf("run_error condition: %v", err)
+	}
+	// Multiple conditions compose into one message.
+	err = driftExitError(mk(schemas.DriftExitOn{DriftDetected: true, RunError: true}), out)
+	if err == nil || !strings.Contains(err.Error(), "drift_detected") || !strings.Contains(err.Error(), "run_error") {
+		t.Fatalf("composed conditions: %v", err)
+	}
+	// A clean run never exits nonzero, even with every condition armed.
+	clean := &drift.RunOutput{
+		Items:  []drift.Item{{Project: "a", Stack: "prod", Outcome: drift.OutcomeNoDrift}},
+		Events: []drift.Event{drift.EventNone},
+	}
+	if err := driftExitError(mk(schemas.DriftExitOn{DriftDetected: true, DriftOngoing: true, RunError: true}), clean); err != nil {
+		t.Fatalf("clean run must exit 0: %v", err)
 	}
 }

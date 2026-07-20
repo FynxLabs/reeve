@@ -35,6 +35,10 @@ const (
 	EventDriftOngoing  Event = schemas.ChannelEventDriftOngoing
 	EventDriftResolved Event = schemas.ChannelEventDriftResolved
 	EventCheckFailed   Event = schemas.ChannelEventCheckFailed
+	// EventCheckRecovered is the all-clear for EventCheckFailed: the first
+	// successful check after one or more failed ones. Stateful channels use
+	// it to resolve the incident/issue a check_failed opened.
+	EventCheckRecovered Event = schemas.ChannelEventCheckRecovered
 )
 
 // PREvents lists the core PR-flow lifecycle events in order. The legacy
@@ -55,7 +59,28 @@ func TimelinePREvents() []Event {
 
 // DriftEvents lists every drift event.
 func DriftEvents() []Event {
-	return []Event{EventDriftDetected, EventDriftOngoing, EventDriftResolved, EventCheckFailed}
+	return []Event{EventDriftDetected, EventDriftOngoing, EventDriftResolved, EventCheckFailed, EventCheckRecovered}
+}
+
+// WithImpliedEvents returns events, additionally subscribing stateful
+// channels to the all-clear counterpart of any alerting event they chose:
+// a channel that opens an incident/issue on check_failed must also hear
+// check_recovered, or the incident survives forever once the check heals.
+// Used by the pagerduty and github_issue constructors.
+func WithImpliedEvents(events []Event) []Event {
+	hasFailed, hasRecovered := false, false
+	for _, e := range events {
+		switch e {
+		case EventCheckFailed:
+			hasFailed = true
+		case EventCheckRecovered:
+			hasRecovered = true
+		}
+	}
+	if hasFailed && !hasRecovered {
+		events = append(events, EventCheckRecovered)
+	}
+	return events
 }
 
 // ParseEvents converts `on:` strings into Events, dropping unknown names.

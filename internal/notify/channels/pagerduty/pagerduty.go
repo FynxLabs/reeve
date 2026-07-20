@@ -38,9 +38,12 @@ func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.C
 		name:           cfg.EffectiveName(),
 		integrationKey: cfg.IntegrationKey,
 		severityMap:    sm,
-		events:         notify.ParseEvents(cfg.On),
-		client:         deps.HTTP,
-		endpoint:       DefaultEndpoint,
+		// A check_failed subscription implies check_recovered: the incident a
+		// failed check triggers must resolve when the check heals, even if
+		// the config predates the recovery event.
+		events:   notify.WithImpliedEvents(notify.ParseEvents(cfg.On)),
+		client:   deps.HTTP,
+		endpoint: DefaultEndpoint,
 	}, nil
 }
 
@@ -65,6 +68,14 @@ func (s *Channel) Deliver(ctx context.Context, p notify.Payload) error {
 	return notify.PostJSON(ctx, s.client, "pagerduty "+s.name, s.endpoint, nil, body)
 }
 
+// driftEvent maps drift events onto two incident streams per stack, with
+// distinct dedup keys so they never stomp each other:
+//   - "reeve-drift-<ref>":         drift_detected/ongoing trigger, drift_resolved resolves
+//   - "reeve-drift-check::<ref>":  check_failed triggers, check_recovered resolves
+//
+// Sharing one key (the old behavior) let a check_failed blip overwrite an
+// open drift incident, and left check-failure incidents open forever
+// because nothing ever resolved them.
 func (s *Channel) driftEvent(p notify.Payload) map[string]any {
 	d := p.Drift
 	severity := s.severityMap[d.Env]
@@ -72,13 +83,20 @@ func (s *Channel) driftEvent(p notify.Payload) map[string]any {
 		severity = "warning"
 	}
 	action := "trigger"
-	if p.Event == notify.EventDriftResolved {
+	dedup := fmt.Sprintf("reeve-drift-%s", d.Ref())
+	switch p.Event {
+	case notify.EventDriftResolved:
 		action = "resolve"
+	case notify.EventCheckFailed:
+		dedup = fmt.Sprintf("reeve-drift-check::%s", d.Ref())
+	case notify.EventCheckRecovered:
+		action = "resolve"
+		dedup = fmt.Sprintf("reeve-drift-check::%s", d.Ref())
 	}
 	return map[string]any{
 		"routing_key":  s.integrationKey,
 		"event_action": action,
-		"dedup_key":    fmt.Sprintf("reeve-drift-%s", d.Ref()),
+		"dedup_key":    dedup,
 		"payload": map[string]any{
 			"summary":  fmt.Sprintf("drift on %s (%s)", d.Ref(), p.Event),
 			"source":   "reeve",

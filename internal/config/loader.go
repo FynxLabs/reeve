@@ -238,6 +238,9 @@ func (c *Config) Validate() error {
 	if err := c.validateChannels(); err != nil {
 		return err
 	}
+	if err := c.validateDurations(); err != nil {
+		return err
+	}
 	return nil
 }
 
