@@ -309,6 +309,23 @@ Every channel declares which events it wants via `on:`. The drift events are
 `reeve lint` both reject it, listing the valid names), and a channel whose
 `on:` list is empty logs a warning because it will never fire.
 
+### Delivery durability
+
+The drift baseline advances *before* notifications go out, so a lost
+delivery could otherwise be lost forever (the next run would compare
+against the new baseline and stay silent). To close that window, every
+payload is persisted as an undelivered marker in the bucket
+(`drift/pending-events/<project>/<stack>/<event>.json`) before dispatch
+and cleared only after every subscribed channel delivered it. The next
+`reeve drift run` redelivers leftover markers ahead of its own events
+(a fresh event for the same stack+event supersedes a stale pending one).
+
+Delivery is therefore **at-least-once**: if one channel fails, the next
+run redelivers to *all* channels, including ones that already succeeded.
+PagerDuty (dedup keys) and github_issue (marker upserts) are idempotent;
+Slack/webhook may repeat a message — a duplicate beats a silently lost
+alert.
+
 ### Slack
 
 One message per run per channel, no state tracking. Use a dedicated

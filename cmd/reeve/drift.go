@@ -244,7 +244,17 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		return serr
 	}
 	if len(channels) > 0 {
-		errs := notify.Dispatch(ctx, channels, drift.NotifyPayloads(out))
+		// Durable dispatch: payloads persist as undelivered markers before
+		// delivery and clear only on success, so a crash or channel outage
+		// after the baseline advanced still redelivers on the next run
+		// (at-least-once; see internal/drift/pending.go).
+		pending := &drift.PendingStore{Blob: store}
+		leftover, perrs := pending.List(ctx)
+		for _, e := range perrs {
+			fmt.Fprintf(cmd.ErrOrStderr(), "pending-event error: %v\n", e)
+		}
+		payloads := drift.MergePending(leftover, drift.NotifyPayloads(out))
+		errs := drift.DispatchDurable(ctx, channels, payloads, pending)
 		for _, e := range errs {
 			fmt.Fprintf(cmd.ErrOrStderr(), "channel error: %v\n", e)
 		}
