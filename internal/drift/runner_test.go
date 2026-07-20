@@ -3,9 +3,11 @@ package drift
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/thefynx/reeve/internal/blob/filesystem"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/core/redact"
 	"github.com/thefynx/reeve/internal/core/summary"
@@ -76,6 +78,73 @@ func TestRunOneNoDriftAndDrift(t *testing.T) {
 	}
 	if item.Fingerprint == "" {
 		t.Fatal("drift fingerprint should be set from DriftedURNs")
+	}
+}
+
+// TestRunOneCorruptStateFailsLoudly: a state file that cannot be read must
+// fail the stack's check (run_error → exit_on machinery), never silently
+// degrade to first-run semantics.
+func TestRunOneCorruptStateFailsLoudly(t *testing.T) {
+	ctx := context.Background()
+	fs, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.Put(ctx, "drift/state/p/s.json", strings.NewReader("{corrupt")); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Engine: fakeEngine{}, Redactor: redact.New(), StateStore: &StateStore{Blob: fs}}
+	item, ev, skip, _ := runOne(ctx, opts, discovery.Stack{Project: "p", Name: "s", Path: "p/s"}, time.Now())
+	if skip {
+		t.Fatal("a state-load failure must not be skipped")
+	}
+	if item.Outcome != OutcomeError || ev != EventCheckFailed {
+		t.Fatalf("want error/check_failed, got outcome=%s ev=%s", item.Outcome, ev)
+	}
+	if !strings.Contains(item.Error, "load drift state") {
+		t.Fatalf("error should name the state load, got %q", item.Error)
+	}
+}
+
+// TestRunOneCorruptSuppressionFailsLoudly: an unreadable suppression must
+// not be treated as "not suppressed".
+func TestRunOneCorruptSuppressionFailsLoudly(t *testing.T) {
+	ctx := context.Background()
+	fs, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.Put(ctx, "drift/suppressions/p/s.json", strings.NewReader("{corrupt")); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Engine: fakeEngine{}, Redactor: redact.New(), SuppressionStore: &SuppressionStore{Blob: fs}}
+	item, ev, _, _ := runOne(ctx, opts, discovery.Stack{Project: "p", Name: "s", Path: "p/s"}, time.Now())
+	if item.Outcome != OutcomeError || ev != EventCheckFailed {
+		t.Fatalf("want error/check_failed, got outcome=%s ev=%s", item.Outcome, ev)
+	}
+	if !strings.Contains(item.Error, "suppression") {
+		t.Fatalf("error should name the suppression load, got %q", item.Error)
+	}
+}
+
+// TestDriftEnvCounts: every env seen this run gets an entry, including an
+// explicit zero for recovered/clean envs (the OTEL gauge reset).
+func TestDriftEnvCounts(t *testing.T) {
+	items := []Item{
+		{Env: "prod", Outcome: OutcomeDriftDetected},
+		{Env: "prod", Outcome: OutcomeDriftDetected},
+		{Env: "staging", Outcome: OutcomeNoDrift},
+		{Env: "dev", Outcome: OutcomeError},
+	}
+	got := driftEnvCounts(items)
+	want := map[string]int64{"prod": 2, "staging": 0, "dev": 0}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for env, n := range want {
+		if v, ok := got[env]; !ok || v != n {
+			t.Fatalf("env %s: got %v, want %d (zero entries must be present)", env, got, n)
+		}
 	}
 }
 

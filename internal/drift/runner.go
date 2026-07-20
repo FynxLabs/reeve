@@ -93,6 +93,10 @@ type Item struct {
 	DurationMS     int64
 	Suppressed     bool
 	OverlappingPRs []OverlappingPR
+	// OngoingSince carries the persisted episode start (state.OngoingSince
+	// after classification) so run-level consumers (OTEL) don't have to
+	// re-load state per item.
+	OngoingSince time.Time
 	// CheckRecovered marks the first successful check after one or more
 	// failed ones. Carried separately from Event because recovery can
 	// coincide with any classification (including a silent EventNone);
@@ -218,7 +222,7 @@ func Run(ctx context.Context, opts Options) (*RunOutput, error) {
 	// Emit OTEL metrics for the whole run.
 	if opts.OTEL != nil {
 		runOutcome := "success"
-		stacksInDriftByEnv := map[string]int64{}
+		stacksInDriftByEnv := driftEnvCounts(items)
 		for i, it := range items {
 			opts.OTEL.RecordDriftDuration(ctx, it.Project, it.Stack, it.Env, float64(it.DurationMS)/1000.0)
 			ev := events[i]
@@ -226,18 +230,15 @@ func Run(ctx context.Context, opts Options) (*RunOutput, error) {
 			if it.Outcome == OutcomeError {
 				runOutcome = "failed"
 			}
-			if it.Outcome == OutcomeDriftDetected {
-				stacksInDriftByEnv[it.Env]++
-			}
-			// ongoing_duration: emit hours drifted for ongoing items.
-			if ev == EventDriftOngoing {
-				// Load state to find OngoingSince.
-				if opts.StateStore != nil {
-					if st, err := opts.StateStore.Load(ctx, it.Project, it.Stack); err == nil && !st.OngoingSince.IsZero() {
-						hours := finished.Sub(st.OngoingSince).Hours()
-						opts.OTEL.RecordOngoingDuration(ctx, it.Project, it.Stack, hours)
-					}
-				}
+			// ongoing_duration: hours drifted for ongoing items (episode
+			// start rides on the item - no per-item state re-load), reset
+			// to zero when the drift resolves so the gauge doesn't report
+			// a stale age forever.
+			switch {
+			case ev == EventDriftOngoing && !it.OngoingSince.IsZero():
+				opts.OTEL.RecordOngoingDuration(ctx, it.Project, it.Stack, finished.Sub(it.OngoingSince).Hours())
+			case ev == EventDriftResolved:
+				opts.OTEL.RecordOngoingDuration(ctx, it.Project, it.Stack, 0)
 			}
 		}
 		for env, n := range stacksInDriftByEnv {
@@ -249,13 +250,38 @@ func Run(ctx context.Context, opts Options) (*RunOutput, error) {
 	return out, nil
 }
 
+// driftEnvCounts returns the drifted-stack count per env, with an explicit
+// zero entry for every env observed this run. The zeros matter: the
+// stacks_in_drift gauge is only written when sampled, so an env that
+// recovered must be actively reset to 0 or dashboards keep showing its
+// last non-zero value forever.
+func driftEnvCounts(items []Item) map[string]int64 {
+	counts := map[string]int64{}
+	for _, it := range items {
+		if _, ok := counts[it.Env]; !ok {
+			counts[it.Env] = 0
+		}
+		if it.Outcome == OutcomeDriftDetected {
+			counts[it.Env]++
+		}
+	}
+	return counts
+}
+
 func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time) (Item, Event, bool, string) {
 	ref := s.Ref()
 	item := Item{Project: s.Project, Stack: s.Name, Env: s.Env}
 
-	// Suppression check.
+	// Suppression check. A load error is NOT "not suppressed": proceeding
+	// could alert on a stack an operator explicitly silenced, so fail the
+	// stack's check loudly instead (flows into exit_on.run_error).
 	if opts.SuppressionStore != nil {
-		sup, ok, _ := opts.SuppressionStore.Get(ctx, s.Project, s.Name)
+		sup, ok, err := opts.SuppressionStore.Get(ctx, s.Project, s.Name)
+		if err != nil {
+			item.Outcome = OutcomeError
+			item.Error = opts.Redactor.Redact(fmt.Sprintf("load suppression state: %v", err))
+			return item, EventCheckFailed, false, ""
+		}
 		if ok && sup.Active(now) {
 			item.Suppressed = true
 			item.Outcome = OutcomeSkipped
@@ -263,13 +289,19 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		}
 	}
 
-	// Freshness check.
+	// Prior state. A load error (corrupted/unreadable state file, transport
+	// failure) must not silently degrade to first-run semantics - that would
+	// re-fire baseline alerts or falsely classify ongoing drift as new. Fail
+	// the stack's check instead; the state file is untouched for a retry.
 	prev := State{Project: s.Project, Stack: s.Name}
 	if opts.StateStore != nil {
 		p, err := opts.StateStore.Load(ctx, s.Project, s.Name)
-		if err == nil {
-			prev = p
+		if err != nil {
+			item.Outcome = OutcomeError
+			item.Error = opts.Redactor.Redact(fmt.Sprintf("load drift state: %v", err))
+			return item, EventCheckFailed, false, ""
 		}
+		prev = p
 	}
 	if opts.FreshnessWindow > 0 && prev.LastOutcome != OutcomeDriftDetected {
 		if !prev.LastSuccessfulAt.IsZero() && now.Sub(prev.LastSuccessfulAt) < opts.FreshnessWindow {
@@ -352,6 +384,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 	// channels holding a check-failed incident/issue open get the
 	// all-clear even when the classification itself is silent.
 	item.CheckRecovered = prev.ConsecutiveErrors > 0 && item.Outcome != OutcomeError
+	item.OngoingSince = next.OngoingSince
 	if opts.StateStore != nil {
 		if err := opts.StateStore.Save(ctx, next); err != nil {
 			// A lost save means the next run re-classifies from stale state
