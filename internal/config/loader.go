@@ -44,8 +44,9 @@ type Config struct {
 
 // Load reads .reeve/ under root (or root itself if root points at a file),
 // validates each file's header, and unmarshals strictly into the matching
-// schema. Unknown keys are errors. Exactly one file per config_type except
-// engine (unique engine.type per file).
+// schema. Unknown keys are errors. Exactly one file per config_type;
+// multiple engine files parse here (unique engine.type per file) but
+// Validate rejects more than one until multi-engine routing exists.
 func Load(root string) (*Config, error) {
 	dir := filepath.Join(root, ".reeve")
 	info, err := os.Stat(dir)
@@ -215,11 +216,18 @@ func maxSchemaVersion(configType string) int {
 	return 1
 }
 
-// Validate runs cross-file checks. Phase 1: require at least one engine
-// config and a bucket.
+// Validate runs cross-file checks: exactly one engine config and a bucket.
 func (c *Config) Validate() error {
 	if len(c.Engines) == 0 {
 		return errors.New("no engine config found (e.g. .reeve/pulumi.yaml)")
+	}
+	if len(c.Engines) > 1 {
+		types := make([]string, 0, len(c.Engines))
+		for _, e := range c.Engines {
+			types = append(types, e.Engine.Type)
+		}
+		return fmt.Errorf("multiple engine configs found (%s); reeve currently supports one engine per repo",
+			strings.Join(types, ", "))
 	}
 	if c.Shared == nil {
 		return errors.New("no shared config found (.reeve/shared.yaml)")

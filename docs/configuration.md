@@ -24,7 +24,9 @@ config_type: <shared|engine|auth|notifications|observability|drift|user>
 ```
 
 - `version` is per-file. Bumps affect only that schema.
-- `config_type` is one-per-file, except `engine` (one per unique `engine.type`).
+- `config_type` is one-per-file. Engine files are keyed by `engine.type`,
+  but reeve currently supports only one engine config per repo - loading
+  more than one is a validation error.
 - Unknown top-level keys fail `reeve lint`.
 
 A single-file `reeve.yaml` at repo root is supported for simple cases.
@@ -63,12 +65,6 @@ locking:
     requires_reason: true          # self-service and not gated here
 
 approvals:
-  sources:
-    - type: pr_review              # default VCS reviews
-      enabled: true
-    - type: pr_comment             # opt-in: "/reeve approve" in PR comments
-      enabled: false
-      command: "/reeve approve"
   default:
     required_approvals: 1
     approvers: ["@org/infra-reviewers"]
@@ -103,8 +99,6 @@ break_glass:                       # opt-in emergency apply; OFF when absent
   override_freeze: true            # default true
 
 apply:
-  trigger: comment                 # comment (default) | merge
-  command: "/reeve apply"
   allow_fork_prs: false            # deny-by-default - review risk before flipping
   auto_ready: false                # if true: when PR converts from draft to ready-for-review
                                    # and plan has succeeded, notify for approval via Slack + PR comment
@@ -697,8 +691,11 @@ Catches:
 
 - Unknown top-level keys
 - Unsupported `version` values
-- Duplicate `config_type` (except `engine`)
-- Missing required fields (`bucket.type`, at least one engine)
+- Duplicate `config_type` (except `engine`, where the duplicate check is
+  per `engine.type`)
+- Missing required fields (`bucket.type`, an engine config)
+- More than one engine config (reeve currently supports one engine per
+  repo)
 - Auth provider scope conflicts (see [auth.md](auth.md))
 - `env_passthrough` without `i_understand_this_is_dangerous: true`
 

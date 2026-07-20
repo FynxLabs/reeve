@@ -158,9 +158,6 @@ locking:
 # Who may approve an apply, and how many approvals it takes.
 # Inspect the merged result per stack with: reeve rules explain <stack>
 approvals:
-  sources:
-    - type: pr_review
-      enabled: true
   default:
 `)
 	fmt.Fprintf(&b, "    required_approvals: %d\n", opts.RequiredApprovals)
@@ -208,16 +205,14 @@ preconditions:
 	}
 	b.WriteString(`
 apply:
-  trigger: comment            # apply only on an explicit /reeve apply comment
-  command: "/reeve apply"
   allow_fork_prs: false       # fork PRs stay dry-run only
   # auto_ready: true          # notify for approval when a draft PR becomes ready
 
-# Break-glass emergency overrides (bypass gates with a recorded reason) are
-# coming in a future release and will be configured here once they land:
+# Break-glass emergency apply (/reeve breakglass "<reason>" apply) is OFF
+# until this block exists - see docs/break-glass.md before enabling:
 # break_glass:
-#   allowed: ["@your-org/sre"]
-#   requires_reason: true
+#   authorized:
+#     internal_list: ["your-org/sre"]
 `)
 	return []byte(b.String())
 }

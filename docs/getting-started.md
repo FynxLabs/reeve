@@ -17,8 +17,10 @@ see [configuration.md](configuration.md) and [auth.md](auth.md).
 
 ## 1. Install reeve locally
 
-reeve is pre-release. No published binary, no Homebrew tap, no container
-image. Build from source:
+Grab a prebuilt tarball from the
+[releases page](https://github.com/FynxLabs/reeve/releases) (verify its
+sha256 against the release's cosign-signed `checksums.txt`), or build
+from source:
 
 ```bash
 git clone https://github.com/FynxLabs/reeve
@@ -75,9 +77,6 @@ bucket:
   name: ./.reeve-state           # local dir for quick iteration
 
 approvals:
-  sources:
-    - type: pr_review
-      enabled: true
   default:
     required_approvals: 1
     approvers: ["@your-org/infra-reviewers"]
@@ -89,8 +88,6 @@ preconditions:
   preview_freshness: 2h
 
 apply:
-  trigger: comment
-  command: "/reeve apply"
   allow_fork_prs: false          # deny-by-default; flip with care
   # auto_ready: true             # optional: when PR converts from draft to ready and plan succeeded, notify for approval
 ```

@@ -28,8 +28,10 @@ config_type: <type>
 `config_type` values (v1): `shared`, `engine`, `auth`, `notifications`,
 `observability`, `drift`, `user`.
 
-Exactly one file per `config_type`, except `engine` (multiple engines
-allowed, each with unique `engine.type`).
+Exactly one file per `config_type`. Multiple `engine` files (each with a
+unique `engine.type`) parse individually, but validation rejects more
+than one - reeve currently supports one engine per repo; multi-engine
+routing is future work.
 
 ## Validation
 

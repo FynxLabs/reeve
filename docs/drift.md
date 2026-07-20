@@ -70,11 +70,6 @@ scope:
 behavior:
   refresh_before_check: true       # default for drift (off for PR preview)
   max_parallel_stacks: 8
-  timeout_per_stack: 15m
-  retry_on_transient_error: 2
-
-  # What "transient" means: network error, auth expiry. NOT engine crash,
-  # plan-parse error, or policy failure.
 
   exit_on:
     drift_detected: false          # don't fail CI on drift - alert instead
@@ -84,16 +79,6 @@ behavior:
   state_bootstrap:
     mode: require_manual           # baseline | alert_all | require_manual
     baseline_max_age: 7d           # unset mode = alert_all on first run
-
-classification:
-  ignore_properties:
-    - resource_type: "aws:ec2/instance:Instance"
-      properties: ["tags.LastScanned", "tags.AutoManaged"]
-  ignore_resources:
-    - "urn:*:aws:autoscaling/group:*::*autoscaler-managed*"
-  treat_as_drift:
-    orphaned_state: true           # state exists, resource gone
-    missing_state: true            # resource exists, no state tracks it
 
 freshness:
   enabled: true
@@ -267,18 +252,9 @@ reeve drift suppress clear prod/api
 `2w`).
 
 Active suppressions live at `drift/suppressions/{project}/{stack}.json` in
-the bucket. The runner skips suppressed stacks and emits no events.
-
-For permanent suppressions (drift you've accepted as reality), declare
-in `drift.yaml`:
-
-```yaml
-permanent_suppressions:
-  - stack: "prod/legacy-erp"
-    reason: "Vendor-managed resources; tracked in TICKET-123"
-```
-
-These are listed in reports but never trigger events.
+the bucket. The runner skips suppressed stacks and emits no events. For
+drift you've accepted as reality, set a far-future `--until` and record
+the reason - there is no separate permanent-suppression config.
 
 ## Channels
 
@@ -311,7 +287,6 @@ channel (`#infra-drift`) - mixing drift with regular alerts gets noisy.
 - type: slack
   channel: "#infra-drift"
   on: [drift_detected, check_failed]
-  grouping: by_environment
 ```
 
 ### Webhook
@@ -446,7 +421,9 @@ tooling can use `overlapping_prs` to escalate.
 
 The state file's fingerprint is changing every run. That usually means
 an upstream system mutates a property each check (last-scanned timestamp,
-managed tag). Use `classification.ignore_properties` to exclude those.
+managed tag). Configure the engine to ignore those properties (e.g.
+Pulumi `ignoreChanges` / Terraform `lifecycle.ignore_changes`), or fix
+the upstream mutation.
 
 ### `drift_ongoing` never emits - is it broken?
 

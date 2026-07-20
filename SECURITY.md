@@ -54,11 +54,25 @@ Out of scope:
 - **Audit log is write-once.** Entries are created with
   `If-None-Match` preconditions. Overwrites are rejected.
 
+## Supported versions
+
+Only the latest release line receives security fixes. Fixes ship as a
+new release, not as backports.
+
+| Version | Supported |
+| ------- | --------- |
+| 0.2.x (latest release) | Yes |
+| < 0.2 | No - upgrade |
+| `edge-*` prerelease builds | No - unsigned rolling builds; pin a release |
+
 ## Supply-chain controls
 
-- **Release signing (planned, not shipped yet).** `.goreleaser.yaml`
-  wires sigstore/cosign keyless signing for when the first release is
-  cut. Pre-release, reeve is built from source only.
+- **Release signing.** goreleaser produces per-platform tarballs plus a
+  sha256 `checksums.txt`, and cosign (keyless, via GitHub OIDC in
+  `.github/workflows/release.yml`) signs the checksums file, publishing
+  the signature as `checksums.txt.bundle`. Binaries are not individually
+  signed - verify a tarball's sha256 against the signed `checksums.txt`.
+  Rolling `edge-<branch>` builds are unsigned.
 - **Vulnerability scanning on every PR:**
   - `govulncheck` - Go's reachability-aware vuln scanner against the
     official Go vulnerability database.

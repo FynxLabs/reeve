@@ -2,19 +2,17 @@ package schemas
 
 // Drift is .reeve/drift.yaml.
 type Drift struct {
-	Header                `yaml:",inline"`
-	Scope                 DriftScope          `yaml:"scope"`
-	Behavior              DriftBehavior       `yaml:"behavior"`
-	Classification        DriftClassification `yaml:"classification"`
-	Freshness             DriftFreshness      `yaml:"freshness"`
-	Schedules             map[string]Schedule `yaml:"schedules"`
-	PermanentSuppressions []SuppressionYAML   `yaml:"permanent_suppressions"`
-	Channels              []ChannelYAML       `yaml:"channels"`
-	// DeprecatedSinks is the original spelling of Channels. drift.yaml's
-	// `sinks:` key shipped in v0.2.0, so the loader keeps accepting it as a
-	// deprecated alias: it is mapped onto Channels at load time (with a
-	// deprecation warning), and setting both keys is an error.
-	// `reeve migrate-config` rewrites `sinks:` to `channels:`.
+	Header    `yaml:",inline"`
+	Scope     DriftScope          `yaml:"scope"`
+	Behavior  DriftBehavior       `yaml:"behavior"`
+	Freshness DriftFreshness      `yaml:"freshness"`
+	Schedules map[string]Schedule `yaml:"schedules"`
+	Channels  []ChannelYAML       `yaml:"channels"`
+	// DeprecatedSinks is the original spelling of Channels (drift.yaml's
+	// `sinks:` key shipped in v0.2.0). The loader REJECTS it with a hard
+	// error pointing at `reeve migrate-config`, which rewrites `sinks:` to
+	// `channels:`. The field exists only so the strict decoder can parse the
+	// key and produce that error instead of a generic unknown-key failure.
 	DeprecatedSinks []ChannelYAML `yaml:"sinks,omitempty"`
 }
 
@@ -24,12 +22,10 @@ type DriftScope struct {
 }
 
 type DriftBehavior struct {
-	RefreshBeforeCheck    bool           `yaml:"refresh_before_check"`
-	MaxParallelStacks     int            `yaml:"max_parallel_stacks"`
-	TimeoutPerStack       string         `yaml:"timeout_per_stack"`
-	RetryOnTransientError int            `yaml:"retry_on_transient_error"`
-	ExitOn                DriftExitOn    `yaml:"exit_on"`
-	StateBootstrap        StateBootstrap `yaml:"state_bootstrap"`
+	RefreshBeforeCheck bool           `yaml:"refresh_before_check"`
+	MaxParallelStacks  int            `yaml:"max_parallel_stacks"`
+	ExitOn             DriftExitOn    `yaml:"exit_on"`
+	StateBootstrap     StateBootstrap `yaml:"state_bootstrap"`
 }
 
 type DriftExitOn struct {
@@ -43,22 +39,6 @@ type StateBootstrap struct {
 	BaselineMaxAge string `yaml:"baseline_max_age"`
 }
 
-type DriftClassification struct {
-	IgnoreProperties []IgnoreProp `yaml:"ignore_properties"`
-	IgnoreResources  []string     `yaml:"ignore_resources"`
-	TreatAsDrift     TreatAsDrift `yaml:"treat_as_drift"`
-}
-
-type IgnoreProp struct {
-	ResourceType string   `yaml:"resource_type"`
-	Properties   []string `yaml:"properties"`
-}
-
-type TreatAsDrift struct {
-	OrphanedState bool `yaml:"orphaned_state"`
-	MissingState  bool `yaml:"missing_state"`
-}
-
 type DriftFreshness struct {
 	Enabled         bool   `yaml:"enabled"`
 	Window          string `yaml:"window"`
@@ -68,12 +48,6 @@ type DriftFreshness struct {
 type Schedule struct {
 	Patterns        []string `yaml:"patterns"`
 	ExcludePatterns []string `yaml:"exclude_patterns"`
-}
-
-type SuppressionYAML struct {
-	Stack  string `yaml:"stack"`
-	Until  string `yaml:"until"`
-	Reason string `yaml:"reason"`
 }
 
 // DriftPayload tunes the webhook channel's payload shape.

@@ -19,9 +19,6 @@ locking:
     requires_reason: true
 
 approvals:
-  sources:
-    - type: pr_review
-      enabled: true
   default:
     required_approvals: 1
     approvers: ["@org/infra-reviewers"]
@@ -46,6 +43,4 @@ freeze_windows:
     stacks: ["*/prod"]
 
 apply:
-  trigger: comment
-  command: "/reeve apply"
   allow_fork_prs: false

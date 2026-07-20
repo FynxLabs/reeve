@@ -38,11 +38,12 @@ func NewMigrator() *Migrator {
 	return m
 }
 
-// rewriteDriftSinksToChannels renames drift.yaml's deprecated `sinks:` key
-// (shipped in v0.2.0) to `channels:`. The loader accepts `sinks:` as an
-// alias, so running this is optional but silences the deprecation warning.
-// A file that already uses `channels:` (or has neither key) is untouched;
-// a file with both keys is left for the loader to reject.
+// rewriteDriftSinksToChannels renames drift.yaml's retired `sinks:` key
+// (shipped in v0.2.0) to `channels:`. The loader hard-errors on `sinks:`
+// with a pointer at this command, so a file still using it must be
+// migrated (or hand-renamed) before it loads again. A file that already
+// uses `channels:` (or has neither key) is untouched; a file with both
+// keys is left for the loader to reject.
 func rewriteDriftSinksToChannels(root *yaml.Node) (bool, error) {
 	m := docMapping(root)
 	if m == nil {
@@ -83,7 +84,9 @@ func rewriteDriftSinksToChannels(root *yaml.Node) (bool, error) {
 // All other keys (auth_token, trigger, icons, rules) carry over verbatim;
 // `events` is renamed to `on`. Value nodes are reused so comments and
 // styles survive. A file without a `slack:` block only gets its version
-// bumped. The runtime keeps accepting the legacy block, so running this is optional.
+// bumped. The loader hard-errors on the legacy `slack:` block with a
+// pointer at this command, so a file still using it must be migrated
+// before it loads again.
 func migrateLegacySlackToChannels(root *yaml.Node) error {
 	m := docMapping(root)
 	if m == nil {
