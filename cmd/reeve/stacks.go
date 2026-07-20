@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,7 +33,7 @@ func newStacksCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			enum, err := e.EnumerateStacks(context.Background(), root)
+			enum, err := e.EnumerateStacks(cmd.Context(), root)
 			if err != nil {
 				return err
 			}
@@ -100,7 +99,7 @@ func stacksDiscover(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("stacks discover: %w", err)
 	}
-	enum, err := e.EnumerateStacks(context.Background(), root)
+	enum, err := e.EnumerateStacks(cmd.Context(), root)
 	if err != nil {
 		return err
 	}
