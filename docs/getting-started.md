@@ -91,8 +91,7 @@ preconditions:
   preview_freshness: 2h
 
 apply:
-  trigger: comment
-  command: "/reeve apply"
+  trigger: comment               # comment (default): apply on /reeve apply | merge: apply on PR merge
   allow_fork_prs: false          # deny-by-default; flip with care
   # auto_ready: true             # optional: when PR converts from draft to ready and plan succeeded, notify for approval
 ```
