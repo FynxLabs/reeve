@@ -60,9 +60,13 @@ type IgnoreProp struct {
 	Properties   []string `yaml:"properties"`
 }
 
+// TreatAsDrift decides whether orphaned/missing resources count as drift.
+// Both fields default to true when unset (the documented default: a resource
+// that has gone missing, or exists untracked, is drift). Pointers let an
+// omitted key stay at that default while an explicit `false` opts out.
 type TreatAsDrift struct {
-	OrphanedState bool `yaml:"orphaned_state"`
-	MissingState  bool `yaml:"missing_state"`
+	OrphanedState *bool `yaml:"orphaned_state"`
+	MissingState  *bool `yaml:"missing_state"`
 }
 
 type DriftFreshness struct {

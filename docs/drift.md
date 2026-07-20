@@ -78,15 +78,20 @@ behavior:
   refresh_before_check: true       # default for drift (off for PR preview)
   max_parallel_stacks: 8
   timeout_per_stack: 15m
-  retry_on_transient_error: 2
+  retry_on_transient_error: 2      # 0 (default) = no retries
 
   # Flap damping (unset = off): after a drift alert goes out for a stack,
   # further alerts stay silent until the drift resolves or this window
   # elapses. See "Flap damping" below. Extended durations OK (24h, 3d, 1w).
   renotify_after: 24h
 
-  # What "transient" means: network error, auth expiry. NOT engine crash,
-  # plan-parse error, or policy failure.
+  # "Transient" = a network error reaching the engine or a cloud SDK, or
+  # expired credentials. A network error is retried up to this many times;
+  # expired credentials trigger a single rebind (re-resolve auth) + retry,
+  # bounded by the same budget. NOT retried: engine crash, plan-parse error,
+  # policy failure. A stack that succeeds on a retry is not an error; one
+  # that exhausts its retries classifies as `error` (fires `check_failed`).
+  # Context cancellation (Ctrl-C / SIGTERM) stops retrying immediately.
 
   # Exit code control: when a condition below is true and occurred this
   # run, `reeve drift run` exits nonzero (naming the condition) so CI can
@@ -110,8 +115,8 @@ classification:
   ignore_resources:
     - "urn:*:aws:autoscaling/group:*::*autoscaler-managed*"
   treat_as_drift:
-    orphaned_state: true           # state exists, resource gone
-    missing_state: true            # resource exists, no state tracks it
+    orphaned_state: true           # tracked in state, gone from the cloud
+    missing_state: true            # present in the cloud, untracked by state
 
 freshness:
   enabled: true
@@ -182,6 +187,40 @@ every detection - a damped flap still fails CI when
 `exit_on.drift_detected: true`.
 
 `check_failed` / `check_recovered` are never damped.
+
+## Classification (drift-noise filtering)
+
+`classification:` filters the engine diff **before** a stack is classified,
+so recurring noise never fires an alert. It needs the structured per-resource
+diff the engine exposes (Pulumi `detailedDiff`, Terraform/OpenTofu
+`resource_drift`); an engine that only reports a summary is left untouched
+(the raw verdict stands).
+
+- **`ignore_properties`** — per resource type, a list of property-path globs
+  to ignore. Paths are dotted with array indices, matching the Pulumi
+  `detailedDiff` style (`tags.LastScanned`, `config.rules[3].expression`);
+  the Terraform adapter walks `before`/`after` into the same shape. If, after
+  removing ignored paths, an **update** has no property changes left, the
+  resource stops counting as drift. This only nullifies updates — a
+  create/delete/replace is a resource-level change regardless of which
+  properties differ.
+- **`ignore_resources`** — address/URN globs; matching resources are excluded
+  from drift entirely.
+- **`treat_as_drift`** — whether resources that are **orphaned** (tracked in
+  state but gone from the cloud) or **missing** (present in the cloud but not
+  tracked) count as drift. Both default to `true`; set one to `false` to drop
+  that category. Orphaned resources are detectable (a Pulumi `create` /
+  Terraform `delete` in the drift set). **`missing_state` is best-effort:**
+  neither a Pulumi `--expect-no-changes` preview nor a Terraform refresh-only
+  plan discovers resources they don't already manage, so today nothing is
+  categorized as missing and the flag has no effect — it is reserved for a
+  future out-of-band inventory source.
+
+Globs use `*` (any run of characters, including `:` and `/`) and `?`;
+`resource_type`, `ignore_resources`, and the property paths are all matched
+this way. A whole stack drifting to zero drift after filtering emits
+`drift_resolved` if it was previously drifted, exactly as a genuinely clean
+run would.
 
 ## Bootstrap modes
 
@@ -322,11 +361,30 @@ in `drift.yaml`:
 
 ```yaml
 permanent_suppressions:
-  - stack: "prod/legacy-erp"
+  - stack: "prod/legacy-*"          # doublestar glob over project/stack
     reason: "Vendor-managed resources; tracked in TICKET-123"
+  - stack: "prod/frozen-vpc"
+    until: "2026-12-31T00:00:00Z"   # optional RFC3339 expiry; omit for permanent
+    reason: "Freeze window; re-enable alerts in Q1"
 ```
 
-These are listed in reports but never trigger events.
+A permanent suppression is the always-on, config-level twin of
+`reeve drift suppress add`. Unlike a time-bounded store suppression (which
+skips the check entirely), a permanently-suppressed stack is **still checked
+and its state still recorded** — so resolution is tracked and the stack shows
+up in `reeve drift status` — but its `drift_detected` / `drift_ongoing` /
+`drift_resolved` events are **not dispatched** to channels. It is listed in
+the report under a "suppressed" section with its reason.
+
+`check_failed` is **never** suppressed: accepting drift on a stack must not
+also hide the drift checker itself breaking (auth, network, engine crash).
+`until` is an optional RFC3339 timestamp after which the suppression lapses;
+omit it for a permanent suppression. An unparseable `until` is treated as
+permanent (and logged) rather than silently dropping the suppression.
+
+The store-based suppressions above (`reeve drift suppress add`) and these
+config-based `permanent_suppressions` are merged at run time; a stack matched
+by either is suppressed.
 
 ## Channels
 
