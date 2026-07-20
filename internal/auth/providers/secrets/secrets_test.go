@@ -153,12 +153,9 @@ func TestGCPSecretManagerRequiresToken(t *testing.T) {
 	}
 }
 
-// TestGCPSecretManagerRealResponseShape pins current behavior against the
-// REAL Secret Manager access response, where the base64 data lives at
-// payload.data (nested). extractJSONField only reads top-level fields, so
-// today the provider rejects a faithful response with "unexpected
-// payload" - this looks like a genuine bug; the test documents it so a
-// fix has to update this expectation consciously.
+// TestGCPSecretManagerRealResponseShape asserts the provider parses the
+// REAL Secret Manager access response, where the base64 data lives
+// nested at payload.data.
 func TestGCPSecretManagerRealResponseShape(t *testing.T) {
 	t.Setenv("CLOUDSDK_AUTH_ACCESS_TOKEN", "gcp-token-do-not-leak")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -167,10 +164,34 @@ func TestGCPSecretManagerRealResponseShape(t *testing.T) {
 	defer srv.Close()
 	setSecretManagerBase(t, srv.URL)
 
+	p := NewGCPSecretManager(&GCPSecretManager{
+		Name: "g", SecretName: "projects/p/secrets/s/versions/latest",
+		EnvMap: map[string]string{"OUT": ""},
+	})
+	cred, err := p.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if cred.Env["OUT"] != "hush" {
+		t.Fatalf("decoded secret = %q, want hush", cred.Env["OUT"])
+	}
+}
+
+// TestGCPSecretManagerFlatPayloadRejected: a response without the nested
+// payload.data (e.g. the old flattened fixture shape) is not a valid
+// Secret Manager response and fails closed.
+func TestGCPSecretManagerFlatPayloadRejected(t *testing.T) {
+	t.Setenv("CLOUDSDK_AUTH_ACCESS_TOKEN", "gcp-token-do-not-leak")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":"aHVzaA=="}`))
+	}))
+	defer srv.Close()
+	setSecretManagerBase(t, srv.URL)
+
 	p := NewGCPSecretManager(&GCPSecretManager{Name: "g", SecretName: "projects/p/secrets/s/versions/latest"})
 	_, err := p.Acquire(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "unexpected payload") {
-		t.Fatalf("current behavior rejects nested payload.data; got %v", err)
+		t.Fatalf("flat payload must be rejected; got %v", err)
 	}
 }
 
@@ -181,9 +202,7 @@ func TestGCPSecretManagerAcquire(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
-		// Flattened shape (top-level data) is what the current parser
-		// accepts; see TestGCPSecretManagerRealResponseShape.
-		_, _ = w.Write([]byte(`{"data":"aHVzaA=="}`))
+		_, _ = w.Write([]byte(`{"payload":{"data":"aHVzaA=="}}`))
 	}))
 	defer srv.Close()
 	setSecretManagerBase(t, srv.URL)
