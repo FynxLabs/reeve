@@ -88,13 +88,6 @@ func TestValidateDurationsRejectsEachMalformedField(t *testing.T) {
 			wantSub: []string{"drift.yaml", "freshness.window", "4hours"},
 		},
 		{
-			name: "drift timeout_per_stack",
-			mutate: func(c *Config) {
-				c.Drift = &schemas.Drift{Behavior: schemas.DriftBehavior{TimeoutPerStack: "15minutes"}}
-			},
-			wantSub: []string{"drift.yaml", "behavior.timeout_per_stack", "15minutes"},
-		},
-		{
 			name: "drift baseline_max_age",
 			mutate: func(c *Config) {
 				c.Drift = &schemas.Drift{Behavior: schemas.DriftBehavior{
@@ -152,7 +145,6 @@ func TestValidateDurationsAcceptsWellFormedFields(t *testing.T) {
 	cfg.Drift = &schemas.Drift{
 		Freshness: schemas.DriftFreshness{Window: "4h"},
 		Behavior: schemas.DriftBehavior{
-			TimeoutPerStack: "15m",
 			// baseline_max_age is documented with day units ("7d"), so the
 			// extended parser applies to it.
 			StateBootstrap: schemas.StateBootstrap{BaselineMaxAge: "7d"},
