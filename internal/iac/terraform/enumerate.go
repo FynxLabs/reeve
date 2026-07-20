@@ -95,7 +95,7 @@ func rootModuleDirs(root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	rfs := r.FS()
 
 	var dirs []string
