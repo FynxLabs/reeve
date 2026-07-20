@@ -186,11 +186,16 @@ func toFreezeConfig(s *schemas.Shared) freeze.Config {
 // wiring can thread the same TTL into lock-store operations (reap,
 // leave, force-unlock) that promote queued holders.
 func LockTTL(s *schemas.Shared) time.Duration {
+	const def = 4 * time.Hour
 	if s == nil || s.Locking.TTL == "" {
-		return 4 * time.Hour
+		return def
 	}
-	if d, err := time.ParseDuration(s.Locking.TTL); err == nil {
+	// A non-positive TTL would produce a born-expired lease with a no-op
+	// heartbeat, letting a concurrent run evict the live holder mid-apply.
+	// validateDurations rejects that at load, but floor it here too so no
+	// path (bypassed validation, direct caller) can disable the lease.
+	if d, err := time.ParseDuration(s.Locking.TTL); err == nil && d > 0 {
 		return d
 	}
-	return 4 * time.Hour
+	return def
 }

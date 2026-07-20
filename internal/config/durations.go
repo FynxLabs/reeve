@@ -51,6 +51,25 @@ func (c *Config) validateDurations() error {
 		}
 		return nil
 	}
+	// checkPos additionally rejects zero and negative durations. time.ParseDuration
+	// happily accepts "0s" and "-1h", but a non-positive lock TTL, timeout, or
+	// freshness window is nonsensical and actively unsafe: a locking.ttl of 0s or
+	// negative produces a born-expired lease whose heartbeat (ttl/3 <= 0) is a
+	// no-op, so a concurrent run evicts the live holder and two applies race the
+	// same stack. Fail closed here rather than silently defaulting downstream.
+	checkPos := func(file, field, value string) error {
+		if value == "" {
+			return nil
+		}
+		d, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("%s: %s: invalid duration %q (Go duration, e.g. \"90m\" or \"4h\", not \"15minutes\" or \"2d\")", file, field, value)
+		}
+		if d <= 0 {
+			return fmt.Errorf("%s: %s: duration must be positive, got %q", file, field, value)
+		}
+		return nil
+	}
 	checkExtended := func(file, field, value string) error {
 		if value == "" {
 			return nil
@@ -62,28 +81,28 @@ func (c *Config) validateDurations() error {
 	}
 
 	if s := c.Shared; s != nil {
-		if err := check("shared.yaml", "locking.ttl", s.Locking.TTL); err != nil {
+		if err := checkPos("shared.yaml", "locking.ttl", s.Locking.TTL); err != nil {
 			return err
 		}
-		if err := check("shared.yaml", "locking.reaper_interval", s.Locking.ReaperInterval); err != nil {
+		if err := checkPos("shared.yaml", "locking.reaper_interval", s.Locking.ReaperInterval); err != nil {
 			return err
 		}
 		if err := check("shared.yaml", "retention.max_age", s.Retention.MaxAge); err != nil {
 			return err
 		}
-		if err := check("shared.yaml", "preconditions.preview_freshness", s.Preconditions.PreviewFreshness); err != nil {
+		if err := checkPos("shared.yaml", "preconditions.preview_freshness", s.Preconditions.PreviewFreshness); err != nil {
 			return err
 		}
-		if err := check("shared.yaml", "approvals.default.freshness", s.Approvals.Default.Freshness); err != nil {
+		if err := checkPos("shared.yaml", "approvals.default.freshness", s.Approvals.Default.Freshness); err != nil {
 			return err
 		}
 		for _, pattern := range sortedKeys(s.Approvals.Stacks) {
-			if err := check("shared.yaml", fmt.Sprintf("approvals.stacks[%s].freshness", pattern), s.Approvals.Stacks[pattern].Freshness); err != nil {
+			if err := checkPos("shared.yaml", fmt.Sprintf("approvals.stacks[%s].freshness", pattern), s.Approvals.Stacks[pattern].Freshness); err != nil {
 				return err
 			}
 		}
 		for _, w := range s.FreezeWindows {
-			if err := check("shared.yaml", fmt.Sprintf("freeze_windows[%s].duration", w.Name), w.Duration); err != nil {
+			if err := checkPos("shared.yaml", fmt.Sprintf("freeze_windows[%s].duration", w.Name), w.Duration); err != nil {
 				return err
 			}
 		}
@@ -91,16 +110,16 @@ func (c *Config) validateDurations() error {
 
 	for _, e := range c.Engines {
 		file := fmt.Sprintf("engine config (engine.type=%s)", e.Engine.Type)
-		if err := check(file, "engine.execution.preview_timeout", e.Engine.Execution.PreviewTimeout); err != nil {
+		if err := checkPos(file, "engine.execution.preview_timeout", e.Engine.Execution.PreviewTimeout); err != nil {
 			return err
 		}
-		if err := check(file, "engine.execution.apply_timeout", e.Engine.Execution.ApplyTimeout); err != nil {
+		if err := checkPos(file, "engine.execution.apply_timeout", e.Engine.Execution.ApplyTimeout); err != nil {
 			return err
 		}
 	}
 
 	if d := c.Drift; d != nil {
-		if err := check("drift.yaml", "freshness.window", d.Freshness.Window); err != nil {
+		if err := checkPos("drift.yaml", "freshness.window", d.Freshness.Window); err != nil {
 			return err
 		}
 		if err := checkExtended("drift.yaml", "behavior.state_bootstrap.baseline_max_age", d.Behavior.StateBootstrap.BaselineMaxAge); err != nil {

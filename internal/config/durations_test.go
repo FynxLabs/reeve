@@ -88,6 +88,21 @@ func TestValidateDurationsRejectsEachMalformedField(t *testing.T) {
 			wantSub: []string{"drift.yaml", "freshness.window", "4hours"},
 		},
 		{
+			name:    "locking.ttl zero rejected",
+			mutate:  func(c *Config) { c.Shared.Locking.TTL = "0s" },
+			wantSub: []string{"shared.yaml", "locking.ttl", "must be positive"},
+		},
+		{
+			name:    "locking.ttl negative rejected",
+			mutate:  func(c *Config) { c.Shared.Locking.TTL = "-1h" },
+			wantSub: []string{"shared.yaml", "locking.ttl", "must be positive"},
+		},
+		{
+			name:    "apply_timeout zero rejected",
+			mutate:  func(c *Config) { c.Engines[0].Engine.Execution.ApplyTimeout = "0" },
+			wantSub: []string{"engine.execution.apply_timeout", "must be positive"},
+		},
+		{
 			name: "drift baseline_max_age",
 			mutate: func(c *Config) {
 				c.Drift = &schemas.Drift{Behavior: schemas.DriftBehavior{
