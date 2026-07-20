@@ -257,7 +257,7 @@ func TestValidateLintMalformedDurationFails(t *testing.T) {
 		t.Fatalf("malformed duration must fail lint, got %v", err)
 	}
 	cfg = &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
-		"sm": {Type: "aws_secrets_manager", SecretID: "s", TTL: "1hr"},
+		"sm": {Type: "aws_oidc", RoleARN: "arn:aws:iam::000000000000:role/x", TTL: "1hr"},
 	}}
 	if err := ValidateLint(cfg, nil); err == nil || !strings.Contains(err.Error(), "1hr") {
 		t.Fatalf("malformed ttl must fail lint, got %v", err)
