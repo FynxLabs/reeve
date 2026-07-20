@@ -121,31 +121,29 @@ func runPreview(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("build auth registry: %w", err)
 	}
 
-	otelProvider, _ := run.BuildOTEL(ctx, cfg.Observability)
-	defer func() {
-		if otelProvider != nil {
-			_ = otelProvider.Shutdown(ctx)
-		}
-	}()
-	annotationEmitters := run.BuildAnnotationEmitters(cfg.Observability)
-
+	// OTEL is NOT built here for preview: run.Preview constructs it after
+	// the pre-approval observability gate (a PR that modifies
+	// observability.yaml must not get an OTLP exporter pointed at its own
+	// collector). Annotation emitters only fire on apply/drift events, so
+	// preview needs none.
 	in := run.PreviewInput{
-		PRNumber:      pr,
-		CommitSHA:     sha,
-		RunNumber:     runNum,
-		CIRunURL:      runURL,
-		RepoRoot:      root,
-		Engine:        engine,
-		Config:        engineCfg,
-		Shared:        cfg.Shared,
-		AuthConfig:    cfg.Auth,
-		AuthRegistry:  authReg,
-		Notifications: cfg.Notifications,
-		OTEL:          otelProvider,
-		Annotations:   annotationEmitters,
-		Blob:          store,
-		Local:         local,
-		Force:         flagBool(cmd, "force"),
+		PRNumber:                 pr,
+		CommitSHA:                sha,
+		RunNumber:                runNum,
+		CIRunURL:                 runURL,
+		RepoRoot:                 root,
+		Engine:                   engine,
+		Config:                   engineCfg,
+		Shared:                   cfg.Shared,
+		AuthConfig:               cfg.Auth,
+		AuthRegistry:             authReg,
+		Notifications:            cfg.Notifications,
+		ChannelSourceFiles:       cfg.ChannelSourceFiles,
+		Observability:            cfg.Observability,
+		ObservabilitySourceFiles: cfg.ObservabilitySourceFiles,
+		Blob:                     store,
+		Local:                    local,
+		Force:                    flagBool(cmd, "force"),
 	}
 
 	if !local {

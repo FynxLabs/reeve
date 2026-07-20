@@ -18,10 +18,13 @@ import (
 
 // Hook is one configured policy hook.
 type Hook struct {
-	Name     string
-	Command  []string
-	OnFail   FailMode // Block | Warn
-	Required bool     // false = skip silently if command absent
+	Name    string
+	Command []string
+	OnFail  FailMode // Block | Warn
+	// Required: false = skip silently if command absent. Config defaults
+	// this to TRUE when `required:` is omitted (see schemas.PolicyHookYAML
+	// - a missing scanner binary fails closed); false is an explicit opt-out.
+	Required bool
 }
 
 // FailMode controls what happens on a non-zero exit.

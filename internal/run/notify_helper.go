@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/thefynx/reeve/internal/blob"
 	"github.com/thefynx/reeve/internal/config/schemas"
@@ -55,6 +56,69 @@ func BuildNotifyChannels(ctx context.Context, cfg *schemas.Notifications, store 
 		slog.Warn("notification channel build failed", "err", err)
 	}
 	return channels
+}
+
+// defaultChannelSourceFiles is the fail-closed fallback when the caller did
+// not record which config files declared notification channels.
+var defaultChannelSourceFiles = []string{".reeve/notifications.yaml", ".reeve/drift.yaml"}
+
+// defaultObservabilitySourceFiles is the equivalent fallback for the
+// observability (OTEL exporter) config.
+var defaultObservabilitySourceFiles = []string{".reeve/observability.yaml"}
+
+// SuppressPreApprovalChannels decides whether pre-approval events (the
+// preview path's planning/plan) may be dispatched to notification channels.
+//
+// Previews run automatically on the untrusted PR HEAD before any approval,
+// and channel config (webhook URLs, headers) is loaded from that HEAD. If
+// the PR modifies the channel-bearing config files, a branch pusher could
+// point a channel at an attacker-controlled endpoint and exfiltrate
+// expanded credentials - so dispatch is suppressed entirely. Post-approval
+// paths (ready/approved/apply) re-check approvals that cover the config
+// change and dispatch normally.
+//
+// Fail closed: no VCS client or an unavailable changed-file list in a
+// non-local run also suppresses. --local runs never suppress (no VCS;
+// notifications are already local-only behavior).
+//
+// Returns (suppress, reason).
+func SuppressPreApprovalChannels(local, hasVCS bool, changed []string, changedErr error, sourceFiles []string) (bool, string) {
+	return suppressPreApprovalConfig(local, hasVCS, changed, changedErr,
+		sourceFiles, defaultChannelSourceFiles, "notification config")
+}
+
+// SuppressPreApprovalObservability is the same gate for the OTEL exporter:
+// observability.yaml is loaded from the PR HEAD too, and its endpoint +
+// headers are designated ${env:} fields - a PR-added collector config
+// would exfiltrate expanded credentials with the first pre-approval span
+// flush. Identical fail-closed semantics to the channel gate.
+func SuppressPreApprovalObservability(local, hasVCS bool, changed []string, changedErr error, sourceFiles []string) (bool, string) {
+	return suppressPreApprovalConfig(local, hasVCS, changed, changedErr,
+		sourceFiles, defaultObservabilitySourceFiles, "observability config")
+}
+
+func suppressPreApprovalConfig(local, hasVCS bool, changed []string, changedErr error, sourceFiles, defaults []string, label string) (bool, string) {
+	if local {
+		return false, ""
+	}
+	if !hasVCS {
+		return true, "changed-file list unavailable (no VCS client)"
+	}
+	if changedErr != nil {
+		return true, "changed-file list unavailable (" + changedErr.Error() + ")"
+	}
+	if len(sourceFiles) == 0 {
+		sourceFiles = defaults
+	}
+	for _, f := range changed {
+		norm := filepath.ToSlash(f)
+		for _, src := range sourceFiles {
+			if norm == filepath.ToSlash(src) {
+				return true, fmt.Sprintf("%s %s modified in this PR", label, src)
+			}
+		}
+	}
+	return false, ""
 }
 
 // PRNotifyInput bundles the PR-flow event context.

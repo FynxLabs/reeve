@@ -56,6 +56,13 @@ func ValidateLint(cfg *schemas.Auth, stackRefs []string) error {
 				return fmt.Errorf("provider %q (env_passthrough): requires i_understand_this_is_dangerous: true", name)
 			}
 			fmt.Fprintf(os.Stderr, "⚠️  provider %q is env_passthrough - long-lived credentials bypass zero-trust\n", name)
+		case "aws_secrets_manager", "aws_ssm_parameter", "gcp_secret_manager", "azure_key_vault", "github_secret":
+			// A secret provider without env_map fetches the secret and
+			// exports nothing - dead config at best, a silent no-op at
+			// worst. Require the mapping.
+			if len(decl.EnvMap) == 0 {
+				return fmt.Errorf("provider %q (%s): env_map is required - without it the provider exports nothing (map env var names to secret fields, e.g. env_map: { MY_TOKEN: \"\" } for a plain-string secret)", name, decl.Type)
+			}
 		}
 		if decl.Duration != "" {
 			if d, err := time.ParseDuration(decl.Duration); err == nil && d > 4*time.Hour {
@@ -113,27 +120,29 @@ func buildOne(name string, d schemas.ProviderYAML) (auth.Provider, error) {
 	case "aws_secrets_manager":
 		return secrets.NewAWSSecretsManager(&secrets.AWSSecretsManager{
 			Name: name, SecretID: d.SecretID, Region: d.Region,
-			TTL: ttl,
+			EnvMap: d.EnvMap, TTL: ttl,
 		}), nil
 
 	case "aws_ssm_parameter":
 		return secrets.NewAWSSSMParameter(&secrets.AWSSSMParameter{
 			Name: name, Parameter: d.Parameter, Region: d.Region,
+			EnvMap: d.EnvMap,
 		}), nil
 
 	case "gcp_secret_manager":
 		return secrets.NewGCPSecretManager(&secrets.GCPSecretManager{
-			Name: name, SecretName: d.GCPName,
+			Name: name, SecretName: d.GCPName, EnvMap: d.EnvMap,
 		}), nil
 
 	case "azure_key_vault":
 		return secrets.NewAzureKeyVault(&secrets.AzureKeyVault{
 			Name: name, VaultName: d.VaultName, SecretName: d.SecretName,
+			EnvMap: d.EnvMap,
 		}), nil
 
 	case "github_secret":
 		return secrets.NewGitHubSecret(&secrets.GitHubSecret{
-			Name: name, EnvVar: d.EnvVar,
+			Name: name, EnvVar: d.EnvVar, EnvMap: d.EnvMap,
 		}), nil
 
 	case "aws_profile":
