@@ -58,8 +58,17 @@ func ValidateLint(cfg *schemas.Auth, stackRefs []string) error {
 			fmt.Fprintf(os.Stderr, "⚠️  provider %q is env_passthrough - long-lived credentials bypass zero-trust\n", name)
 		}
 		if decl.Duration != "" {
-			if d, err := time.ParseDuration(decl.Duration); err == nil && d > 4*time.Hour {
+			d, err := time.ParseDuration(decl.Duration)
+			if err != nil {
+				return fmt.Errorf("provider %q: invalid duration %q: %w", name, decl.Duration, err)
+			}
+			if d > 4*time.Hour {
 				fmt.Fprintf(os.Stderr, "⚠️  provider %q duration=%s exceeds the 4h recommended cap\n", name, d)
+			}
+		}
+		if decl.TTL != "" {
+			if _, err := time.ParseDuration(decl.TTL); err != nil {
+				return fmt.Errorf("provider %q: invalid ttl %q: %w", name, decl.TTL, err)
 			}
 		}
 	}
@@ -82,9 +91,17 @@ func ValidateLint(cfg *schemas.Auth, stackRefs []string) error {
 }
 
 func buildOne(name string, d schemas.ProviderYAML) (auth.Provider, error) {
-	dur, _ := parseDurationOrZero(d.Duration)
-	ttl, _ := parseDurationOrZero(d.TTL)
-	_ = ttl
+	// Malformed durations fail closed: a swallowed error here silently
+	// replaced a typo'd `duration: 30minutes` with the provider default.
+	// config.Validate also rejects these; this guards direct Build callers.
+	dur, err := parseDurationOrZero(d.Duration)
+	if err != nil {
+		return nil, fmt.Errorf("duration: invalid duration %q: %w", d.Duration, err)
+	}
+	ttl, err := parseDurationOrZero(d.TTL)
+	if err != nil {
+		return nil, fmt.Errorf("ttl: invalid duration %q: %w", d.TTL, err)
+	}
 	switch d.Type {
 	case "aws_oidc":
 		return awsoidc.New(name, d.RoleARN, d.SessionName, d.Region, d.AudienceOverride, dur), nil

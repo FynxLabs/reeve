@@ -231,3 +231,35 @@ func TestValidateLint(t *testing.T) {
 		}
 	})
 }
+
+func TestBuildMalformedDurationFailsClosed(t *testing.T) {
+	// A typo'd duration/ttl used to be silently swallowed and replaced by
+	// the provider default; it must be a build error.
+	_, err := Build(context.Background(), &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
+		"aws": {Type: "aws_oidc", RoleARN: "arn:aws:iam::000000000000:role/x", Duration: "30minutes"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "30minutes") {
+		t.Fatalf("malformed duration must fail Build, got %v", err)
+	}
+	_, err = Build(context.Background(), &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
+		"sm": {Type: "aws_secrets_manager", SecretID: "s", TTL: "5 min"},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "ttl") {
+		t.Fatalf("malformed ttl must fail Build, got %v", err)
+	}
+}
+
+func TestValidateLintMalformedDurationFails(t *testing.T) {
+	cfg := &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
+		"aws": {Type: "aws_oidc", RoleARN: "arn:aws:iam::000000000000:role/x", Duration: "4hours"},
+	}}
+	if err := ValidateLint(cfg, nil); err == nil || !strings.Contains(err.Error(), "4hours") {
+		t.Fatalf("malformed duration must fail lint, got %v", err)
+	}
+	cfg = &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
+		"sm": {Type: "aws_secrets_manager", SecretID: "s", TTL: "1hr"},
+	}}
+	if err := ValidateLint(cfg, nil); err == nil || !strings.Contains(err.Error(), "1hr") {
+		t.Fatalf("malformed ttl must fail lint, got %v", err)
+	}
+}
