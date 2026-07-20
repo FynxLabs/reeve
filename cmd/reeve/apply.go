@@ -17,6 +17,7 @@ import (
 	"github.com/thefynx/reeve/internal/core/breakglass"
 	"github.com/thefynx/reeve/internal/iac"
 	"github.com/thefynx/reeve/internal/run"
+	"github.com/thefynx/reeve/internal/vcs"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
 )
 
@@ -155,29 +156,30 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	annotationEmitters := run.BuildAnnotationEmitters(cfg.Observability)
 
 	out, err := run.Apply(ctx, run.ApplyInput{
-		PRNumber:       pr,
-		CommitSHA:      sha,
-		RunNumber:      runNum,
-		CIRunID:        ciRunID,
-		CIRunURL:       runURL,
-		SelfCheckNames: selfNames,
-		RepoRoot:       root,
-		RepoFull:       repoFull,
-		Actor:          actor,
-		Engine:         engine,
-		Config:         engineCfg,
-		Shared:         cfg.Shared,
-		AuthConfig:     cfg.Auth,
-		AuthRegistry:   authReg,
-		Notifications:  cfg.Notifications,
-		OTEL:           otelProvider,
-		Annotations:    annotationEmitters,
-		Blob:           store,
-		Locks:          lockStore,
-		VCS:            client,
-		AuditWriter:    audit.NewWriter(store),
-		Force:          force,
-		BreakGlass:     bgReq,
+		PRNumber:        pr,
+		CommitSHA:       sha,
+		RunNumber:       runNum,
+		CIRunID:         ciRunID,
+		CIRunURL:        runURL,
+		SelfCheckNames:  selfNames,
+		RepoRoot:        root,
+		RepoFull:        repoFull,
+		Actor:           actor,
+		Engine:          engine,
+		Config:          engineCfg,
+		Shared:          cfg.Shared,
+		AuthConfig:      cfg.Auth,
+		AuthRegistry:    authReg,
+		Notifications:   cfg.Notifications,
+		OTEL:            otelProvider,
+		Annotations:     annotationEmitters,
+		Blob:            store,
+		Locks:           lockStore,
+		VCS:             client,
+		AuditWriter:     audit.NewWriter(store),
+		Force:           force,
+		BreakGlass:      bgReq,
+		CommentApproval: commentApprovalConfig(),
 	})
 	if err != nil {
 		return err
@@ -196,6 +198,35 @@ func runApply(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "apply complete (PR #%d, run_id=%s, %d stacks, %ds)\n",
 		pr, out.RunID, len(out.Stacks), out.DurationSec)
 	return nil
+}
+
+// commentApprovalConfig builds the pr_comment source config from the action
+// inputs, threaded in as env vars. The defaults match action.yml's
+// allowed-associations and command-prefix defaults, so an out-of-date action
+// still fails closed to the restrictive allowlist rather than accepting any
+// commenter. Only consulted when approvals.sources enables pr_comment.
+func commentApprovalConfig() vcs.CommentApprovalConfig {
+	return vcs.CommentApprovalConfig{
+		CommandPrefixes:     splitCSV(envOrDefault("REEVE_COMMAND_PREFIXES", "/reeve,@reeve")),
+		AllowedAssociations: splitCSV(envOrDefault("REEVE_ALLOWED_ASSOCIATIONS", "OWNER,MEMBER,COLLABORATOR")),
+	}
+}
+
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // applyFailedError builds the nonzero-exit error naming every failed stack.

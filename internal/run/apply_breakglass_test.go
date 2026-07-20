@@ -82,6 +82,9 @@ func (f *bgVCS) Name() string                                                  {
 func (f *bgVCS) ListApprovals(ctx context.Context, _ approvals.PR) ([]approvals.Approval, error) {
 	return f.approvalsList, nil // nil in break-glass tests: gate would fail normally
 }
+func (f *bgVCS) ListCommentApprovals(ctx context.Context, _ approvals.PR, _ vcs.CommentApprovalConfig) ([]approvals.Approval, error) {
+	return nil, nil
+}
 func (f *bgVCS) FetchCodeowners(ctx context.Context) (string, error) { return f.codeowners, nil }
 func (f *bgVCS) ListTeamMembers(ctx context.Context, slug string) ([]string, error) {
 	return nil, nil

@@ -48,6 +48,9 @@ type applyVCS interface {
 	CompareBranches(ctx context.Context, base, head string) (int, error)
 	// approvals
 	approvals.Source
+	// pr_comment approval source (opt-in via approvals.sources). Reads
+	// historical PR comments and re-enforces the author_association gate.
+	ListCommentApprovals(ctx context.Context, pr approvals.PR, cfg vcs.CommentApprovalConfig) ([]approvals.Approval, error)
 	// CODEOWNERS
 	FetchCodeowners(ctx context.Context) (string, error)
 	// team expansion (called by core/approvals to resolve org/team rules)
@@ -84,6 +87,12 @@ type ApplyInput struct {
 	// Force re-applies even when this commit is already recorded as applied,
 	// bypassing the already-applied guard.
 	Force bool
+	// CommentApproval configures the opt-in pr_comment approval source
+	// (approvals.sources). It carries the command prefixes and
+	// author_association allowlist from the action inputs so the source can
+	// re-enforce the same authorization gate action.yml uses for command
+	// dispatch. Only consulted when approvals.sources enables pr_comment.
+	CommentApproval vcs.CommentApprovalConfig
 	// BreakGlass, when non-nil, requests an emergency apply: approvals are
 	// overridden (freeze too, unless disabled in config), authorization is
 	// resolved against the PR HEAD's break_glass config, and the run is
@@ -236,15 +245,43 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	if approvalHeadSHA == "" {
 		approvalHeadSHA = in.CommitSHA
 	}
-	rawApprovals, err := in.VCS.ListApprovals(ctx, approvals.PR{
+	// Approvals config drives which sources count. Extract it before gathering
+	// so we can gather from exactly the enabled sources and union them.
+	appCfg := toApprovalsConfig(in.Shared)
+	approvalPR := approvals.PR{
 		Number: in.PRNumber, HeadSHA: approvalHeadSHA, Author: pr.Author, Changed: changed,
-	})
-	if err != nil {
-		// Fail-closed: previously the error was swallowed and rawApprovals
-		// was nil, which made the approvals gate fail with "no approvals"
-		// instead of surfacing the underlying VCS error.
-		return nil, fmt.Errorf("list approvals: %w", err)
 	}
+
+	// Gather approvals from every enabled source and union them. pr_review is
+	// on by default; pr_comment is opt-in. Deduplication by approver identity
+	// is handled downstream in Evaluate (which counts each login once), so a
+	// human who approves via both a review AND a comment counts a single time.
+	// When no sources block is configured, only pr_review runs - identical to
+	// prior behavior.
+	var reviewApprovals, commentApprovals []approvals.Approval
+	if appCfg.PRReviewEnabled() {
+		reviewApprovals, err = in.VCS.ListApprovals(ctx, approvalPR)
+		if err != nil {
+			// Fail-closed: previously the error was swallowed and rawApprovals
+			// was nil, which made the approvals gate fail with "no approvals"
+			// instead of surfacing the underlying VCS error.
+			return nil, fmt.Errorf("list approvals: %w", err)
+		}
+	}
+	if appCfg.PRCommentEnabled() {
+		commentCfg := in.CommentApproval
+		if commentCfg.Command == "" {
+			commentCfg.Command = appCfg.CommentCommand()
+		}
+		commentApprovals, err = in.VCS.ListCommentApprovals(ctx, approvalPR, commentCfg)
+		if err != nil {
+			// Fail-closed, same as pr_review: a source error blocks rather than
+			// silently dropping approvals.
+			return nil, fmt.Errorf("list comment approvals: %w", err)
+		}
+		slog.Debug("comment approvals fetched", "count", len(commentApprovals))
+	}
+	rawApprovals := approvals.MergeApprovals(reviewApprovals, commentApprovals)
 	slog.Debug("raw approvals fetched", "count", len(rawApprovals), "pr_head_sha", in.CommitSHA)
 	for _, a := range rawApprovals {
 		slog.Debug("raw approval", "approver", a.Approver, "commit_sha", a.CommitSHA, "source", a.Source)
@@ -266,7 +303,6 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	// Freeze config.
 	freezeCfg := toFreezeConfig(in.Shared)
 	preCfg := toPreconditionsConfig(in.Shared)
-	appCfg := toApprovalsConfig(in.Shared)
 	ttl := LockTTL(in.Shared)
 
 	// Pre-resolve team-slug membership once for every stack we're about to

@@ -185,6 +185,11 @@ runs:
         SLACK_BOT_TOKEN: ${{ inputs.slack-token }}
         REEVE_BIN: ${{ runner.temp }}/reeve-bin/reeve
         REEVE_LOG_LEVEL: ${{ inputs.log-level }}
+        # Threaded to the reeve binary so the opt-in pr_comment approval source
+        # can re-enforce the SAME authorization gate this step applies to
+        # command dispatch when it reads historical `/reeve approve` comments.
+        REEVE_ALLOWED_ASSOCIATIONS: ${{ inputs.allowed-associations }}
+        REEVE_COMMAND_PREFIXES: ${{ inputs.command-prefix }}
       run: |
         set -euo pipefail
         ROOT="${{ inputs.root }}"
@@ -287,6 +292,16 @@ runs:
                 fi
                 ;;
               ready)         CMD="ready" ;;
+              approve)
+                # Opt-in pr_comment approval source. The comment itself IS the
+                # approval - the apply gate re-reads it at apply time (and
+                # re-checks author_association there). Dispatching "approved"
+                # here just refreshes the approved-state notification (Slack
+                # "ready to apply"), mirroring the pull_request_review path. It
+                # never applies. Unauthorized commenters were already rejected
+                # by the authorization gate above.
+                CMD="approved"
+                ;;
               breakglass)
                 # /reeve breakglass "<justification>" apply — the CLI does the
                 # strict parse (and posts a helpful comment when malformed);
@@ -337,7 +352,9 @@ runs:
             fi
             ;;
           approved|"run approved")
-            PR_NUMBER=$(jq -r '.pull_request.number' < "$GITHUB_EVENT_PATH")
+            # .pull_request.number on the review path; .issue.number on the
+            # issue_comment path (/reeve approve).
+            PR_NUMBER=$(jq -r '.pull_request.number // .issue.number' < "$GITHUB_EVENT_PATH")
             "$REEVE_BIN" run approved --pr "$PR_NUMBER" $EXTRA
             ;;
           ready|"run ready")
