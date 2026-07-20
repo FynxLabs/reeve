@@ -440,6 +440,12 @@ Long-lived IaC PRs over drifted stacks are compounding risk - the plan
 reviewers approved a week ago no longer matches reality. Incident
 tooling can use `overlapping_prs` to escalate.
 
+The scan runs once per drift run (all drifted paths in one pass over the
+open PRs, capped at 100 PRs). If some PRs could not be checked (a file
+listing failed, or the cap was hit), the run does **not** pretend "no
+overlap": the report and manifest carry a warning naming the PR numbers
+that could not be checked.
+
 ## Troubleshooting
 
 ### Every run alerts as `drift_detected`, nothing resolves

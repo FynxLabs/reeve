@@ -82,12 +82,23 @@ func latestApprovals(revs []*gh.PullRequestReview) []approvals.Approval {
 
 func (*Client) Name() string { return "pr_review" }
 
+// maxOverlapScanPRs caps how many open PRs the overlap scan inspects.
+// Each inspected PR costs a per-PR file listing (GitHub has no batch
+// endpoint for this), so an unbounded scan on a busy monorepo is an API
+// budget hazard. PRs beyond the cap (newest first, GitHub's default list
+// order) are reported as unchecked rather than silently skipped.
+const maxOverlapScanPRs = 100
+
 // ListOpenPRsTouchingPaths powers drift-overlap surfacing and "blocked by
-// PR #X" queries. Uses GitHub Search API: "is:pr is:open repo:owner/repo".
+// PR #X" queries. Lists open PRs, then intersects each PR's changed files
+// with paths.
+//
+// The scan degrades, never lies: a PR whose file list cannot be fetched
+// (or that falls beyond maxOverlapScanPRs) is reported in the returned
+// *approvals.OverlapScanError alongside the PARTIAL result set - callers
+// surface "could not check PR #N" instead of treating a failed fetch as
+// "no overlap".
 func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) ([]approvals.PR, error) {
-	// Simple implementation: list all open PRs, then per-PR ListFiles
-	// intersect with paths. For repos with many open PRs this is slow -
-	// Phase 7/8 can optimize with the GraphQL API if needed.
 	var prs []*gh.PullRequest
 	opt := &gh.PullRequestListOptions{State: "open", ListOptions: gh.ListOptions{PerPage: 100}}
 	for {
@@ -96,10 +107,18 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 			return nil, err
 		}
 		prs = append(prs, page...)
-		if resp.NextPage == 0 {
+		if resp.NextPage == 0 || len(prs) >= maxOverlapScanPRs {
 			break
 		}
 		opt.Page = resp.NextPage
+	}
+
+	var unchecked []int
+	if len(prs) > maxOverlapScanPRs {
+		for _, p := range prs[maxOverlapScanPRs:] {
+			unchecked = append(unchecked, p.GetNumber())
+		}
+		prs = prs[:maxOverlapScanPRs]
 	}
 
 	wanted := make(map[string]bool, len(paths))
@@ -108,10 +127,16 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 	}
 
 	var out []approvals.PR
+	var firstErr error
 	for _, p := range prs {
 		files, err := c.listFilesStrings(ctx, p.GetNumber())
 		if err != nil {
-			return nil, err
+			// A failed file fetch must not become "this PR doesn't overlap".
+			unchecked = append(unchecked, p.GetNumber())
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
 		hit := false
 		for _, f := range files {
@@ -129,6 +154,9 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 				Changed: files,
 			})
 		}
+	}
+	if len(unchecked) > 0 {
+		return out, &approvals.OverlapScanError{Unchecked: unchecked, Err: firstErr}
 	}
 	return out, nil
 }
