@@ -144,14 +144,25 @@ func newBGFixture() (*bgEngine, *bgVCS) {
 	return engine, fv
 }
 
+// readAuditEntry returns the single COMPLETION audit entry, skipping the
+// break-glass "-intent" entry written before the engine runs.
 func readAuditEntry(t *testing.T, store blob.Store) audit.Entry {
 	t.Helper()
 	ctx := context.Background()
 	keys, err := store.List(ctx, "audit/")
-	if err != nil || len(keys) != 1 {
-		t.Fatalf("want exactly one audit entry, got %v (err %v)", keys, err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	data, _, err := filesystem.ReadBytes(ctx, store, keys[0])
+	var completion []string
+	for _, k := range keys {
+		if !strings.HasSuffix(k, "-intent.json") {
+			completion = append(completion, k)
+		}
+	}
+	if len(completion) != 1 {
+		t.Fatalf("want exactly one completion audit entry, got %v (all: %v)", completion, keys)
+	}
+	data, _, err := filesystem.ReadBytes(ctx, store, completion[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +171,32 @@ func readAuditEntry(t *testing.T, store blob.Store) audit.Entry {
 		t.Fatal(err)
 	}
 	return e
+}
+
+// readIntentEntry returns the break-glass intent audit entry, failing the
+// test if it is absent.
+func readIntentEntry(t *testing.T, store blob.Store) audit.Entry {
+	t.Helper()
+	ctx := context.Background()
+	keys, err := store.List(ctx, "audit/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range keys {
+		if strings.HasSuffix(k, "-intent.json") {
+			data, _, rerr := filesystem.ReadBytes(ctx, store, k)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			var e audit.Entry
+			if err := json.Unmarshal(data, &e); err != nil {
+				t.Fatal(err)
+			}
+			return e
+		}
+	}
+	t.Fatalf("no break-glass intent audit entry found in %v", keys)
+	return audit.Entry{}
 }
 
 func TestBreakGlassApplyOverridesApprovals(t *testing.T) {

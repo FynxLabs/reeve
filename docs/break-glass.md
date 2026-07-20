@@ -138,6 +138,13 @@ Every break-glass run writes the standard write-once audit entry
 overridden — a break-glass run whose approvals happened to be satisfied
 records nothing overridden.
 
+In addition to the completion entry, an **intent entry**
+(`audit/YYYY/MM/DD/<run-id>-intent.json`, `"outcome": "break_glass_intent"`)
+is written **before** the engine runs — its write is a hard requirement: if
+the audit store cannot record the intent, the break-glass apply refuses to
+start. This guarantees a durable trace of every override attempt even if the
+process dies mid-apply.
+
 Beyond the audit file:
 
 - The apply PR comment leads with a loud, marker-tagged warning section

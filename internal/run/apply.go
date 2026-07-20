@@ -351,6 +351,39 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 			detail += fmt.Sprintf(" — ⚠️ authorizing config modified in this PR (%s)", strings.Join(bgTouched, ", "))
 		}
 		timeline.add(ctx, "🚨", "break-glass override", detail)
+
+		// Break-glass intent audit: an emergency override MUST leave a
+		// durable trace even if the process dies mid-apply, so the intent
+		// entry is written BEFORE any lock, credential, or engine call - and
+		// its write is a hard requirement: if the audit store can't record
+		// the intent, the run refuses to start. ErrPreconditionFailed means
+		// the entry already exists (a retried run) - already recorded, fine.
+		if in.AuditWriter == nil {
+			outcome = "blocked"
+			return nil, errors.New("break-glass apply requires an audit writer; refusing to run without a durable audit trail")
+		}
+		intent := audit.Entry{
+			RunID:      runID + "-intent",
+			Op:         "apply",
+			StartedAt:  start.UTC().Format(time.RFC3339),
+			FinishedAt: time.Now().UTC().Format(time.RFC3339),
+			Actor:      in.Actor,
+			PR:         in.PRNumber,
+			CommitSHA:  in.CommitSHA,
+			Repo:       in.RepoFull,
+			RunURL:     in.CIRunURL,
+			Outcome:    "break_glass_intent",
+			BreakGlass: &audit.BreakGlass{
+				Justification:             in.BreakGlass.Justification,
+				AuthorizedVia:             bgDecision.Source,
+				AuthorizingConfigModified: len(bgTouched) > 0,
+				AuthorizingPathsModified:  bgTouched,
+			},
+		}
+		if err := in.AuditWriter.Write(ctx, intent); err != nil && !errors.Is(err, blob.ErrPreconditionFailed) {
+			timeline.add(ctx, "⛔", "break-glass refused", "intent audit entry could not be written; refusing to apply")
+			return nil, fmt.Errorf("break-glass intent audit write failed; refusing to apply: %w", err)
+		}
 	}
 
 	// Notify approved + applying before the loop (creates the message on
@@ -649,9 +682,17 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	pctx, endTerminal := terminalContext(ctx)
 	defer endTerminal()
 
-	// 5. Write run manifest.
-	if err := writeApplyManifest(pctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA); err != nil {
-		return nil, fmt.Errorf("write manifest: %w", err)
+	// 5. Write run manifest. A failure here must NOT short-circuit the
+	// terminal reporting below: infrastructure has (potentially) already
+	// changed, so the audit entry, timeline event, and PR comment are still
+	// written best-effort - each independently - and the run exits nonzero
+	// at the end with a clear message.
+	manifestErr := writeApplyManifest(pctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA)
+	if manifestErr != nil {
+		slog.Error("apply manifest persistence failed - infra may have changed; recording outcome on the PR anyway",
+			"err", manifestErr, "run_id", runID, "pr", in.PRNumber)
+		timeline.add(pctx, "⚠️", "manifest persistence failed", manifestErr.Error())
+		body += fmt.Sprintf("\n\n> [!WARNING]\n> **Run manifest persistence failed.** The stack results above reflect what actually applied, but the run manifest could not be written to blob storage (`%v`). The run exits nonzero; investigate the storage backend before re-running.", manifestErr)
 	}
 
 	// 5b. Timeline terminal event + applied-state pointer. Only a fully clean
@@ -688,7 +729,10 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		}
 	}
 
-	// 6. Post PR comment.
+	// 6. Post PR comment. A comment failure no longer short-circuits the
+	// notify + audit steps below (each terminal write is independent); it is
+	// carried to the final return so the run still exits nonzero.
+	var commentErr error
 	if in.VCS != nil && in.PRNumber > 0 {
 		var cerr error
 		switch commentStyle {
@@ -700,7 +744,9 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body, render.Marker)
 		}
 		if cerr != nil {
-			return nil, fmt.Errorf("post pr comment: %w", cerr)
+			commentErr = fmt.Errorf("post pr comment: %w", cerr)
+			slog.Error("apply PR comment failed - continuing terminal reporting",
+				"err", cerr, "pr", in.PRNumber, "run_id", runID)
 		}
 	}
 
@@ -760,7 +806,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		"", "", "", outcome, "", in.PRNumber, in.CommitSHA)
 
 	failedRefs := failedStackRefs(summaries)
-	return &ApplyOutput{
+	result := &ApplyOutput{
 		Stacks:       summaries,
 		CommentBody:  body,
 		RunID:        runID,
@@ -768,7 +814,14 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		Blocked:      anyBlocked,
 		Failed:       len(failedRefs) > 0,
 		FailedStacks: failedRefs,
-	}, nil
+	}
+	// Post-apply persistence failure: everything above was still reported
+	// best-effort (timeline, comment, notify, audit), but the run must exit
+	// nonzero - infra changed and part of the durable record is missing.
+	if perr := errors.Join(manifestErr, commentErr); perr != nil {
+		return result, fmt.Errorf("apply run finished (outcome=%s) but post-apply persistence failed: %w", outcome, perr)
+	}
+	return result, nil
 }
 
 // failedStackRefs returns the refs of stacks whose apply errored, in run
