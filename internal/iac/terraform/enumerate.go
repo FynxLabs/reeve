@@ -61,6 +61,29 @@ func (e *Engine) EnumerateStacks(ctx context.Context, root string) ([]discovery.
 	return out, nil
 }
 
+// ScanStacks enumerates root modules purely from the filesystem: every
+// root-module dir reports its default workspace, no CLI calls. Used by
+// `reeve init`'s repo scan, where no engine config exists yet and the
+// binary may be absent (the same scan-without-binary guarantee the pulumi
+// adapter's file-based enumeration gives init).
+func ScanStacks(root string) ([]discovery.Stack, error) {
+	dirs, err := rootModuleDirs(root)
+	if err != nil {
+		return nil, err
+	}
+	projects := projectNames(root, dirs)
+	out := make([]discovery.Stack, 0, len(dirs))
+	for _, dir := range dirs {
+		out = append(out, discovery.Stack{
+			Project: projects[dir],
+			Path:    dir,
+			Name:    defaultWorkspace,
+			Env:     defaultWorkspace,
+		})
+	}
+	return out, nil
+}
+
 // rootModuleDirs returns repo-relative directories that look like terraform
 // root modules. Directories named "modules" (shared child modules) and the
 // usual noise dirs are skipped entirely.

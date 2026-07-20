@@ -204,6 +204,51 @@ func TestInitForceRegeneratesWithBackup(t *testing.T) {
 	}
 }
 
+// TestInitDetectsTerraform: a repo with terraform root modules and no
+// Pulumi projects scaffolds a terraform engine config with the discovered
+// stacks pre-filled (workspace model: <project>/default). OpenTofu is never
+// auto-picked.
+func TestInitDetectsTerraform(t *testing.T) {
+	fakeTTY(t, false)
+	root := t.TempDir()
+	for _, p := range []string{"net", "app"} {
+		dir := filepath.Join(root, "envs", p)
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, filepath.Join(dir, "main.tf"), "terraform {\n  backend \"local\" {}\n}\n")
+	}
+	t.Chdir(root)
+
+	out, err := runReeve(t, "init")
+	if err != nil {
+		t.Fatalf("init: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"Discovered 2 Terraform stack(s)",
+		"terraform root modules detected",
+		"wrote   .reeve/terraform.yaml",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("strict load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	eng := cfg.Engines[0].Engine
+	if eng.Type != "terraform" {
+		t.Fatalf("engine.type = %q, want terraform (tofu must never be auto-picked)", eng.Type)
+	}
+	if len(eng.Stacks) == 0 {
+		t.Error("terraform stacks not pre-filled")
+	}
+}
+
 func TestInitEmptyRepoStillWritesBaseline(t *testing.T) {
 	fakeTTY(t, false)
 	root := t.TempDir()
@@ -213,7 +258,7 @@ func TestInitEmptyRepoStillWritesBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "no Pulumi projects found") {
+	if !strings.Contains(out, "no Pulumi projects or Terraform root modules found") {
 		t.Errorf("expected empty-repo note:\n%s", out)
 	}
 	cfg, err := config.Load(root)

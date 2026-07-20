@@ -22,36 +22,41 @@ import (
 )
 
 // runInitWizard walks the optional gates and returns the scaffold options.
-// decls is the clustered result of the stack scan (may be empty).
-func runInitWizard(decls []discovery.Declaration) (scaffold.Options, error) {
-	opts := scaffold.Options{EngineType: "pulumi"}
+// detected pre-selects the engine; declsByEngine holds the clustered result
+// of each engine's stack scan (entries may be empty).
+func runInitWizard(detected string, declsByEngine map[string][]discovery.Declaration) (scaffold.Options, error) {
+	opts := scaffold.Options{EngineType: detected}
+	if opts.EngineType == "" {
+		opts.EngineType = "pulumi"
+	}
 
-	// Engine + stack pre-fill.
-	useStacks := len(decls) > 0
-	engineGroup := []huh.Field{
+	// Engine choice first - the stack pre-fill depends on it.
+	if err := huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().
 			Title("IaC engine").
-			Description("pulumi is the only engine reeve can run today.").
+			Description("Which CLI runs your stacks. OpenTofu reads the same *.tf files as Terraform - pick it explicitly if that's what you deploy with.").
 			Options(
 				huh.NewOption("pulumi", "pulumi"),
-				huh.NewOption("terraform (coming soon)", "terraform"),
+				huh.NewOption("terraform", "terraform"),
+				huh.NewOption("OpenTofu", "tofu"),
 			).
-			Validate(func(v string) error {
-				if v != "pulumi" {
-					return errors.New("terraform support is coming soon - pick pulumi")
-				}
-				return nil
-			}).
 			Value(&opts.EngineType),
-	}
-	if len(decls) > 0 {
-		engineGroup = append(engineGroup, huh.NewConfirm().
-			Title(fmt.Sprintf("Pre-fill engine config with the %d discovered stack entr%s shown above?", len(decls), plural(len(decls), "y", "ies"))).
-			Description("You can regenerate later with: reeve stacks discover --write").
-			Value(&useStacks))
-	}
-	if err := huh.NewForm(huh.NewGroup(engineGroup...)).Run(); err != nil {
+	)).Run(); err != nil {
 		return opts, err
+	}
+
+	// Stack pre-fill for the chosen engine.
+	decls := declsByEngine[opts.EngineType]
+	useStacks := len(decls) > 0
+	if len(decls) > 0 {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title(fmt.Sprintf("Pre-fill engine config with the %d discovered stack entr%s shown above?", len(decls), plural(len(decls), "y", "ies"))).
+				Description("You can regenerate later with: reeve stacks discover --write").
+				Value(&useStacks),
+		)).Run(); err != nil {
+			return opts, err
+		}
 	}
 	if useStacks {
 		opts.Stacks = decls
