@@ -18,7 +18,7 @@ func expandEnvRef(s string) string {
 
 // ExpandEnv rewrites every "${env:NAME}" string field in the config to the
 // value of the named environment variable. Applied after load so any field -
-// bucket, auth provider creds, otel endpoint/headers, drift sink credentials -
+// bucket, auth provider creds, otel endpoint/headers, drift channel credentials -
 // can reference an env var, not just slack.auth_token. Non-matching strings
 // are left untouched.
 func (c *Config) ExpandEnv() {

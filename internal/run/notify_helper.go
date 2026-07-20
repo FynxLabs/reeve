@@ -2,18 +2,16 @@ package run
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
-
-	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/thefynx/reeve/internal/blob"
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/summary"
-	"github.com/thefynx/reeve/internal/notifications"
-	"github.com/thefynx/reeve/internal/slack"
+	"github.com/thefynx/reeve/internal/notify"
 )
 
 // PulumiLogin runs `pulumi login <backendURL>` if a backend URL is configured.
@@ -34,178 +32,91 @@ func PulumiLogin(ctx context.Context, cfg *schemas.Engine) error {
 	return nil
 }
 
-// BuildSlackBackend constructs a SlackBackend if configured. Returns nil
-// when disabled or missing token. Tokens of the form ${env:NAME} expand
-// from the environment; bare literals pass through untouched.
-func BuildSlackBackend(cfg *schemas.Notifications, store blob.Store) *notifications.SlackBackend {
-	if cfg == nil || cfg.Slack == nil || !cfg.Slack.Enabled {
+// BuildNotifyChannels resolves the configured notification channels
+// (the `channels:` list) through the notify registry. Returns nil when
+// nothing is configured. Build errors are logged, not fatal -
+// notifications never abort a run.
+func BuildNotifyChannels(ctx context.Context, cfg *schemas.Notifications, store blob.Store) []notify.Channel {
+	var cfgs []schemas.ChannelYAML
+	if cfg != nil {
+		cfgs = cfg.Channels
+	}
+	if len(cfgs) == 0 {
 		return nil
 	}
-	token := expandEnvRef(cfg.Slack.AuthToken)
-	if token == "" {
-		return nil
+	channels, err := notify.Build(ctx, cfgs, notify.Deps{
+		Blob:       store,
+		SlackToken: os.Getenv("SLACK_BOT_TOKEN"),
+		RepoFull:   os.Getenv("GITHUB_REPOSITORY"),
+	})
+	if err != nil {
+		slog.Warn("notification channel build failed", "err", err)
 	}
-	return &notifications.SlackBackend{
-		Client:    slack.New(token),
-		Channel:   cfg.Slack.Channel,
-		Icons:     cfg.Slack.Icons,
-		BlobStore: store,
-	}
+	return channels
 }
 
-// FilterStacksForSlack applies the rule list (environments + patterns) to
-// the summary list. Empty rules = notify all.
-func FilterStacksForSlack(cfg *schemas.Notifications, ss []summary.StackSummary) []summary.StackSummary {
-	if cfg == nil || cfg.Slack == nil || len(cfg.Slack.Rules) == 0 {
-		return ss
+// PRNotifyInput bundles the PR-flow event context.
+type PRNotifyInput struct {
+	PR                int
+	CommitSHA         string
+	RunURL            string
+	PRTitle           string
+	PRAuthor          string
+	RequiredApprovers []string
+	Stacks            []summary.StackSummary
+}
+
+// NotifyPREvent publishes one PR-flow event to the configured channels. The
+// PR-flow producer runs last in the pipeline so upstream failures are
+// captured accurately; a delivery failure is returned (joined) for the
+// caller to log, never to abort on.
+func NotifyPREvent(ctx context.Context, channels []notify.Channel, ev notify.Event, in PRNotifyInput) error {
+	if len(channels) == 0 {
+		return nil
 	}
-	out := ss[:0]
-	for _, s := range ss {
-		if stackMatchesAnyRule(cfg.Slack.Rules, s) {
-			out = append(out, s)
+	payload := notify.Payload{
+		Event: ev,
+		PR: &notify.PRPayload{
+			PR:                in.PR,
+			CommitSHA:         in.CommitSHA,
+			RunURL:            in.RunURL,
+			Title:             in.PRTitle,
+			Author:            in.PRAuthor,
+			RepoFull:          os.Getenv("GITHUB_REPOSITORY"),
+			RequiredApprovers: in.RequiredApprovers,
+			Stacks:            toStackResults(in.Stacks),
+		},
+	}
+	return errors.Join(notify.Dispatch(ctx, channels, []notify.Payload{payload})...)
+}
+
+// ApplyOutcomeEvent picks the terminal apply event the same way the legacy
+// Slack backend did: errors win over blocked, blocked over applied.
+func ApplyOutcomeEvent(stacks []summary.StackSummary, blocked bool) notify.Event {
+	for _, s := range stacks {
+		if s.Status == summary.StatusError {
+			return notify.EventFailed
 		}
+	}
+	if blocked {
+		return notify.EventBlocked
+	}
+	return notify.EventApplied
+}
+
+func toStackResults(ss []summary.StackSummary) []notify.StackResult {
+	out := make([]notify.StackResult, 0, len(ss))
+	for _, s := range ss {
+		out = append(out, notify.StackResult{
+			Project: s.Project,
+			Stack:   s.Stack,
+			Env:     s.Env,
+			Status:  string(s.Status),
+			Add:     s.Counts.Add,
+			Change:  s.Counts.Change,
+			Delete:  s.Counts.Delete,
+			Replace: s.Counts.Replace,
+		})
 	}
 	return out
-}
-
-func stackMatchesAnyRule(rules []schemas.SlackNotifyRule, s summary.StackSummary) bool {
-	for _, r := range rules {
-		if len(r.Environments) > 0 {
-			for _, e := range r.Environments {
-				if e == s.Env {
-					return true
-				}
-			}
-		}
-		for _, pat := range r.Stacks {
-			if ok, _ := doublestar.Match(pat, s.Project+"/"+s.Stack); ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// expandEnvRef unwraps "${env:NAME}" and returns os.Getenv(NAME);
-// otherwise returns s unchanged.
-func expandEnvRef(s string) string {
-	if strings.HasPrefix(s, "${env:") && strings.HasSuffix(s, "}") {
-		return os.Getenv(strings.TrimSuffix(strings.TrimPrefix(s, "${env:"), "}"))
-	}
-	return s
-}
-
-func slackTrigger(cfg *schemas.Notifications) schemas.SlackTrigger {
-	if cfg == nil || cfg.Slack == nil || cfg.Slack.Trigger == "" {
-		return schemas.SlackTriggerApply
-	}
-	return cfg.Slack.Trigger
-}
-
-// NotifySlackPlanReady is called at the end of a preview run.
-// Creates a Slack message only when trigger == "plan".
-func NotifySlackPlanReady(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, requiredApprovers []string, stacks []summary.StackSummary) error {
-	if backend == nil {
-		return nil
-	}
-	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventPlan) {
-		return nil
-	}
-	return backend.NotifyPlanReady(ctx, notifications.NotifyInput{
-		PR:                pr,
-		CommitSHA:         sha,
-		RunURL:            runURL,
-		PRTitle:           prTitle,
-		PRAuthor:          prAuthor,
-		RepoFull:          os.Getenv("GITHUB_REPOSITORY"),
-		RequiredApprovers: requiredApprovers,
-		Trigger:           slackTrigger(cfg),
-		Stacks:            FilterStacksForSlack(cfg, stacks),
-	})
-}
-
-// NotifySlackReady is called when /reeve ready is run.
-func NotifySlackReady(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, requiredApprovers []string, stacks []summary.StackSummary) error {
-	if backend == nil {
-		return nil
-	}
-	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventReady) {
-		return nil
-	}
-	return backend.NotifyReady(ctx, notifications.NotifyInput{
-		PR:                pr,
-		CommitSHA:         sha,
-		RunURL:            runURL,
-		PRTitle:           prTitle,
-		PRAuthor:          prAuthor,
-		RepoFull:          os.Getenv("GITHUB_REPOSITORY"),
-		RequiredApprovers: requiredApprovers,
-		Trigger:           slackTrigger(cfg),
-		Stacks:            FilterStacksForSlack(cfg, stacks),
-	})
-}
-
-// NotifySlackApproved is called after preconditions pass, before apply starts.
-func NotifySlackApproved(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary) error {
-	if backend == nil {
-		return nil
-	}
-	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventApproved) {
-		return nil
-	}
-	return backend.NotifyApproved(ctx, notifications.NotifyInput{
-		PR:        pr,
-		CommitSHA: sha,
-		RunURL:    runURL,
-		PRTitle:   prTitle,
-		PRAuthor:  prAuthor,
-		RepoFull:  os.Getenv("GITHUB_REPOSITORY"),
-		Trigger:   slackTrigger(cfg),
-		Stacks:    FilterStacksForSlack(cfg, stacks),
-	})
-}
-
-// NotifySlackApplying is called immediately before the apply loop starts.
-func NotifySlackApplying(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary) error {
-	if backend == nil {
-		return nil
-	}
-	if cfg != nil && !schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventApplying) {
-		return nil
-	}
-	return backend.NotifyApplying(ctx, notifications.NotifyInput{
-		PR:        pr,
-		CommitSHA: sha,
-		RunURL:    runURL,
-		PRTitle:   prTitle,
-		PRAuthor:  prAuthor,
-		RepoFull:  os.Getenv("GITHUB_REPOSITORY"),
-		Trigger:   slackTrigger(cfg),
-		Stacks:    FilterStacksForSlack(cfg, stacks),
-	})
-}
-
-// NotifySlackApplied is called after the apply loop completes.
-func NotifySlackApplied(ctx context.Context, backend *notifications.SlackBackend, cfg *schemas.Notifications, pr int, sha, runURL, prTitle, prAuthor string, stacks []summary.StackSummary, blocked bool) error {
-	if backend == nil {
-		return nil
-	}
-	if cfg != nil {
-		applied := schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventApplied)
-		failed := schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventFailed)
-		blk := schemas.SlackEventEnabled(cfg.Slack, schemas.SlackEventBlocked)
-		if !applied && !failed && !blk {
-			return nil
-		}
-	}
-	return backend.NotifyApplied(ctx, notifications.NotifyInput{
-		PR:        pr,
-		CommitSHA: sha,
-		RunURL:    runURL,
-		PRTitle:   prTitle,
-		PRAuthor:  prAuthor,
-		RepoFull:  os.Getenv("GITHUB_REPOSITORY"),
-		Trigger:   slackTrigger(cfg),
-		Stacks:    FilterStacksForSlack(cfg, stacks),
-	}, blocked)
 }

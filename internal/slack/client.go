@@ -1,7 +1,6 @@
 // Package slack is the shared Slack client. HTTP-only (no SDK dep), Block
 // Kit JSON passthrough, message upsert via chat.update or chat.postMessage.
-// Consumed by internal/notifications (PR flow) and
-// internal/drift/sinks/slack.
+// Consumed by the slack notification channel (internal/notify/channels/slack).
 package slack
 
 import (

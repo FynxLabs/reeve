@@ -23,7 +23,7 @@ state file:
 
 **`drift_ongoing` is silent on purpose** - without the event lifecycle,
 alerting either spams every run or fires once and goes stale. The
-runner still updates state and emits OTEL metrics; only the sink
+runner still updates state and emits OTEL metrics; only the channel
 dispatch is suppressed.
 
 ## CLI
@@ -104,7 +104,7 @@ schedules:
   slow-movers:
     patterns: ["dev/*", "experiments/*"]
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-drift"
     on: [drift_detected, check_failed]
@@ -179,7 +179,7 @@ on:
 permissions:
   contents: read
   id-token: write                # OIDC federation
-  issues: write                  # for github_issue sink
+  issues: write                  # for github_issue channel
 
 jobs:
   critical:
@@ -275,12 +275,27 @@ permanent_suppressions:
 
 These are listed in reports but never trigger events.
 
-## Sinks
+## Channels
 
-Every sink declares which events it wants via `on:`. Valid names are
+Drift channels ride the shared notification-channel framework
+(`internal/notify`) — the same adapters that carry PR-flow notifications.
+Declare them under `channels:` in `drift.yaml` (below), or in
+`notifications.yaml` with drift events in `on:`; both feed the same
+dispatch. One channel implementation serves both producers — see
+[notifications.md](notifications.md) for the event list, delivery
+guarantees (concurrent dispatch, timeouts, retry with backoff), and how
+to add a destination.
+
+> **Renamed key:** drift.yaml's list was originally called `sinks:`.
+> That spelling no longer loads — reeve errors with a pointer at
+> `reeve migrate-config`, which renames it to `channels:` in place
+> (or just rename the key by hand).
+
+Every channel declares which events it wants via `on:`. The drift events are
 `drift_detected`, `drift_ongoing`, `drift_resolved`, and `check_failed` -
-`reeve lint` rejects anything else, and a sink whose `on:` list is empty
-(or all-invalid at runtime) logs a warning because it will never fire.
+an unknown name is a hard config error (load and `reeve lint` both reject
+it, listing the valid names), and a channel whose `on:` list is empty logs a
+warning because it will never fire.
 
 ### Slack
 
@@ -407,7 +422,7 @@ rather than inside reeve.
 ## Overlap with open PRs
 
 When drift is detected on a stack that has open PRs touching its paths,
-the report surfaces those PRs prominently. The raw sink payload
+the report surfaces those PRs prominently. The raw channel payload
 includes them too:
 
 ```json

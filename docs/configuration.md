@@ -9,9 +9,9 @@ are per-file, and schemas are stable within a major version.
 .reeve/
 ├── shared.yaml           # bucket, approvals, locking, preconditions, freeze, apply
 ├── auth.yaml             # credential providers and bindings
-├── notifications.yaml    # slack (PR-scoped)
+├── notifications.yaml    # notification channels (slack, webhook, pagerduty, ...)
 ├── observability.yaml    # OTEL + annotations
-├── drift.yaml            # drift scope, schedules, sinks
+├── drift.yaml            # drift scope, schedules, channels
 ├── pulumi.yaml           # engine: pulumi
 └── terraform.yaml        # engine: terraform (future)
 ```
@@ -346,6 +346,37 @@ bindings:
 
 ## `notifications.yaml`
 
+Notification destinations ("channels") are declared generically: `type`
+chooses the adapter, `on:` chooses the subscribed events. One channel
+implementation serves both PR-flow events (`plan` … `blocked`) and drift
+events (`drift_detected` …) — see [notifications.md](notifications.md)
+for the full channel catalog and event list.
+
+```yaml
+version: 2
+config_type: notifications
+
+channels:
+  - type: slack
+    channel: "#infra-deploys"
+    auth_token: ${env:SLACK_BOT_TOKEN}
+    trigger: plan
+    on: [plan, ready, approved, applying, applied, failed, blocked]
+
+  - type: webhook
+    name: audit-feed
+    url: https://example.internal/hooks/reeve
+    on: [applied, failed, drift_detected]
+```
+
+### Converting from the original config
+
+The original single `slack:` block (and drift.yaml's `sinks:` key) no
+longer load — reeve errors with a conversion pointer. Run
+`reeve migrate-config` to rewrite them to the `channels:` shape
+(originals backed up as `*.bak`; `--dry-run` previews), or hand-edit —
+see [notifications.md](notifications.md#converting-from-the-original-config).
+
 ```yaml
 version: 1
 config_type: notifications
@@ -492,7 +523,7 @@ schedules:
     patterns: ["prod/*"]
     exclude_patterns: ["prod/payments", "prod/auth"]
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-drift"
     on: [drift_detected, check_failed]
@@ -530,7 +561,7 @@ The following fields accept `${env:NAME}` references:
 - `auth.yaml`: provider fields (see [auth.md](auth.md) for the full list)
 - `notifications.yaml`: `slack.auth_token`
 - `observability.yaml`: `otel.endpoint`, `otel.headers`, `annotations.*.api_key`, etc.
-- `drift.yaml`: sink credentials
+- `drift.yaml`: channel credentials
 
 `${env:X}` expands at runtime via `os.Getenv("X")`. Missing env vars expand
 to empty strings (not an error) - so token references safely degrade when

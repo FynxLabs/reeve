@@ -40,7 +40,7 @@ schedules:
   slow-movers:
     patterns: ["dev/*", "experiments/*"]
 
-sinks:
+channels:
   - type: slack
     channel: "#infra-drift"
     on: [drift_detected, drift_resolved, check_failed]

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// EventType is the subscription key sinks filter on.
+// EventType is the subscription key channels filter on.
 type EventType string
 
 const (

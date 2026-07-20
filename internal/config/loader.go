@@ -72,11 +72,14 @@ func Load(root string) (*Config, error) {
 				return nil, fmt.Errorf("%s: parse header: %w", f, err)
 			}
 		}
-		if hdr.Version != 1 {
-			return nil, fmt.Errorf("%s: unsupported version %d (want 1)", f, hdr.Version)
-		}
 		if hdr.ConfigType == "" {
 			return nil, fmt.Errorf("%s: missing config_type", f)
+		}
+		if max := maxSchemaVersion(hdr.ConfigType); hdr.Version < 1 || hdr.Version > max {
+			if max == 1 {
+				return nil, fmt.Errorf("%s: unsupported version %d (want 1)", f, hdr.Version)
+			}
+			return nil, fmt.Errorf("%s: unsupported version %d (want 1..%d)", f, hdr.Version, max)
 		}
 
 		switch hdr.ConfigType {
@@ -122,6 +125,11 @@ func Load(root string) (*Config, error) {
 			if err := strictDecode(data, &n); err != nil {
 				return nil, fmt.Errorf("%s: %w", f, err)
 			}
+			// The original single slack: block predates channels:. Alpha
+			// rule: no silent compat - reject with the conversion pointer.
+			if n.Slack != nil {
+				return nil, fmt.Errorf("%s: the slack: block was replaced by channels: - run `reeve migrate-config` to convert the file (see docs/notifications.md)", f)
+			}
 			cfg.Notifications = &n
 		case "drift":
 			if prev, ok := seenType["drift"]; ok {
@@ -131,6 +139,11 @@ func Load(root string) (*Config, error) {
 			var d schemas.Drift
 			if err := strictDecode(data, &d); err != nil {
 				return nil, fmt.Errorf("%s: %w", f, err)
+			}
+			// `sinks:` was the original spelling of `channels:`. Alpha rule:
+			// no silent compat - reject with the conversion pointer.
+			if len(d.DeprecatedSinks) > 0 {
+				return nil, fmt.Errorf("%s: sinks: was renamed to channels: - run `reeve migrate-config` to convert the file, or rename the key", f)
 			}
 			cfg.Drift = &d
 		case "observability":
@@ -165,6 +178,17 @@ func Load(root string) (*Config, error) {
 	return cfg, nil
 }
 
+// maxSchemaVersion returns the highest supported schema version for a
+// config_type. notifications is at 2 (the generic `channels:` list); the
+// original version-1 `slack:` block is rejected at load with a pointer at
+// `reeve migrate-config`.
+func maxSchemaVersion(configType string) int {
+	if configType == "notifications" {
+		return 2
+	}
+	return 1
+}
+
 // Validate runs cross-file checks. Phase 1: require at least one engine
 // config and a bucket.
 func (c *Config) Validate() error {
@@ -176,6 +200,44 @@ func (c *Config) Validate() error {
 	}
 	if c.Shared.Bucket.Type == "" {
 		return errors.New("shared.yaml: bucket.type is required")
+	}
+	if err := c.validateChannels(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateChannels checks every channel declaration (notifications.yaml `channels:`
+// and drift.yaml `channels:`): `on:` entries must be known event names, and an
+// empty subscription list draws a warning because the channel will never fire.
+func (c *Config) validateChannels() error {
+	check := func(file string, channels []schemas.ChannelYAML) error {
+		for _, s := range channels {
+			if s.Type == "" {
+				return fmt.Errorf("%s: channel %q: type is required", file, s.EffectiveName())
+			}
+			for _, ev := range s.On {
+				if !schemas.IsValidChannelEvent(ev) {
+					return fmt.Errorf("%s: channel %q: unknown event %q in on: (valid: %s)",
+						file, s.EffectiveName(), ev, strings.Join(schemas.ValidChannelEvents, ", "))
+				}
+			}
+			if len(s.On) == 0 && s.Type != "slack" {
+				slog.Warn("notification channel subscribes to no events and will never fire; set on:",
+					"file", file, "channel", s.EffectiveName(), "type", s.Type)
+			}
+		}
+		return nil
+	}
+	if c.Notifications != nil {
+		if err := check("notifications.yaml", c.Notifications.Channels); err != nil {
+			return err
+		}
+	}
+	if c.Drift != nil {
+		if err := check("drift.yaml", c.Drift.Channels); err != nil {
+			return err
+		}
 	}
 	return nil
 }

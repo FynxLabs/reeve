@@ -19,8 +19,8 @@ import (
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/drift"
-	sinkfac "github.com/thefynx/reeve/internal/drift/sinks/factory"
 	"github.com/thefynx/reeve/internal/iac/pulumi"
+	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/run"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
 )
@@ -204,35 +204,46 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		_ = os.WriteFile(p, []byte(report), 0o644) // #nosec G306
 	}
 
-	// Bootstrap is silent by design: state is recorded, no sinks fire.
+	// Bootstrap is silent by design: state is recorded, no channels fire.
 	if bootstrap {
 		fmt.Fprintf(cmd.OutOrStdout(), "baseline recorded for %d stack(s); drift runs will now compare against it\n", len(out.Items))
 		fmt.Fprintln(cmd.OutOrStdout(), report)
 		return nil
 	}
 
-	// Dispatch to configured drift sinks.
+	// Dispatch to configured channels via the shared notify framework:
+	// drift.yaml channels plus any notifications.yaml channels subscribed to
+	// drift events.
 	repoFull := os.Getenv("GITHUB_REPOSITORY")
-	owner, repo := "", ""
-	if parts := strings.SplitN(repoFull, "/", 2); len(parts) == 2 {
-		owner, repo = parts[0], parts[1]
+	var issues notify.IssueClient
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		if parts := strings.SplitN(repoFull, "/", 2); len(parts) == 2 {
+			if client, err := gh.New(ctx, tok, parts[0], parts[1]); err == nil {
+				issues = client
+			}
+		}
 	}
-	annotationEmitters := run.BuildAnnotationEmitters(cfg.Observability)
-	sinks, serr := sinkfac.Build(ctx, cfg.Drift, sinkfac.Options{
-		SlackToken:         os.Getenv("SLACK_BOT_TOKEN"),
-		GitHubToken:        os.Getenv("GITHUB_TOKEN"),
-		GitHubOwner:        owner,
-		GitHubRepo:         repo,
-		AnnotationEmitters: annotationEmitters,
+	var channelCfgs []schemas.ChannelYAML
+	if cfg.Drift != nil {
+		channelCfgs = append(channelCfgs, cfg.Drift.Channels...)
+	}
+	if cfg.Notifications != nil {
+		channelCfgs = append(channelCfgs, cfg.Notifications.Channels...)
+	}
+	channels, serr := notify.Build(ctx, channelCfgs, notify.Deps{
+		Blob:       store,
+		Issues:     issues,
+		Emitters:   run.BuildAnnotationEmitters(cfg.Observability),
+		SlackToken: os.Getenv("SLACK_BOT_TOKEN"),
+		RepoFull:   repoFull,
 	})
 	if serr != nil {
 		return serr
 	}
-	if len(sinks) > 0 {
-		// Import the sinks package from its own path to avoid a cycle.
-		errs := dispatchSinks(ctx, sinks, out)
+	if len(channels) > 0 {
+		errs := notify.Dispatch(ctx, channels, drift.NotifyPayloads(out))
 		for _, e := range errs {
-			fmt.Fprintf(cmd.ErrOrStderr(), "sink error: %v\n", e)
+			fmt.Fprintf(cmd.ErrOrStderr(), "channel error: %v\n", e)
 		}
 	}
 

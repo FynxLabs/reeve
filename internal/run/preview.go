@@ -16,6 +16,7 @@ import (
 	"github.com/thefynx/reeve/internal/core/render"
 	"github.com/thefynx/reeve/internal/core/summary"
 	"github.com/thefynx/reeve/internal/iac"
+	"github.com/thefynx/reeve/internal/notify"
 	"github.com/thefynx/reeve/internal/observability/annotations"
 	reeveotel "github.com/thefynx/reeve/internal/observability/otel"
 	"github.com/thefynx/reeve/internal/vcs"
@@ -194,12 +195,14 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		prTitle = in.PRTitle
 	}
 
-	// Slack runs last in the pipeline so upstream failures are captured.
+	// Notifications run last in the pipeline so upstream failures are captured.
 	if in.PRNumber > 0 && in.Notifications != nil {
-		slackBackend := BuildSlackBackend(in.Notifications, in.Blob)
-		if err := NotifySlackPlanReady(ctx, slackBackend, in.Notifications,
-			in.PRNumber, in.CommitSHA, in.CIRunURL, prTitle, prAuthor, nil, summaries); err != nil {
-			slog.Warn("slack notify plan-ready failed", "err", err, "pr", in.PRNumber)
+		channels := BuildNotifyChannels(ctx, in.Notifications, in.Blob)
+		if err := NotifyPREvent(ctx, channels, notify.EventPlan, PRNotifyInput{
+			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
+			PRTitle: prTitle, PRAuthor: prAuthor, Stacks: summaries,
+		}); err != nil {
+			slog.Warn("notify plan-ready failed", "err", err, "pr", in.PRNumber)
 		}
 	}
 

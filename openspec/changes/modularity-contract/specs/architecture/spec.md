@@ -7,7 +7,7 @@
 Every pluggable axis SHALL be consumed by core through an interface, and core
 packages SHALL depend on that interface rather than any concrete provider
 implementation. The axes are: IAC engine, VCS, auth provider, blob backend,
-notification sink, and approval source.
+notification channel, and approval source.
 
 #### Scenario: Core depends on the interface
 
