@@ -90,7 +90,9 @@ type ApplyOutput struct {
 	CommentBody string
 	RunID       string
 	DurationSec int
-	Blocked     bool // true if any stack was blocked by preconditions
+	Blocked     bool   // true if any stack was blocked by preconditions
+	Failed      bool   // true if any stack errored during apply (engine/auth/lock)
+	FailedRefs  string // comma-joined refs of errored stacks, for the CLI message
 }
 
 // Apply runs apply for stacks affected by the PR. For each stack:
@@ -585,6 +587,8 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		RunID:       runID,
 		DurationSec: dur,
 		Blocked:     anyBlocked,
+		Failed:      outcome == "failed",
+		FailedRefs:  failedStacksDetail(summaries),
 	}, nil
 }
 

@@ -138,6 +138,13 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// A stack that errored during apply (engine/auth/lock failure) must fail
+	// the run - returning nil here exits 0 and paints the CI job green even
+	// though a `pulumi up` blew up. Check this before Blocked: a run can have
+	// both errored and blocked stacks, and an error is the more severe verdict.
+	if out.Failed {
+		return fmt.Errorf("apply failed for stack(s): %s (PR #%d, run_id=%s)", out.FailedRefs, pr, out.RunID)
+	}
 	if out.Blocked {
 		fmt.Fprintf(cmd.OutOrStdout(), "apply blocked by preconditions for one or more stacks (PR #%d, run_id=%s)\n", pr, out.RunID)
 		return nil
