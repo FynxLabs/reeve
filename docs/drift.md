@@ -83,6 +83,12 @@ behavior:
   # What "transient" means: network error, auth expiry. NOT engine crash,
   # plan-parse error, or policy failure.
 
+  # Exit code control: when a condition below is true and occurred this
+  # run, `reeve drift run` exits nonzero (naming the condition) so CI can
+  # gate on it. All three default to false = always exit 0.
+  #   drift_detected -> any stack fired the drift_detected event
+  #   drift_ongoing  -> any stack fired the drift_ongoing event
+  #   run_error      -> any check failed (check_failed / outcome error)
   exit_on:
     drift_detected: false          # don't fail CI on drift - alert instead
     drift_ongoing: false

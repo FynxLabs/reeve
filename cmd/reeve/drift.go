@@ -261,7 +261,47 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), report)
-	return nil
+	return driftExitError(cfg, out)
+}
+
+// driftExitError maps drift.yaml behavior.exit_on onto the process exit
+// code: when a configured condition occurred this run, a non-nil error is
+// returned so `reeve drift run` exits nonzero and CI can gate on it. All
+// conditions default to off (exit 0), matching the previous behavior.
+func driftExitError(cfg *config.Config, out *drift.RunOutput) error {
+	if cfg.Drift == nil {
+		return nil
+	}
+	eo := cfg.Drift.Behavior.ExitOn
+	countEvent := func(want drift.Event) int {
+		n := 0
+		for _, ev := range out.Events {
+			if ev == want {
+				n++
+			}
+		}
+		return n
+	}
+	var reasons []string
+	if eo.DriftDetected {
+		if n := countEvent(drift.EventDriftDetected); n > 0 {
+			reasons = append(reasons, fmt.Sprintf("new drift on %d stack(s) (exit_on.drift_detected)", n))
+		}
+	}
+	if eo.DriftOngoing {
+		if n := countEvent(drift.EventDriftOngoing); n > 0 {
+			reasons = append(reasons, fmt.Sprintf("ongoing drift on %d stack(s) (exit_on.drift_ongoing)", n))
+		}
+	}
+	if eo.RunError {
+		if n := countEvent(drift.EventCheckFailed); n > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d check(s) failed (exit_on.run_error)", n))
+		}
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return fmt.Errorf("drift run exit condition met: %s", strings.Join(reasons, "; "))
 }
 
 func buildScope(cfg *config.Config, cmd *cobra.Command) (include, exclude []string, err error) {
