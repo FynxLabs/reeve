@@ -26,13 +26,36 @@ func WriteClusteredStacks(path string, decls []discovery.Declaration, dryRun boo
 	if err != nil {
 		return nil, err
 	}
+	out, err := ClusteredStacksBytes(data, decls)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+
+	if dryRun {
+		return out, nil
+	}
+	if err := os.WriteFile(path+".bak", data, 0o600); err != nil {
+		return nil, fmt.Errorf("backup: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ClusteredStacksBytes is the in-memory core of WriteClusteredStacks: it
+// replaces (or inserts) the `engine.stacks:` block inside the given YAML
+// document and returns the re-encoded bytes. Comments on sibling keys are
+// preserved via yaml.v3 node manipulation. Used by `stacks discover --write`
+// and by `reeve init` to pre-fill a freshly scaffolded engine config.
+func ClusteredStacksBytes(data []byte, decls []discovery.Declaration) ([]byte, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
 	}
 	engine := findMapValue(&root, "engine")
 	if engine == nil {
-		return nil, fmt.Errorf("%s: missing top-level engine: block", path)
+		return nil, fmt.Errorf("missing top-level engine: block")
 	}
 	stacksNode := buildStacksNode(decls)
 
@@ -51,18 +74,7 @@ func WriteClusteredStacks(path string, decls []discovery.Declaration, dryRun boo
 		return nil, err
 	}
 	_ = enc.Close()
-	out := buf.Bytes()
-
-	if dryRun {
-		return out, nil
-	}
-	if err := os.WriteFile(path+".bak", data, 0o600); err != nil {
-		return nil, fmt.Errorf("backup: %w", err)
-	}
-	if err := os.WriteFile(path, out, 0o600); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return buf.Bytes(), nil
 }
 
 // buildStacksNode constructs a sequence node matching the schema:
