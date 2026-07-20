@@ -173,8 +173,7 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// List returns keys under the prefix (non-recursive in the sense that
-// object keys are flat, but S3 is inherently flat).
+// List returns every key under the prefix (recursive - no delimiter).
 func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 	var out []string
 	var continuationToken *string

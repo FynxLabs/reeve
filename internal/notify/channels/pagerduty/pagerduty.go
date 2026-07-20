@@ -120,6 +120,13 @@ func (s *Channel) driftEvent(p notify.Payload) map[string]any {
 // prEvent maps the PR lifecycle onto PagerDuty incidents: failed/blocked
 // applies trigger an incident, a subsequent successful apply resolves it.
 // Intermediate lifecycle events are no-ops even when subscribed.
+//
+// Known residual: `applied` is the ONLY terminal event reeve ever observes
+// on a PR - the action does not run on pull_request `closed`, so a PR
+// closed or merged without a later successful apply leaves its incident
+// open until someone resolves it in PagerDuty (dedup key
+// "reeve-pr-<owner/repo>-<n>"). Documented in docs/notifications.md; if a
+// close/merge-triggered run mode is ever added, it should resolve here.
 func (s *Channel) prEvent(p notify.Payload) map[string]any {
 	pr := p.PR
 	var action, severity string
