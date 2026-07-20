@@ -112,6 +112,12 @@ VCS-connected run, dispatch is suppressed too. Post-approval events
 approval that gates them covers the config change. `--local` runs are
 unaffected (no VCS interaction).
 
+The same gate covers the OTEL exporter: when a PR modifies
+`.reeve/observability.yaml`, the pre-approval preview skips OTLP
+initialization entirely (no connection, no headers sent) and the PR
+comment notes "Telemetry (OTEL) suppressed for this preview". Annotation
+emitters need no gate — they only fire on apply/drift events.
+
 ## The deployment timeline
 
 The dashboard surfaces above (the PR status comment, the Slack per-PR

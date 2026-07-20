@@ -681,9 +681,11 @@ silently. A new config field gets no expansion unless it is deliberately
 added to the allow-list (`expand:"env"` struct tag in
 `internal/config/schemas`).
 
-Note that even for designated channel fields, pre-approval previews
-suppress all channel dispatch when the PR modifies notification config —
-see [notifications.md](notifications.md#pre-approval-channel-isolation).
+Note that even for designated fields, pre-approval previews fail closed
+when the PR modifies the config that carries them: channel dispatch is
+suppressed when notification config changed, and OTEL exporter init is
+skipped when `observability.yaml` changed — see
+[notifications.md](notifications.md#pre-approval-channel-isolation).
 
 ## Lint
 

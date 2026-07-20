@@ -235,6 +235,140 @@ func TestSuppressPreApprovalChannels(t *testing.T) {
 	}
 }
 
+// loadObservabilityConfig writes a .reeve/observability.yaml pointing the
+// OTLP exporter at collectorURL with a ${env:EXFIL_SECRET} auth header,
+// then loads it through the real config loader.
+func loadObservabilityConfig(t *testing.T, collectorURL string) *config.Config {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".reeve"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	doc := `version: 1
+config_type: observability
+otel:
+  enabled: true
+  endpoint: ` + collectorURL + `
+  service_name: reeve-test
+  headers:
+    Authorization: "Bearer ${env:EXFIL_SECRET}"
+`
+	if err := os.WriteFile(filepath.Join(root, ".reeve", "observability.yaml"), []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	return cfg
+}
+
+// TestPreviewOTELSuppressedWhenObservabilityConfigModified is the OTLP
+// variant of the exfil attack: the PR adds/modifies observability.yaml
+// pointing otel.endpoint + headers at an attacker collector. The
+// pre-approval preview must not initialize the exporter at all - zero
+// connections to the collector - and the PR comment must say why.
+func TestPreviewOTELSuppressedWhenObservabilityConfigModified(t *testing.T) {
+	const secret = "ghp_superSecretDoNotExfilOTEL00000000000"
+	t.Setenv("EXFIL_SECRET", secret)
+
+	collector := newRecordingServer(t)
+	cfg := loadObservabilityConfig(t, collector.URL)
+	if len(cfg.ObservabilitySourceFiles) == 0 {
+		t.Fatal("loader must record which files declared observability config")
+	}
+
+	fvcs := &fakeVCS{
+		changed: []string{".reeve/observability.yaml", "projects/api/main.ts"},
+		headSHA: "attack-sha",
+	}
+	in := securityPreviewInput(t, cfg, fvcs)
+	in.Observability = cfg.Observability
+	in.ObservabilitySourceFiles = cfg.ObservabilitySourceFiles
+	out, err := Preview(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	if got := collector.recorded(); len(got) != 0 {
+		t.Fatalf("SECURITY FAILURE: %d OTLP request(s) reached the collector despite modified observability config; first headers: %v",
+			len(got), got[0].Header)
+	}
+	if !strings.Contains(out.CommentBody, "Telemetry (OTEL) suppressed for this preview") {
+		t.Errorf("comment must surface the OTEL suppression: %s", out.CommentBody)
+	}
+	if !strings.Contains(out.CommentBody, "telemetry resumes after approval/apply") {
+		t.Errorf("comment must say telemetry resumes post-approval: %s", out.CommentBody)
+	}
+}
+
+// TestPreviewOTELExportsWhenConfigUntouched is the companion assertion:
+// with observability.yaml untouched by the PR, the exporter initializes,
+// flushes to the configured collector, and carries the expanded
+// (designated-field) auth header.
+func TestPreviewOTELExportsWhenConfigUntouched(t *testing.T) {
+	const secret = "otel-collector-token-123456"
+	t.Setenv("EXFIL_SECRET", secret)
+
+	collector := newRecordingServer(t)
+	cfg := loadObservabilityConfig(t, collector.URL)
+
+	fvcs := &fakeVCS{
+		changed: []string{"projects/api/main.ts"},
+		headSHA: "clean-sha",
+	}
+	in := securityPreviewInput(t, cfg, fvcs)
+	in.Observability = cfg.Observability
+	in.ObservabilitySourceFiles = cfg.ObservabilitySourceFiles
+	out, err := Preview(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+
+	got := collector.recorded()
+	if len(got) == 0 {
+		t.Fatal("expected at least one OTLP flush to the collector for untouched config")
+	}
+	for _, r := range got {
+		if h := r.Header.Get("Authorization"); h != "Bearer "+secret {
+			t.Errorf("designated otel header expansion broken: Authorization = %q", h)
+		}
+	}
+	if strings.Contains(out.CommentBody, "Telemetry (OTEL) suppressed") {
+		t.Errorf("untouched config must not suppress telemetry: %s", out.CommentBody)
+	}
+}
+
+func TestSuppressPreApprovalObservability(t *testing.T) {
+	cases := []struct {
+		name       string
+		local      bool
+		hasVCS     bool
+		changed    []string
+		changedErr error
+		sources    []string
+		want       bool
+	}{
+		{"local never suppresses", true, false, nil, nil, nil, false},
+		{"no vcs fails closed", false, false, nil, nil, nil, true},
+		{"changed-list error fails closed", false, true, nil, errors.New("boom"), nil, true},
+		{"observability.yaml modified (default sources)", false, true, []string{".reeve/observability.yaml"}, nil, nil, true},
+		{"custom source file honored", false, true, []string{".reeve/obs.yml"}, nil, []string{".reeve/obs.yml"}, true},
+		{"unrelated changes pass", false, true, []string{"projects/api/main.ts"}, nil, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, reason := SuppressPreApprovalObservability(tc.local, tc.hasVCS, tc.changed, tc.changedErr, tc.sources)
+			if got != tc.want {
+				t.Fatalf("suppress = %v (reason %q), want %v", got, reason, tc.want)
+			}
+			if got && reason == "" {
+				t.Fatal("suppression must carry a reason")
+			}
+		})
+	}
+}
+
 // TestPreviewRegistersSecretProviderValuesWithRedactor: every env value a
 // secret provider exports must be registered with the redactor, so a
 // secret that leaks into engine output never reaches the PR comment.

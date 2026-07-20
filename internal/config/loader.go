@@ -31,6 +31,11 @@ type Config struct {
 	// approval).
 	ChannelSourceFiles []string
 
+	// ObservabilitySourceFiles is the same for the observability config
+	// (OTEL exporter endpoint/headers): the preview path skips OTEL init
+	// entirely for pre-approval runs when a PR modifies these files.
+	ObservabilitySourceFiles []string
+
 	// EnvExpandWarnings holds load-time warnings about "${env:...}"
 	// references in non-designated fields (left literal). Surfaced by
 	// `reeve lint` and logged at load.
@@ -171,6 +176,7 @@ func Load(root string) (*Config, error) {
 				return nil, fmt.Errorf("%s: %w", f, err)
 			}
 			cfg.Observability = &o
+			cfg.ObservabilitySourceFiles = append(cfg.ObservabilitySourceFiles, repoRelConfigPath(f))
 		case "user":
 			// Scaffold: accept header but do nothing. Later phases land
 			// concrete schemas.

@@ -62,6 +62,10 @@ func BuildNotifyChannels(ctx context.Context, cfg *schemas.Notifications, store 
 // not record which config files declared notification channels.
 var defaultChannelSourceFiles = []string{".reeve/notifications.yaml", ".reeve/drift.yaml"}
 
+// defaultObservabilitySourceFiles is the equivalent fallback for the
+// observability (OTEL exporter) config.
+var defaultObservabilitySourceFiles = []string{".reeve/observability.yaml"}
+
 // SuppressPreApprovalChannels decides whether pre-approval events (the
 // preview path's planning/plan) may be dispatched to notification channels.
 //
@@ -79,6 +83,21 @@ var defaultChannelSourceFiles = []string{".reeve/notifications.yaml", ".reeve/dr
 //
 // Returns (suppress, reason).
 func SuppressPreApprovalChannels(local, hasVCS bool, changed []string, changedErr error, sourceFiles []string) (bool, string) {
+	return suppressPreApprovalConfig(local, hasVCS, changed, changedErr,
+		sourceFiles, defaultChannelSourceFiles, "notification config")
+}
+
+// SuppressPreApprovalObservability is the same gate for the OTEL exporter:
+// observability.yaml is loaded from the PR HEAD too, and its endpoint +
+// headers are designated ${env:} fields - a PR-added collector config
+// would exfiltrate expanded credentials with the first pre-approval span
+// flush. Identical fail-closed semantics to the channel gate.
+func SuppressPreApprovalObservability(local, hasVCS bool, changed []string, changedErr error, sourceFiles []string) (bool, string) {
+	return suppressPreApprovalConfig(local, hasVCS, changed, changedErr,
+		sourceFiles, defaultObservabilitySourceFiles, "observability config")
+}
+
+func suppressPreApprovalConfig(local, hasVCS bool, changed []string, changedErr error, sourceFiles, defaults []string, label string) (bool, string) {
 	if local {
 		return false, ""
 	}
@@ -89,13 +108,13 @@ func SuppressPreApprovalChannels(local, hasVCS bool, changed []string, changedEr
 		return true, "changed-file list unavailable (" + changedErr.Error() + ")"
 	}
 	if len(sourceFiles) == 0 {
-		sourceFiles = defaultChannelSourceFiles
+		sourceFiles = defaults
 	}
 	for _, f := range changed {
 		norm := filepath.ToSlash(f)
 		for _, src := range sourceFiles {
 			if norm == filepath.ToSlash(src) {
-				return true, fmt.Sprintf("notification config %s modified in this PR", src)
+				return true, fmt.Sprintf("%s %s modified in this PR", label, src)
 			}
 		}
 	}
