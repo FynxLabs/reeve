@@ -197,14 +197,14 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGre
 			// (reeve's own current run is already skipped above).
 			if status != "completed" {
 				logger.Debug("check_run pending: not yet concluded", "name", name, "status", status)
-				failing = append(failing, name+":"+status)
+				failing = append(failing, name+":"+status+" (still running)")
 				continue
 			}
 			switch conclusion {
 			case "success", "skipped", "neutral":
 				continue
 			case "":
-				failing = append(failing, name+":pending")
+				failing = append(failing, name+":pending (still running)")
 			default:
 				failing = append(failing, name+":"+conclusion)
 			}
@@ -215,19 +215,34 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGre
 		checkOpt.Page = resp.NextPage
 	}
 
-	// Commit statuses (legacy, separate from check runs). Only "failure" /
-	// "error" combined states matter; "pending" reflects in-progress check
-	// runs already filtered above.
+	// Commit statuses (legacy, separate from check runs). A combined state of
+	// "pending" must block just like a non-completed check_run: a status that
+	// hasn't reported yet is a check still running, not a passing one.
+	// GitHub's own required-checks gate blocks on pending statuses too. The
+	// one subtlety: GitHub reports "pending" with an EMPTY status list when a
+	// commit has no statuses at all, so an empty list never blocks.
 	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
 	if err != nil {
 		return false, nil, fmt.Errorf("combined status: %w", err)
 	}
 	logger.Debug("combined_status", "state", st.GetState(), "n", len(st.Statuses))
-	if st.GetState() == "failure" || st.GetState() == "error" {
+	state := st.GetState()
+	if (state == "failure" || state == "error" || state == "pending") && len(st.Statuses) > 0 {
+		before := len(failing)
 		for _, s := range st.Statuses {
-			if s.GetState() != "success" && s.GetState() != "pending" {
+			switch s.GetState() {
+			case "success":
+			case "pending":
+				failing = append(failing, s.GetContext()+":pending (checks still running)")
+			default:
 				failing = append(failing, s.GetContext()+":"+s.GetState())
 			}
+		}
+		if len(failing) == before {
+			// Non-success combined state but every enumerated status looked
+			// fine - possible when >100 statuses paginate the culprit away.
+			// Fail closed with the combined verdict rather than passing.
+			failing = append(failing, "combined status:"+state)
 		}
 	}
 
