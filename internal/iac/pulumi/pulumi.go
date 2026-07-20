@@ -45,7 +45,10 @@ func (e *Engine) Name() string { return "pulumi" }
 
 func (e *Engine) Capabilities() iac.Capabilities {
 	return iac.Capabilities{
-		SupportsSavedPlans:   true,
+		// This adapter never saves or applies a plan file: Apply runs
+		// `pulumi up --yes` directly rather than `preview --save-plan` +
+		// `up --plan`. Flip only when the saved-plan lifecycle is wired.
+		SupportsSavedPlans:   false,
 		SupportsRefresh:      true,
 		SupportsPolicyNative: true,
 		// The secrets_provider types Pulumi accepts for stack-state
