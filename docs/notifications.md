@@ -83,7 +83,7 @@ subscriptions are unchanged unless you list them explicitly.
 | --- | --- | --- |
 | `slack` | Slack (Web API) | PR events drive one message per PR (upsert + thread timeline); drift events post standalone messages. `channel`, `auth_token`, `trigger`, `icons`, `rules` |
 | `webhook` | Generic HTTP POST | Raw JSON payload; `url`, `headers` |
-| `pagerduty` | PagerDuty Events API v2 | drift: trigger/resolve per stack; PR: `failed`/`blocked` trigger, `applied` resolves; `integration_key`, `severity_map` |
+| `pagerduty` | PagerDuty Events API v2 | drift: trigger/resolve per stack; PR: `failed`/`blocked` trigger, `applied` resolves. Known gap: reeve only runs on PR activity, so a PR closed or merged **without** a later successful apply leaves its incident open — resolve it in PagerDuty (dedup key `reeve-pr-<owner/repo>-<n>`). `integration_key`, `severity_map` |
 | `github_issue` | GitHub issue per drifted stack | Drift events only; `labels`, `assignees`. Requires `GITHUB_TOKEN` with `issues: write` |
 | `otel_annotation` | Annotation emitters (Grafana/Datadog/Dash0) | Maps drift + apply lifecycle onto annotation events; configure emitters in `observability.yaml` |
 | `timeline_slack` | Slack thread under one PR-level anchor | Deployment timeline (see below). `channel`, `auth_token` |

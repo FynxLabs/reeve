@@ -2,5 +2,4 @@
 // preview and apply. Reuses stack discovery, auth, engine abstraction,
 // bucket storage, and observability. Different trigger (scheduled),
 // different output (report + channels), different urgency model.
-// See PLAN.md §5.9.
 package drift
