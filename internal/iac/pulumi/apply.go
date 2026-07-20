@@ -37,6 +37,7 @@ func (e *Engine) Apply(ctx context.Context, stack discovery.Stack, opts iac.Appl
 
 	start := time.Now()
 	cmd := exec.CommandContext(runCtx, e.Binary, args...)
+	iac.SetupGracefulStop(cmd, 0)
 	cmd.Dir = cwd
 	if len(opts.Env) > 0 {
 		cmd.Env = append(os.Environ(), flattenEnv(opts.Env)...)

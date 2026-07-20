@@ -74,7 +74,8 @@ func loadDriftCtx(cmd *cobra.Command) (context.Context, *config.Config, string, 
 	if err := cfg.Validate(); err != nil {
 		return nil, nil, "", err
 	}
-	return context.Background(), cfg, root, nil
+	// Cancelled by SIGINT/SIGTERM via the root signal context (see main.go).
+	return cmd.Context(), cfg, root, nil
 }
 
 func driftRun(cmd *cobra.Command, _ []string) error { return runDrift(cmd, false) }

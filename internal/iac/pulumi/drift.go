@@ -31,6 +31,7 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 		refCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		refresh := exec.CommandContext(refCtx, e.Binary, "refresh", "--stack", stack.Name, "--yes", "--non-interactive")
+		iac.SetupGracefulStop(refresh, 0)
 		refresh.Dir = cwd
 		if len(opts.Env) > 0 {
 			refresh.Env = append(os.Environ(), flattenEnv(opts.Env)...)
@@ -63,6 +64,7 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, e.Binary, args...)
+	iac.SetupGracefulStop(cmd, 0)
 	cmd.Dir = cwd
 	if len(opts.Env) > 0 {
 		cmd.Env = append(os.Environ(), flattenEnv(opts.Env)...)

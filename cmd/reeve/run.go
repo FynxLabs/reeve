@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,7 +70,8 @@ func addPreviewFlags(cmd *cobra.Command) {
 }
 
 func runPreview(cmd *cobra.Command, _ []string) error {
-	ctx := context.Background()
+	// Cancelled by SIGINT/SIGTERM via the root signal context (see main.go).
+	ctx := cmd.Context()
 
 	local := flagBool(cmd, "local")
 	pr := flagInt(cmd, "pr")

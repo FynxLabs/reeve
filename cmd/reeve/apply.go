@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,7 +46,8 @@ Exit codes:
 }
 
 func runApply(cmd *cobra.Command, _ []string) error {
-	ctx := context.Background()
+	// Cancelled by SIGINT/SIGTERM via the root signal context (see main.go).
+	ctx := cmd.Context()
 
 	pr := flagInt(cmd, "pr")
 	sha := flagStringOrEnv(cmd, "sha", "GITHUB_SHA")
