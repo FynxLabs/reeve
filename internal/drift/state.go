@@ -32,7 +32,13 @@ const (
 	EventDriftOngoing  Event = "drift_ongoing"
 	EventDriftResolved Event = "drift_resolved"
 	EventCheckFailed   Event = "check_failed"
-	EventNone          Event = "" // silent - no channel delivery
+	// EventCheckRecovered is the all-clear for EventCheckFailed: the first
+	// successful check (any outcome but error) after one or more failed
+	// checks. It is emitted ALONGSIDE the run's classification event (which
+	// may be none) - see NotifyPayloads - so stateful channels can resolve
+	// the incident/issue the failure opened.
+	EventCheckRecovered Event = "check_recovered"
+	EventNone           Event = "" // silent - no channel delivery
 )
 
 // KnownEventNames lists the event names a channel's `on:` list may subscribe
@@ -44,6 +50,7 @@ func KnownEventNames() []string {
 		string(EventDriftOngoing),
 		string(EventDriftResolved),
 		string(EventCheckFailed),
+		string(EventCheckRecovered),
 	}
 }
 
@@ -51,7 +58,7 @@ func KnownEventNames() []string {
 // unknown names (including the empty string).
 func ParseEventName(s string) (Event, bool) {
 	switch Event(s) {
-	case EventDriftDetected, EventDriftOngoing, EventDriftResolved, EventCheckFailed:
+	case EventDriftDetected, EventDriftOngoing, EventDriftResolved, EventCheckFailed, EventCheckRecovered:
 		return Event(s), true
 	}
 	return EventNone, false

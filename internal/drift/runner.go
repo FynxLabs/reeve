@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -92,6 +93,11 @@ type Item struct {
 	DurationMS     int64
 	Suppressed     bool
 	OverlappingPRs []OverlappingPR
+	// CheckRecovered marks the first successful check after one or more
+	// failed ones. Carried separately from Event because recovery can
+	// coincide with any classification (including a silent EventNone);
+	// NotifyPayloads emits an additional check_recovered payload for it.
+	CheckRecovered bool
 }
 
 // OverlappingPR is an open PR that touches paths owned by a drifted stack.
@@ -341,8 +347,17 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		ev = EventNone
 	}
 	item.Event = ev
+	// First success after failed checks: the check_failed condition has
+	// cleared. Recorded on the item (not as the classification event) so
+	// channels holding a check-failed incident/issue open get the
+	// all-clear even when the classification itself is silent.
+	item.CheckRecovered = prev.ConsecutiveErrors > 0 && item.Outcome != OutcomeError
 	if opts.StateStore != nil {
-		_ = opts.StateStore.Save(ctx, next)
+		if err := opts.StateStore.Save(ctx, next); err != nil {
+			// A lost save means the next run re-classifies from stale state
+			// (worst case: a duplicate alert). Never silently - log it.
+			slog.Warn("drift: state save failed", "stack", ref, "err", err)
+		}
 	}
 	return item, ev, false, ""
 }

@@ -25,6 +25,13 @@ state file:
 | `drift_ongoing` | Still drifted since the last run. **Silent by default.** |
 | `drift_resolved` | Was drifted, now clean |
 | `check_failed` | Run-level error (auth, network, engine crash) |
+| `check_recovered` | First successful check after a failed one — the all-clear for `check_failed` |
+
+`check_recovered` is emitted *alongside* the run's classification (it can
+accompany `drift_detected`, `drift_resolved`, or a silent no-change run),
+so stateful channels can resolve the incident/issue a `check_failed`
+opened. Subscribing to `check_failed` on the `pagerduty` or
+`github_issue` channel implicitly subscribes `check_recovered` too.
 
 **`drift_ongoing` is silent on purpose** - without the event lifecycle,
 alerting either spams every run or fires once and goes stale. The
@@ -297,10 +304,10 @@ to add a destination.
 > (or just rename the key by hand).
 
 Every channel declares which events it wants via `on:`. The drift events are
-`drift_detected`, `drift_ongoing`, `drift_resolved`, and `check_failed` -
-an unknown name is a hard config error (load and `reeve lint` both reject
-it, listing the valid names), and a channel whose `on:` list is empty logs a
-warning because it will never fire.
+`drift_detected`, `drift_ongoing`, `drift_resolved`, `check_failed`, and
+`check_recovered` - an unknown name is a hard config error (load and
+`reeve lint` both reject it, listing the valid names), and a channel whose
+`on:` list is empty logs a warning because it will never fire.
 
 ### Slack
 
@@ -350,9 +357,17 @@ that's where the transformation logic belongs.
 
 ### PagerDuty
 
-Events API v2 with automatic `trigger` / `resolve` action selection:
-`drift_detected` triggers, `drift_resolved` resolves. Dedup key is
-`reeve-drift-<project>/<stack>`.
+Events API v2 with automatic `trigger` / `resolve` action selection.
+Every stack gets two independent incident streams so a check failure
+never stomps a real drift incident (and vice versa):
+
+| Dedup key | Triggered by | Resolved by |
+|---|---|---|
+| `reeve-drift-<project>/<stack>` | `drift_detected`, `drift_ongoing` | `drift_resolved` |
+| `reeve-drift-check::<project>/<stack>` | `check_failed` | `check_recovered` |
+
+Subscribing to `check_failed` implicitly subscribes `check_recovered`, so
+check-failure incidents always resolve once the check heals.
 
 ```yaml
 - type: pagerduty
@@ -369,6 +384,12 @@ Events API v2 with automatic `trigger` / `resolve` action selection:
 One open issue per drifted stack, identified by a hidden marker
 (`<!-- reeve:drift:<project>/<stack> -->`). On re-runs, the issue body
 updates. On `drift_resolved`, the issue closes.
+
+Check failures get their own issue per stack (marker
+`<!-- reeve:drift-check:<project>/<stack> -->`, title
+`drift check failed: <project>/<stack>`), opened on `check_failed` and
+closed on `check_recovered` — they never overwrite the drift issue.
+Subscribing to `check_failed` implicitly subscribes `check_recovered`.
 
 ```yaml
 - type: github_issue
