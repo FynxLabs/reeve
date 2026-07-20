@@ -17,9 +17,9 @@ func TestNotifyPayloadsMapsItemsAndSkipsSilent(t *testing.T) {
 					Counts:      summary.Counts{Add: 1, Change: 2, Delete: 3, Replace: 4},
 					PlanSummary: "~ aws:ec2 sg",
 				},
-				Fingerprint: "fp1", Error: ""},
+				Fingerprint: "fp1", Error: "", NotifyEvent: EventDriftDetected},
 			{Project: "app", Stack: "dev", Env: "dev", Outcome: OutcomeNoDrift},
-			{Project: "db", Stack: "prod", Env: "prod", Outcome: OutcomeError, Error: "boom"},
+			{Project: "db", Stack: "prod", Env: "prod", Outcome: OutcomeError, Error: "boom", NotifyEvent: EventCheckFailed},
 		},
 		Events: []Event{EventDriftDetected, EventNone, EventCheckFailed},
 	}

@@ -31,12 +31,13 @@ type Source interface {
 
 // PR is the minimum we need to resolve approvals. Populated by run/apply.go.
 type PR struct {
-	Number  int
-	HeadSHA string
-	Author  string
-	BaseRef string
-	IsFork  bool
-	Changed []string // changed file paths; feeds CODEOWNERS
+	Number   int
+	HeadSHA  string
+	Author   string
+	BaseRef  string
+	IsFork   bool
+	OpenedAt time.Time // when the PR was opened; zero if the adapter didn't supply it
+	Changed  []string  // changed file paths; feeds CODEOWNERS
 }
 
 // Rules is the merged approvals.yaml-ish surface for a single stack.

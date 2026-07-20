@@ -78,6 +78,11 @@ behavior:
   refresh_before_check: true       # default for drift (off for PR preview)
   max_parallel_stacks: 8
 
+  # Flap damping (unset = off): after a drift alert goes out for a stack,
+  # further alerts stay silent until the drift resolves or this window
+  # elapses. See "Flap damping" below. Extended durations OK (24h, 3d, 1w).
+  renotify_after: 24h
+
   # Exit code control: when a condition below is true and occurred this
   # run, `reeve drift run` exits nonzero (naming the condition) so CI can
   # gate on it. All three default to false = always exit 0.
@@ -132,6 +137,36 @@ channels:
     headers:
       Content-Type: application/json
 ```
+
+## Flap damping (`behavior.renotify_after`)
+
+A stack that oscillates drifted → clean → drifted (an upstream job that
+periodically mutates and reverts something, an autoscaler fighting your
+config) fires a fresh `drift_detected` + `drift_resolved` pair every
+cycle. `behavior.renotify_after` bounds that noise. reeve tracks when a
+drift alert for each stack last actually went out
+(`last_notified_at` in the state file) and applies these rules:
+
+- **Unset (default):** no damping - every new detection notifies, every
+  resolution notifies. Exactly the behavior before this option existed.
+- **Set (e.g. `24h`, `3d`):**
+  - A new `drift_detected` within the window of the last alert is
+    **silenced** - the flap doesn't re-page anyone.
+  - Ongoing drift stays silent until the window elapses since the last
+    alert, then **re-alerts as `drift_detected`** (so channels
+    subscribed to detections re-trigger their incident) and restarts
+    the window.
+  - `drift_resolved` is delivered **once per notified episode**: if the
+    drift episode being resolved never alerted (it was a damped flap),
+    the recovery notice is suppressed too - channels never saw the
+    detection, so there is nothing to resolve.
+
+Damping affects **notification delivery only**. Classification events,
+the drift report, `exit_on` behavior, and OTEL metrics all still see
+every detection - a damped flap still fails CI when
+`exit_on.drift_detected: true`.
+
+`check_failed` / `check_recovered` are never damped.
 
 ## Bootstrap modes
 

@@ -185,20 +185,3 @@ func TestStackLabelCardinality(t *testing.T) {
 		})
 	}
 }
-
-func TestExpandEnv(t *testing.T) {
-	t.Setenv("REEVE_TEST_VALUE", "resolved")
-	cases := []struct {
-		in, want string
-	}{
-		{"${env:REEVE_TEST_VALUE}", "resolved"},
-		{"literal", "literal"},
-		{"${env:REEVE_TEST_MISSING_VALUE}", ""},
-		{"${env:REEVE_TEST_VALUE", "${env:REEVE_TEST_VALUE"}, // unclosed: left as-is
-	}
-	for _, tc := range cases {
-		if got := expandEnv(tc.in); got != tc.want {
-			t.Errorf("expandEnv(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}

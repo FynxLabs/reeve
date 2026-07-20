@@ -120,6 +120,39 @@ func TestChecksGreenInProgressCheckRunBlocks(t *testing.T) {
 	}
 }
 
+func TestChecksGreenPaginatesCombinedStatuses(t *testing.T) {
+	// The failing status context lives on page 2; enumeration must paginate
+	// past the first 100 statuses to name it.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/o/r/commits/abc1234/check-runs", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, noCheckRuns)
+	})
+	var srvURL string
+	mux.HandleFunc("/repos/o/r/commits/abc1234/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("page") == "2" {
+			fmt.Fprint(w, `{"state":"failure","statuses":[{"state":"failure","context":"page2-check"}]}`)
+			return
+		}
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/commits/abc1234/status?page=2>; rel="next"`, srvURL))
+		fmt.Fprint(w, `{"state":"failure","statuses":[{"state":"success","context":"lint"}]}`)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	srvURL = srv.URL
+
+	c := newFakeClient(t, srv)
+	green, failing, err := c.ChecksGreen(context.Background(), "abc1234", vcs.ChecksGreenOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if green {
+		t.Fatal("failure on page 2 must block")
+	}
+	if len(failing) != 1 || failing[0] != "page2-check:failure" {
+		t.Fatalf("want the paginated culprit named, got %v", failing)
+	}
+}
+
 func TestChecksGreenAllGreenPasses(t *testing.T) {
 	srv := checksServer(t, `{
 		"total_count": 1,

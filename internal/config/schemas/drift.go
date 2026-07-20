@@ -22,10 +22,16 @@ type DriftScope struct {
 }
 
 type DriftBehavior struct {
-	RefreshBeforeCheck bool           `yaml:"refresh_before_check"`
-	MaxParallelStacks  int            `yaml:"max_parallel_stacks"`
-	ExitOn             DriftExitOn    `yaml:"exit_on"`
-	StateBootstrap     StateBootstrap `yaml:"state_bootstrap"`
+	RefreshBeforeCheck bool `yaml:"refresh_before_check"`
+	MaxParallelStacks  int  `yaml:"max_parallel_stacks"`
+	// RenotifyAfter enables flap damping for drift notifications: after a
+	// drift alert goes out, further alerts for the stack stay silent until
+	// the drift resolves or this window elapses (then a re-alert fires).
+	// Accepts extended durations ("24h", "3d", "1w"). Empty = no damping:
+	// every new detection notifies (the pre-existing behavior).
+	RenotifyAfter  string         `yaml:"renotify_after"`
+	ExitOn         DriftExitOn    `yaml:"exit_on"`
+	StateBootstrap StateBootstrap `yaml:"state_bootstrap"`
 }
 
 type DriftExitOn struct {

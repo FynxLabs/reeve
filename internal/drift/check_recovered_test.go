@@ -52,7 +52,7 @@ func TestNotifyPayloadsEmitsCheckRecovered(t *testing.T) {
 		RunID: "drift-2",
 		Items: []Item{
 			// Recovered AND newly drifted: both payloads, recovery first.
-			{Project: "api", Stack: "prod", Outcome: OutcomeDriftDetected, CheckRecovered: true},
+			{Project: "api", Stack: "prod", Outcome: OutcomeDriftDetected, CheckRecovered: true, NotifyEvent: EventDriftDetected},
 			// Recovered with a silent classification (error -> no_drift when
 			// the pre-error baseline was already no_drift): recovery only.
 			{Project: "web", Stack: "prod", Outcome: OutcomeNoDrift, CheckRecovered: true},
