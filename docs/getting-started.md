@@ -77,6 +77,9 @@ bucket:
   name: ./.reeve-state           # local dir for quick iteration
 
 approvals:
+  sources:
+    - type: pr_review
+      enabled: true
   default:
     required_approvals: 1
     approvers: ["@your-org/infra-reviewers"]
@@ -88,6 +91,8 @@ preconditions:
   preview_freshness: 2h
 
 apply:
+  trigger: comment
+  command: "/reeve apply"
   allow_fork_prs: false          # deny-by-default; flip with care
   # auto_ready: true             # optional: when PR converts from draft to ready and plan succeeded, notify for approval
 ```

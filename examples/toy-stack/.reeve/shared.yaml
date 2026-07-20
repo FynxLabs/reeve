@@ -15,6 +15,9 @@ locking:
   queue: fifo
 
 approvals:
+  sources:
+    - type: pr_review
+      enabled: true
   default:
     required_approvals: 1
     approvers:
@@ -42,4 +45,6 @@ freeze_windows:
     stacks: ["*/prod"]
 
 apply:
+  trigger: comment
+  command: "/reeve apply"
   allow_fork_prs: false

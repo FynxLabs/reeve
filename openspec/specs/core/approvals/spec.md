@@ -2,13 +2,15 @@
 
 ## Sources
 
-Pluggable behind the `approvals.Source` interface. v1 ships:
+Pluggable. v1 ships:
 
-- `pr_review` - reads PR reviews via the VCS adapter (always on).
+- `pr_review` - default; reads PR reviews via the VCS adapter.
+- `pr_comment` - opt-in; parses `/reeve approve` in PR comments.
 
-Future (v2+): `pr_comment` (`/reeve approve`), `slack_interaction`,
-`webhook`. Each is a new source implementation - no core changes. There is
-no `approvals.sources:` config surface until a second source exists.
+Future (v2+): `slack_interaction`, `webhook`. Each is a new source
+implementation - no core changes.
+
+Source ordering in `shared.yaml` matters only for tie-breaking attribution.
 
 ## Rule resolution
 

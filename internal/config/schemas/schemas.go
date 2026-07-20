@@ -9,8 +9,8 @@ type Header struct {
 	ConfigType string `yaml:"config_type"`
 }
 
-// Shared is .reeve/shared.yaml: bucket, comments, locking, approvals,
-// preconditions, freeze windows, break-glass, apply, and retention.
+// Shared is .reeve/shared.yaml. Extended in Phase 2 with locking,
+// approvals, preconditions, freeze_windows, apply_command.
 type Shared struct {
 	Header        `yaml:",inline"`
 	Bucket        BucketConfig       `yaml:"bucket"`
@@ -52,8 +52,15 @@ type AdminOverride struct {
 }
 
 type ApprovalsYAML struct {
+	Sources []ApprovalSource            `yaml:"sources"`
 	Default ApprovalRuleYAML            `yaml:"default"`
 	Stacks  map[string]ApprovalRuleYAML `yaml:"stacks"`
+}
+
+type ApprovalSource struct {
+	Type    string `yaml:"type"` // pr_review | pr_comment
+	Enabled bool   `yaml:"enabled"`
+	Command string `yaml:"command"` // for pr_comment
 }
 
 type ApprovalRuleYAML struct {
@@ -110,6 +117,11 @@ type FreezeWindowYAML struct {
 }
 
 type ApplyConfig struct {
+	// Trigger: "comment" (default; requires /reeve apply) | "merge".
+	Trigger string `yaml:"trigger"`
+	// Command: the magic phrase in a PR comment that triggers apply.
+	// Defaults to "/reeve apply".
+	Command string `yaml:"command"`
 	// AllowForkPRs: if true, apply runs on fork PRs with full creds.
 	// Default false. Surfaces via preconditions GateFork.
 	AllowForkPRs bool `yaml:"allow_fork_prs"`

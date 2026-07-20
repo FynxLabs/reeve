@@ -8,6 +8,8 @@ scope:
 behavior:
   refresh_before_check: true
   max_parallel_stacks: 8
+  timeout_per_stack: 15m
+  retry_on_transient_error: 2
   exit_on:
     drift_detected: false
     drift_ongoing: false
@@ -15,6 +17,14 @@ behavior:
   state_bootstrap:
     mode: require_manual    # flip to "baseline" for first run, then back
     baseline_max_age: 7d
+
+classification:
+  ignore_properties:
+    - resource_type: "aws:ec2/instance:Instance"
+      properties: ["tags.LastScanned"]
+  treat_as_drift:
+    orphaned_state: true
+    missing_state: true
 
 freshness:
   enabled: true
@@ -34,6 +44,7 @@ channels:
   - type: slack
     channel: "#infra-drift"
     on: [drift_detected, drift_resolved, check_failed]
+    grouping: by_environment
 
   - type: pagerduty
     integration_key: ${env:PD_CHANGE_EVENTS_KEY}

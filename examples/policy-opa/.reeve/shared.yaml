@@ -20,3 +20,5 @@ preconditions:
   require_checks_passing: true
   preview_freshness: 2h
 
+apply:
+  command: "/reeve apply"

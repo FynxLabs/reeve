@@ -13,6 +13,9 @@ locking:
   queue: fifo
 
 approvals:
+  sources:
+    - type: pr_review
+      enabled: true
   default:
     required_approvals: 1
     approvers: ["@org/infra-reviewers"]
@@ -29,4 +32,6 @@ preconditions:
   preview_freshness: 2h
 
 apply:
+  trigger: comment
+  command: "/reeve apply"
   allow_fork_prs: false

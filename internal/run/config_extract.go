@@ -89,6 +89,11 @@ func toApprovalsConfig(s *schemas.Shared) approvals.Config {
 	if s.Approvals.Default.DismissOnNewCommit == nil {
 		cfg.Default.DismissOnNewCommit = true
 	}
+	for _, src := range s.Approvals.Sources {
+		cfg.Sources = append(cfg.Sources, approvals.SourceConfig{
+			Type: src.Type, Enabled: src.Enabled, Command: src.Command,
+		})
+	}
 	for pattern, r := range s.Approvals.Stacks {
 		present := map[string]bool{}
 		if r.RequiredApprovals != nil {
