@@ -84,6 +84,13 @@ type ApplyInput struct {
 	AuditWriter    *audit.Writer
 	OTEL           *reeveotel.Provider
 	Annotations    []annotations.Emitter
+	// TriggerSource records how this apply was initiated: "comment" (a
+	// /reeve apply comment) or "merge" (the PR was merged). It is compared
+	// against the configured apply.trigger mode so that exactly one
+	// initiation path applies; a mismatch is a deliberate no-op. Empty is
+	// treated as "comment" for backward compatibility. Break-glass runs are
+	// exempt (see below).
+	TriggerSource string
 	// Force re-applies even when this commit is already recorded as applied,
 	// bypassing the already-applied guard.
 	Force bool
@@ -138,6 +145,34 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	// Break-glass fail-fast: a missing justification never starts a run.
 	if in.BreakGlass != nil && strings.TrimSpace(in.BreakGlass.Justification) == "" {
 		return nil, errors.New("break-glass apply requires a non-empty justification")
+	}
+
+	// Trigger-mode enforcement (the binary is the source of truth for the
+	// mode). apply.trigger selects exactly ONE initiation path: "comment"
+	// (default) applies only from a /reeve apply comment; "merge" applies
+	// only when the PR is merged. A request whose origin does not match the
+	// configured mode is a deliberate no-op — never an error — so that a
+	// mis-dispatched event (e.g. a merge event in a comment-mode repo, or a
+	// comment in a merge-mode repo) can never force an apply. This is a flow
+	// selector, not a gate: every downstream gate (approvals, checks,
+	// preview freshness, locks, freeze) still applies unchanged on the path
+	// that does match. Break-glass is an explicit, authorized emergency
+	// override with its own strong authz + audit and is exempt from the
+	// flow selector so the emergency lever works in either mode.
+	if in.BreakGlass == nil {
+		configuredMode := schemas.ApplyTriggerComment
+		if in.Shared != nil {
+			configuredMode = in.Shared.Apply.TriggerMode()
+		}
+		source := in.TriggerSource
+		if source == "" {
+			source = schemas.ApplyTriggerComment
+		}
+		if source != configuredMode {
+			slog.Info("apply skipped: trigger source does not match configured apply.trigger mode",
+				"trigger_source", source, "configured_mode", configuredMode, "pr", in.PRNumber, "sha", in.CommitSHA)
+			return &ApplyOutput{RunID: runID, DurationSec: int(time.Since(start).Seconds())}, nil
+		}
 	}
 
 	// OTEL root span for this run. Finished at return.

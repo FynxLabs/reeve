@@ -145,6 +145,52 @@ bogus_field: 42
 	}
 }
 
+func TestApplyCommandKeyRejected(t *testing.T) {
+	// apply.command was removed; the strict loader must reject it as an
+	// unknown key rather than silently ignoring a stale override.
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket: {type: filesystem, name: x}
+apply:
+  trigger: comment
+  command: "/reeve apply"
+`,
+		"pulumi.yaml": minimalPulumi(),
+	})
+	_, err := Load(root)
+	if err == nil || !strings.Contains(err.Error(), "command") {
+		t.Fatalf("expected strict loader to reject apply.command, got %v", err)
+	}
+}
+
+func TestApplyTriggerValidation(t *testing.T) {
+	load := func(trigger string) error {
+		root := writeReeve(t, map[string]string{
+			"shared.yaml": `version: 1
+config_type: shared
+bucket: {type: filesystem, name: x}
+apply:
+  trigger: ` + trigger + `
+`,
+			"pulumi.yaml": minimalPulumi(),
+		})
+		cfg, err := Load(root)
+		if err != nil {
+			return err
+		}
+		return cfg.Validate()
+	}
+	for _, ok := range []string{"comment", "merge"} {
+		if err := load(ok); err != nil {
+			t.Fatalf("apply.trigger %q must be accepted, got %v", ok, err)
+		}
+	}
+	if err := load("mrege"); err == nil || !strings.Contains(err.Error(), "apply.trigger") {
+		t.Fatalf("invalid apply.trigger must be rejected, got %v", err)
+	}
+}
+
 func TestDuplicateEngineTypeRejected(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml":  minimalShared(),

@@ -40,6 +40,7 @@ Exit codes:
 		RunE: runApply,
 	}
 	addPreviewFlags(cmd)
+	cmd.Flags().String("trigger-source", "", "How this apply was initiated: comment (default) | merge. Compared against apply.trigger config; a mismatch is a no-op.")
 	cmd.Flags().String("actor", "", "User triggering the apply (default: $GITHUB_ACTOR)")
 	cmd.Flags().Bool("break-glass", false, "Emergency apply: override approvals (and freeze unless disabled); requires break_glass config and a justification")
 	cmd.Flags().String("justification", "", "Mandatory justification for --break-glass (or parsed from $REEVE_BREAK_GLASS_COMMENT)")
@@ -157,6 +158,7 @@ func runApply(cmd *cobra.Command, _ []string) error {
 
 	out, err := run.Apply(ctx, run.ApplyInput{
 		PRNumber:        pr,
+		TriggerSource:   flagStringOrDefault(cmd, "trigger-source", ""),
 		CommitSHA:       sha,
 		RunNumber:       runNum,
 		CIRunID:         ciRunID,

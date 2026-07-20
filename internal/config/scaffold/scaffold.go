@@ -208,8 +208,7 @@ preconditions:
 	}
 	b.WriteString(`
 apply:
-  trigger: comment            # apply only on an explicit /reeve apply comment
-  command: "/reeve apply"
+  trigger: comment            # comment (default): apply on /reeve apply | merge: apply on PR merge
   allow_fork_prs: false       # fork PRs stay dry-run only
   # auto_ready: true          # notify for approval when a draft PR becomes ready
 

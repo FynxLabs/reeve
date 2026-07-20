@@ -113,12 +113,57 @@ break_glass:                       # opt-in emergency apply; OFF when absent
   override_freeze: true            # default true
 
 apply:
-  trigger: comment                 # comment (default) | merge
-  command: "/reeve apply"
+  trigger: comment                 # comment (default) | merge — see "apply.trigger" below
   allow_fork_prs: false            # deny-by-default - review risk before flipping
   auto_ready: false                # if true: when PR converts from draft to ready-for-review
                                    # and plan has succeeded, notify for approval via Slack + PR comment
 ```
+
+### `apply.trigger`
+
+Selects **how an apply is initiated**. It is a flow selector, not a gate: it
+changes only *when* an apply starts, never *whether* the gates hold. Every gate
+(approvals, checks-green, preview freshness, locks, freeze windows, fork policy)
+is enforced identically in both modes. Exactly one initiation path applies per
+repo — the binary is the source of truth and no-ops (with a log line) on the
+path that does not match the configured mode, so a mis-fired event can never
+force an apply.
+
+| Value | Behavior |
+| --- | --- |
+| `comment` (default) | **Apply-then-merge.** Apply runs only from a `/reeve apply` (or `@reeve apply` / `@reeve up`) PR comment, before the PR is merged. A merge event is a no-op. |
+| `merge` | **Merge-then-apply (continuous delivery).** Apply runs automatically the moment the PR is **merged**. A `/reeve apply` comment is a no-op. |
+
+Break-glass (`/reeve breakglass "<reason>" apply`) is exempt from the trigger
+selector and works in either mode — it is an explicit, authorized emergency
+override with its own authorization and audit trail.
+
+**Enabling `merge` mode** requires two changes:
+
+1. Set `apply.trigger: merge` in `.reeve/shared.yaml`.
+2. Add `closed` to the workflow's `pull_request` trigger so reeve sees the
+   merge, and keep the merge-apply out of the cancel-on-push concurrency group
+   (a merge-triggered apply holds per-stack locks and must never be cancelled):
+
+   ```yaml
+   on:
+     pull_request:
+       types: [opened, reopened, synchronize, ready_for_review, closed]
+   concurrency:
+     # closed (merge) events join the non-cancellable "command" group.
+     group: reeve-${{ (github.event_name == 'pull_request' && github.event.action != 'closed') && 'preview' || 'command' }}-${{ github.event.pull_request.number || github.event.issue.number }}
+     cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
+   ```
+
+Only a **merged** close dispatches an apply; a PR closed without merging runs
+nothing. On a merged PR every gate is still evaluated against the PR HEAD SHA
+(the same SHA preview recorded against), so approvals, checks, preview
+freshness, locks, and freeze all resolve exactly as they would pre-merge. The
+one gate whose *result* can differ post-merge is `require_up_to_date`: after the
+merge the base branch has advanced past the PR HEAD, so if you enable that gate
+it will report "behind base" and **block** (fail-closed) — it never opens.
+`require_up_to_date` is off by default and is intended for the apply-then-merge
+flow; leave it off under `merge` mode.
 
 ### `comments.style`
 
