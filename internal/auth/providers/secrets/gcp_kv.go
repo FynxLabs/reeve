@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,12 +50,17 @@ func (p *GCPSecretManager) Acquire(ctx context.Context) (*auth.Credential, error
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("secretmanager %d: %s", resp.StatusCode, string(body))
 	}
-	// Response shape: {"payload":{"data":"<base64>"}}
-	data, ok := extractJSONField(string(body), "data")
-	if !ok {
+	// Response shape: {"payload":{"data":"<base64>"}} - the secret bytes
+	// are base64 nested under payload, per the Secret Manager access API.
+	var out struct {
+		Payload struct {
+			Data string `json:"data"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || out.Payload.Data == "" {
 		return nil, fmt.Errorf("secretmanager: unexpected payload")
 	}
-	decoded, err := base64StdDecode(data)
+	decoded, err := base64StdDecode(out.Payload.Data)
 	if err != nil {
 		return nil, err
 	}
