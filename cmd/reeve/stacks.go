@@ -67,7 +67,7 @@ func newStacksCmd() *cobra.Command {
 		Short: "Walk the repo and suggest pattern entries for engine config",
 		RunE:  stacksDiscover,
 	}
-	discover.Flags().String("engine", "pulumi", "Engine (pulumi | terraform | opentofu)")
+	discover.Flags().String("engine", "pulumi", "Engine (pulumi | terraform | tofu)")
 	discover.Flags().Bool("write", false, "Rewrite the engine config's stacks: block (keeps a *.bak)")
 	discover.Flags().Bool("diff", false, "Print the unified diff that --write would produce")
 	cmd.AddCommand(discover)
