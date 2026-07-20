@@ -16,7 +16,6 @@ type ChannelYAML struct {
 	Trigger   SlackTrigger      `yaml:"trigger,omitempty"`
 	Icons     *SlackIcons       `yaml:"icons,omitempty"`
 	Rules     []SlackNotifyRule `yaml:"rules,omitempty"`
-	Grouping  string            `yaml:"grouping,omitempty"`
 
 	// webhook
 	URL     string            `yaml:"url,omitempty"`

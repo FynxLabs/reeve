@@ -83,9 +83,6 @@ func TestRenderBaselineNonInteractive(t *testing.T) {
 	if cfg.Shared.Apply.AllowForkPRs {
 		t.Error("allow_fork_prs must default to false")
 	}
-	if cfg.Shared.Apply.Trigger != "comment" {
-		t.Errorf("apply.trigger = %q, want comment", cfg.Shared.Apply.Trigger)
-	}
 }
 
 func TestRenderWithStacks(t *testing.T) {

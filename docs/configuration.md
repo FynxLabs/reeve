@@ -63,12 +63,6 @@ locking:
     requires_reason: true          # self-service and not gated here
 
 approvals:
-  sources:
-    - type: pr_review              # default VCS reviews
-      enabled: true
-    - type: pr_comment             # opt-in: "/reeve approve" in PR comments
-      enabled: false
-      command: "/reeve approve"
   default:
     required_approvals: 1
     approvers: ["@org/infra-reviewers"]
@@ -103,8 +97,6 @@ break_glass:                       # opt-in emergency apply; OFF when absent
   override_freeze: true            # default true
 
 apply:
-  trigger: comment                 # comment (default) | merge
-  command: "/reeve apply"
   allow_fork_prs: false            # deny-by-default - review risk before flipping
   auto_ready: false                # if true: when PR converts from draft to ready-for-review
                                    # and plan has succeeded, notify for approval via Slack + PR comment

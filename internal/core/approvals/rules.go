@@ -17,13 +17,13 @@ import (
 
 // Approval is an individual review/approval event.
 type Approval struct {
-	Source      string // "pr_review" | "pr_comment" | ...
+	Source      string // "pr_review" | ...
 	Approver    string // user login (no leading @)
 	SubmittedAt time.Time
 	CommitSHA   string // HEAD SHA at time of approval; used for dismissal
 }
 
-// Source is a pluggable approval backend (v1: pr_review, pr_comment).
+// Source is a pluggable approval backend (v1: pr_review).
 type Source interface {
 	Name() string
 	ListApprovals(ctx context.Context, pr PR) ([]Approval, error)
@@ -58,15 +58,8 @@ type Rules struct {
 // Config is the raw config_type=shared approvals block. Populated by
 // loader; resolved per-stack via Resolve.
 type Config struct {
-	Sources []SourceConfig
 	Default Rules
 	Stacks  []StackRule
-}
-
-type SourceConfig struct {
-	Type    string // pr_review | pr_comment | ...
-	Enabled bool
-	Command string // for pr_comment
 }
 
 type StackRule struct {
