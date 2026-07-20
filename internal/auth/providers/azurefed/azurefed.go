@@ -71,8 +71,12 @@ func (p *Provider) Acquire(ctx context.Context) (*auth.Credential, error) {
 	}, nil
 }
 
+// loginBase is a package var only so tests can point the exchange at an
+// httptest server; production behavior is unchanged.
+var loginBase = "https://login.microsoftonline.com"
+
 func tokenExchange(ctx context.Context, tenant, clientID, assertion string) (string, time.Time, error) {
-	endpoint := fmt.Sprintf("https://login.microsoftonline.com/%s/oauth2/v2.0/token", tenant)
+	endpoint := fmt.Sprintf("%s/%s/oauth2/v2.0/token", loginBase, tenant)
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("client_id", clientID)

@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,12 +29,16 @@ type GCPSecretManager struct {
 func (p *GCPSecretManager) ProviderName() string { return p.Name }
 func (p *GCPSecretManager) Type() string         { return "gcp_secret_manager" }
 
+// secretManagerBase is a package var only so tests can point the lookup
+// at an httptest server; production behavior is unchanged.
+var secretManagerBase = "https://secretmanager.googleapis.com" // #nosec G101 -- public API endpoint URL, not a credential
+
 func (p *GCPSecretManager) Acquire(ctx context.Context) (*auth.Credential, error) {
 	token := os.Getenv("CLOUDSDK_AUTH_ACCESS_TOKEN")
 	if token == "" {
 		return nil, fmt.Errorf("gcp_secret_manager: no CLOUDSDK_AUTH_ACCESS_TOKEN; bind a gcp_wif provider first")
 	}
-	url := fmt.Sprintf("https://secretmanager.googleapis.com/v1/%s:access", p.SecretName)
+	url := fmt.Sprintf("%s/v1/%s:access", secretManagerBase, p.SecretName)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := http.DefaultClient.Do(req)
@@ -45,12 +50,17 @@ func (p *GCPSecretManager) Acquire(ctx context.Context) (*auth.Credential, error
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("secretmanager %d: %s", resp.StatusCode, string(body))
 	}
-	// Response shape: {"payload":{"data":"<base64>"}}
-	data, ok := extractJSONField(string(body), "data")
-	if !ok {
+	// Response shape: {"payload":{"data":"<base64>"}} - the secret bytes
+	// are base64 nested under payload, per the Secret Manager access API.
+	var out struct {
+		Payload struct {
+			Data string `json:"data"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || out.Payload.Data == "" {
 		return nil, fmt.Errorf("secretmanager: unexpected payload")
 	}
-	decoded, err := base64StdDecode(data)
+	decoded, err := base64StdDecode(out.Payload.Data)
 	if err != nil {
 		return nil, err
 	}
