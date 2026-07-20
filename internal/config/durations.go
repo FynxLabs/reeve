@@ -103,9 +103,6 @@ func (c *Config) validateDurations() error {
 		if err := check("drift.yaml", "freshness.window", d.Freshness.Window); err != nil {
 			return err
 		}
-		if err := check("drift.yaml", "behavior.timeout_per_stack", d.Behavior.TimeoutPerStack); err != nil {
-			return err
-		}
 		if err := checkExtended("drift.yaml", "behavior.state_bootstrap.baseline_max_age", d.Behavior.StateBootstrap.BaselineMaxAge); err != nil {
 			return err
 		}
