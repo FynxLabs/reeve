@@ -31,7 +31,7 @@ func TestRetryTransport429ThenOK(t *testing.T) {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		io.WriteString(w, `ok`)
+		_, _ = io.WriteString(w, `ok`)
 	}))
 	defer srv.Close()
 
@@ -60,7 +60,7 @@ func TestRetryTransportPrimaryLimit403GETRetries(t *testing.T) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		io.WriteString(w, `ok`)
+		_, _ = io.WriteString(w, `ok`)
 	}))
 	defer srv.Close()
 
@@ -116,7 +116,7 @@ func TestRetryTransportSecondaryLimitPOSTRetriesWithBody(t *testing.T) {
 			w.WriteHeader(http.StatusForbidden) // secondary limit shape
 			return
 		}
-		io.WriteString(w, `ok`)
+		_, _ = io.WriteString(w, `ok`)
 	}))
 	defer srv.Close()
 
