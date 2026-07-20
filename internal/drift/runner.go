@@ -45,6 +45,9 @@ type Options struct {
 	FreshnessWindow time.Duration
 	// Bootstrap: how to handle first runs (no state file).
 	BootstrapMode string // baseline | alert_all | require_manual
+	// RenotifyAfter enables flap damping for drift notifications (see
+	// dampNotification). Zero disables damping: every detection notifies.
+	RenotifyAfter time.Duration
 	// AuthResolver acquires creds per stack.
 	AuthResolver AuthResolver
 	// Parallel caps concurrent checks. Default 1.
@@ -82,11 +85,17 @@ type RunOutput struct {
 
 // Item is one stack's drift check outcome.
 type Item struct {
-	Project        string
-	Stack          string
-	Env            string
-	Outcome        Outcome
-	Event          Event
+	Project string
+	Stack   string
+	Env     string
+	Outcome Outcome
+	Event   Event
+	// NotifyEvent is the event actually dispatched to channels. Usually
+	// equal to Event; flap damping (Options.RenotifyAfter) may silence it
+	// (EventNone) or upgrade an ongoing episode to a drift_detected
+	// re-alert. Reports, exit_on, and OTEL keep using Event - damping only
+	// affects notification delivery.
+	NotifyEvent    Event
 	Counts         iac.PreviewResult
 	Fingerprint    string
 	Error          string
@@ -280,6 +289,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		if err != nil {
 			item.Outcome = OutcomeError
 			item.Error = opts.Redactor.Redact(fmt.Sprintf("load suppression state: %v", err))
+			item.NotifyEvent = EventCheckFailed
 			return item, EventCheckFailed, false, ""
 		}
 		if ok && sup.Active(now) {
@@ -299,6 +309,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		if err != nil {
 			item.Outcome = OutcomeError
 			item.Error = opts.Redactor.Redact(fmt.Sprintf("load drift state: %v", err))
+			item.NotifyEvent = EventCheckFailed
 			return item, EventCheckFailed, false, ""
 		}
 		prev = p
@@ -314,6 +325,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 	if prev.LastCheckedAt.IsZero() && opts.BootstrapMode == "require_manual" {
 		item.Outcome = OutcomeError
 		item.Error = "first run with state_bootstrap.mode=require_manual; run `reeve drift bootstrap` to record the baseline"
+		item.NotifyEvent = EventCheckFailed
 		return item, EventCheckFailed, false, ""
 	}
 
@@ -325,6 +337,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		if err != nil {
 			item.Outcome = OutcomeError
 			item.Error = opts.Redactor.Redact(err.Error())
+			item.NotifyEvent = EventCheckFailed
 			return item, EventCheckFailed, false, ""
 		}
 		for _, v := range env {
@@ -379,6 +392,13 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		ev = EventNone
 	}
 	item.Event = ev
+	// Flap damping: decide what (if anything) actually goes to channels,
+	// and stamp the notification time into the persisted state.
+	notifyEv, notified := dampNotification(prev, ev, now, opts.RenotifyAfter)
+	item.NotifyEvent = notifyEv
+	if notified {
+		next.LastNotifiedAt = now
+	}
 	// First success after failed checks: the check_failed condition has
 	// cleared. Recorded on the item (not as the classification event) so
 	// channels holding a check-failed incident/issue open get the

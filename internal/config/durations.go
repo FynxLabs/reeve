@@ -109,6 +109,9 @@ func (c *Config) validateDurations() error {
 		if err := checkExtended("drift.yaml", "behavior.state_bootstrap.baseline_max_age", d.Behavior.StateBootstrap.BaselineMaxAge); err != nil {
 			return err
 		}
+		if err := checkExtended("drift.yaml", "behavior.renotify_after", d.Behavior.RenotifyAfter); err != nil {
+			return err
+		}
 	}
 
 	if a := c.Auth; a != nil {
