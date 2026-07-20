@@ -6,4 +6,5 @@ package all
 
 import (
 	_ "github.com/thefynx/reeve/internal/iac/pulumi"
+	_ "github.com/thefynx/reeve/internal/iac/terraform" // registers "terraform" and "tofu"
 )
