@@ -192,7 +192,7 @@ func (s *Channel) buildMainBlocks(in notify.PRPayload, ev notify.Event) []slack.
 
 	// PR link. Title and label text are externally controlled - escape per
 	// Slack mrkdwn rules so a title can't inject markup or mentions.
-	prLink := fmt.Sprintf("<https://github.com/%s/pull/%d|#%d", in.RepoFull, in.PR, in.PR)
+	prLink := fmt.Sprintf("<%s/%s/pull/%d|#%d", notify.GitHubServerURL(), in.RepoFull, in.PR, in.PR)
 	if in.Title != "" {
 		prLink += " - " + slack.Escape(in.Title)
 	}

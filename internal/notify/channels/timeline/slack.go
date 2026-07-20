@@ -131,7 +131,7 @@ func (s *SlackChannel) Deliver(ctx context.Context, p notify.Payload) error {
 func anchorText(in notify.PRPayload) string {
 	link := fmt.Sprintf("PR #%d", in.PR)
 	if in.RepoFull != "" {
-		link = fmt.Sprintf("<https://github.com/%s/pull/%d|#%d>", in.RepoFull, in.PR, in.PR)
+		link = fmt.Sprintf("<%s/%s/pull/%d|#%d>", notify.GitHubServerURL(), in.RepoFull, in.PR, in.PR)
 	}
 	txt := fmt.Sprintf(":satellite_antenna: Deployment timeline — %s", link)
 	if in.Title != "" {
