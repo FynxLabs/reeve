@@ -15,10 +15,11 @@ import (
 
 func TestApplyEnvMap(t *testing.T) {
 	cases := []struct {
-		name  string
-		m     map[string]string
-		value string
-		want  map[string]string
+		name    string
+		m       map[string]string
+		value   string
+		want    map[string]string
+		wantErr string // substring; "" = success
 	}{
 		{
 			name: "nil map yields empty env",
@@ -26,7 +27,7 @@ func TestApplyEnvMap(t *testing.T) {
 			want: map[string]string{},
 		},
 		{
-			name: "empty field takes whole value",
+			name: "empty field takes whole plain-string value",
 			m:    map[string]string{"API_KEY": ""}, value: "raw-value",
 			want: map[string]string{"API_KEY": "raw-value"},
 		},
@@ -37,24 +38,51 @@ func TestApplyEnvMap(t *testing.T) {
 			want:  map[string]string{"API_KEY": "k-1", "OTHER": "o-1"},
 		},
 		{
-			name: "missing field falls back to whole value",
+			// FAIL CLOSED: a mapped field missing from the secret bundle is
+			// a hard error naming the field - the whole bundle is never
+			// silently exported.
+			name: "missing field is a hard error",
 			m:    map[string]string{"X": "nope"}, value: `{"api_key":"k"}`,
-			want: map[string]string{"X": `{"api_key":"k"}`},
+			wantErr: `field "nope" not found`,
 		},
 		{
-			name: "non-json value falls back to whole value",
+			name: "non-json value with named field is a hard error",
 			m:    map[string]string{"X": "field"}, value: "plain-string",
-			want: map[string]string{"X": "plain-string"},
+			wantErr: "not a JSON object",
 		},
 		{
-			name: "non-string json field falls back to whole value",
+			name: "non-string json field is a hard error",
 			m:    map[string]string{"X": "n"}, value: `{"n":42}`,
-			want: map[string]string{"X": `{"n":42}`},
+			wantErr: `field "n" in secret is not a string`,
+		},
+		{
+			// FAIL CLOSED: "" (whole secret) is only valid for plain-string
+			// secrets, never a JSON credential bundle.
+			name: "whole-secret export of a json bundle is a hard error",
+			m:    map[string]string{"X": ""}, value: `{"api_key":"k","db_password":"p"}`,
+			wantErr: "only allowed for plain-string secrets",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := applyEnvMap(tc.m, tc.value); !reflect.DeepEqual(got, tc.want) {
+			got, err := applyEnvMap(tc.m, tc.value)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("applyEnvMap err = %v, want substring %q", err, tc.wantErr)
+				}
+				if got != nil {
+					t.Fatalf("on error no env may be returned, got %v", got)
+				}
+				// The error must name the field, never leak the secret value.
+				if strings.Contains(err.Error(), "k-1") || strings.Contains(err.Error(), tc.value) {
+					t.Fatalf("error leaks secret material: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("applyEnvMap: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("applyEnvMap = %v, want %v", got, tc.want)
 			}
 		})
@@ -63,25 +91,25 @@ func TestApplyEnvMap(t *testing.T) {
 
 func TestExtractJSONField(t *testing.T) {
 	cases := []struct {
-		name   string
-		raw    string
-		field  string
-		want   string
-		wantOK bool
+		name    string
+		raw     string
+		field   string
+		want    string
+		wantErr bool
 	}{
-		{"simple", `{"a":"b"}`, "a", "b", true},
-		{"escaped quotes", `{"a":"say \"hi\""}`, "a", `say "hi"`, true},
-		{"unicode escape", `{"a":"é"}`, "a", "é", true},
-		{"nested object is not a string", `{"a":{"b":"c"}}`, "a", "", false},
-		{"missing field", `{"a":"b"}`, "z", "", false},
-		{"not json", `nope`, "a", "", false},
+		{"simple", `{"a":"b"}`, "a", "b", false},
+		{"escaped quotes", `{"a":"say \"hi\""}`, "a", `say "hi"`, false},
+		{"unicode escape", `{"a":"é"}`, "a", "é", false},
+		{"nested object is not a string", `{"a":{"b":"c"}}`, "a", "", true},
+		{"missing field", `{"a":"b"}`, "z", "", true},
+		{"not json", `nope`, "a", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := extractJSONField(tc.raw, tc.field)
-			if got != tc.want || ok != tc.wantOK {
-				t.Errorf("extractJSONField(%q, %q) = (%q, %v), want (%q, %v)",
-					tc.raw, tc.field, got, ok, tc.want, tc.wantOK)
+			got, err := extractJSONField(tc.raw, tc.field)
+			if got != tc.want || (err != nil) != tc.wantErr {
+				t.Errorf("extractJSONField(%q, %q) = (%q, %v), want (%q, wantErr=%v)",
+					tc.raw, tc.field, got, err, tc.want, tc.wantErr)
 			}
 		})
 	}
@@ -296,6 +324,37 @@ func TestAWSSecretsManagerAcquire(t *testing.T) {
 	// Default TTL is 1h.
 	if cred.ExpiresAt.Before(before.Add(59*time.Minute)) || cred.ExpiresAt.After(time.Now().Add(61*time.Minute)) {
 		t.Errorf("ExpiresAt = %v, want ~1h", cred.ExpiresAt)
+	}
+}
+
+// TestAWSSecretsManagerEnvMapMissingFieldFailsClosed: a mapped field
+// absent from the fetched JSON bundle is a hard error at Acquire time, and
+// the whole bundle is never exported (attack scenario: a typo'd field name
+// must not dump every credential in the bundle into the engine env).
+func TestAWSSecretsManagerEnvMapMissingFieldFailsClosed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+		_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:000000000000:secret:app","Name":"app","SecretString":"{\"api_key\":\"k-1\",\"db_password\":\"hunter2\"}"}`))
+	}))
+	defer srv.Close()
+	isolateAWS(t, "SECRETS_MANAGER", srv.URL)
+
+	p := NewAWSSecretsManager(&AWSSecretsManager{
+		Name: "sm", SecretID: "app", Region: "us-east-1",
+		EnvMap: map[string]string{"API_KEY": "no_such_field"},
+	})
+	cred, err := p.Acquire(context.Background())
+	if err == nil {
+		t.Fatalf("missing env_map field must fail closed, got credential %+v", cred)
+	}
+	if !strings.Contains(err.Error(), `"no_such_field"`) {
+		t.Errorf("error should name the missing field: %v", err)
+	}
+	if strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "k-1") {
+		t.Errorf("error leaks secret material: %v", err)
+	}
+	if cred != nil {
+		t.Errorf("no credential may be returned on env_map failure: %+v", cred)
 	}
 }
 
