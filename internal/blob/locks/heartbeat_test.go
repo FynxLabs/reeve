@@ -32,10 +32,23 @@ func TestHeartbeatKeepsLongApplyAlive(t *testing.T) {
 	stop := s.StartHeartbeat(ctx, "api", "prod", holder, ttl)
 	defer stop()
 
-	// Simulate a long apply: sleep well past the original 1s lease.
-	time.Sleep(1500 * time.Millisecond)
+	// Wait until the heartbeat has actually extended the lease past its
+	// original expiry, rather than assuming a fixed sleep is enough. The
+	// heartbeat goroutine's ttl/3 ticker can be starved for well over a
+	// second under load / -race, which made a fixed 1.5s sleep flake
+	// (the lease aged out before the tick fired, and the reaper evicted a
+	// holder the test expected to be alive). Polling for the observable
+	// effect - an extended lease - is robust to scheduling jitter.
+	deadline := time.Now().Add(20 * time.Second)
+	for !mustExpiry(t, s, ctx).After(origExpiry) {
+		if time.Now().After(deadline) {
+			t.Fatal("heartbeat never extended the lease within 20s")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	// A reaper during a heartbeat-kept lease must not evict.
+	// A reaper during a heartbeat-kept lease must not evict: the lease was
+	// just refreshed (within the last ttl/3), so it is not expired.
 	n, err := s.ReapAll(ctx, ttl)
 	if err != nil {
 		t.Fatal(err)
