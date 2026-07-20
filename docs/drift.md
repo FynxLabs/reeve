@@ -432,6 +432,28 @@ PagerDuty (dedup keys) and github_issue (marker upserts) are idempotent;
 Slack/webhook may repeat a message — a duplicate beats a silently lost
 alert.
 
+### Grouping
+
+When a single run finds drift on many stacks, each drifted stack otherwise
+produces its own message per subscribed channel. Set `grouping:` on a channel
+to batch those into one message per group:
+
+| `grouping`        | Behavior                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| `none` (default)  | One message per drifted stack (unset behaves the same).         |
+| `by_environment`  | One message per environment, listing that env's drifted stacks. |
+
+Grouping is a delivery-layer concern only: it never changes classification,
+state, `exit_on`, or which events fire - just how the resulting messages are
+batched. It applies to the drift alert lifecycle (`drift_detected`,
+`drift_ongoing`, `drift_resolved`). `check_failed` is **never** grouped - each
+is a distinct per-stack incident.
+
+Grouping is meaningful for `slack`, `webhook`, and `github_issue` (where it
+manages one issue per environment). It is a no-op for channels where a combined
+message makes no sense, such as `otel_annotation` (one metric/annotation per
+stack regardless). An unknown `grouping:` value is a hard config error.
+
 ### Slack
 
 One message per run per channel, no state tracking. Use a dedicated
@@ -470,6 +492,21 @@ Payload shape:
   "counts": {"add": 0, "change": 1, "delete": 0, "replace": 0},
   "fingerprint": "a3f8e1...",
   "error": "",
+  "run_id": "drift-20260421T153000Z"
+}
+```
+
+With `grouping: by_environment`, a grouped POST replaces the top-level stack
+fields with the environment key and a `stacks` array:
+
+```json
+{
+  "event": "drift_detected",
+  "group": "prod",
+  "stacks": [
+    {"project": "api", "stack": "prod", "env": "prod", "outcome": "drift_detected",
+     "counts": {"add": 0, "change": 1, "delete": 0, "replace": 0}, "fingerprint": "a3f8e1...", "error": ""}
+  ],
   "run_id": "drift-20260421T153000Z"
 }
 ```

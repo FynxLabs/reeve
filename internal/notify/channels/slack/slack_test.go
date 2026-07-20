@@ -216,6 +216,34 @@ func TestDriftDeliveryContent(t *testing.T) {
 	}
 }
 
+func TestDriftGroupedDeliveryListsStacks(t *testing.T) {
+	fc := &fakeClient{}
+	s := testChannel(fc, newMemStore(), "")
+	s.grouping = notify.GroupingByEnvironment
+	err := s.Deliver(context.Background(), notify.Payload{
+		Event:    notify.EventDriftDetected,
+		GroupKey: "prod",
+		Drift:    &notify.DriftPayload{Project: "net", Stack: "a", Env: "prod"},
+		Group: []notify.DriftPayload{
+			{Project: "net", Stack: "a", Env: "prod", Change: 1},
+			{Project: "net", Stack: "c", Env: "prod", Add: 2},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if len(fc.calls) != 1 {
+		t.Fatalf("grouped delivery should be one message, got %+v", fc.calls)
+	}
+	text := fc.calls[0].text
+	if !strings.Contains(text, "net/a") || !strings.Contains(text, "net/c") {
+		t.Fatalf("grouped message must list both stacks, got %q", text)
+	}
+	if !strings.Contains(text, "prod") || !strings.Contains(text, "2 stack(s)") {
+		t.Fatalf("grouped message must name env and count, got %q", text)
+	}
+}
+
 func TestDriftDeliveryTruncatesLongError(t *testing.T) {
 	fc := &fakeClient{}
 	s := testChannel(fc, newMemStore(), "")

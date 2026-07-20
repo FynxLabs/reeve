@@ -10,13 +10,18 @@ import (
 )
 
 type fakeChannel struct {
-	name   string
-	events []Event
-	fn     func(ctx context.Context, p Payload) error
+	name     string
+	events   []Event
+	grouping string
+	fn       func(ctx context.Context, p Payload) error
 }
 
 func (f *fakeChannel) Name() string        { return f.name }
 func (f *fakeChannel) Subscribes() []Event { return f.events }
+
+// GroupingMode makes fakeChannel a notify.Grouper. Default "" == none, so
+// tests that don't set grouping keep the ungrouped per-stack behavior.
+func (f *fakeChannel) GroupingMode() string { return f.grouping }
 func (f *fakeChannel) Deliver(ctx context.Context, p Payload) error {
 	if f.fn != nil {
 		return f.fn(ctx, p)

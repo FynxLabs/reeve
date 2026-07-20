@@ -49,7 +49,15 @@ func DispatchWith(ctx context.Context, channels []Channel, payloads []Payload, o
 		go func(s Channel) {
 			defer wg.Done()
 			subs := s.Subscribes()
-			for _, p := range payloads {
+			// A channel that opts into grouping (Grouper) has its drift
+			// payloads batched here, per channel, so different channels can
+			// group differently without the producer knowing. Non-Groupers get
+			// the ungrouped per-stack list unchanged.
+			chPayloads := payloads
+			if g, ok := s.(Grouper); ok {
+				chPayloads = GroupPayloads(payloads, g.GroupingMode())
+			}
+			for _, p := range chPayloads {
 				if !subscribed(subs, p.Event) {
 					continue
 				}
