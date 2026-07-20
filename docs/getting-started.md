@@ -192,6 +192,14 @@ That's it. The action auto-detects the command from the event:
 | `/reeve help` comment                              | posts available commands |
 | Any other comment, or any bot-authored comment     | silent no-op             |
 
+**`reeve run apply` exit codes** (this is what turns the PR check red or
+green):
+
+| Exit | Meaning |
+| ---- | ------- |
+| `0`  | Every targeted stack applied cleanly or was a no-op — or every stack was **blocked** by preconditions/locks. Blocked is a deliberate non-failure: the gates held the apply back, nothing was attempted, and a later re-run can proceed. |
+| `1`  | One or more stacks **failed** to apply (engine, auth, or lock-storage error), the run was cancelled by a signal, post-apply persistence failed, or the run errored before applying (config, VCS, storage). The error message names the failed stacks. A failed apply never renders as a green check. |
+
 Every comment command also works mention-style: `@reeve apply`, `@reeve plan`,
 etc. The accepted prefixes are configurable via the `command-prefix` input
 (default `"/reeve,@reeve"`). Comments authored by bots (user type `Bot` or a

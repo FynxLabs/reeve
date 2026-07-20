@@ -186,6 +186,7 @@ func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.Pr
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, e.Binary, args...)
+	iac.SetupGracefulStop(cmd, 0)
 	cmd.Dir = cwd
 	if len(opts.Env) > 0 {
 		cmd.Env = append(os.Environ(), flattenEnv(opts.Env)...)
@@ -248,6 +249,7 @@ func (e *Engine) previewDiff(ctx context.Context, stack discovery.Stack, opts ia
 	defer cancel()
 
 	cmd := exec.CommandContext(runCtx, e.Binary, args...)
+	iac.SetupGracefulStop(cmd, 0)
 	cmd.Dir = cwd
 	if len(opts.Env) > 0 {
 		cmd.Env = append(os.Environ(), flattenEnv(opts.Env)...)

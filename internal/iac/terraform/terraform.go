@@ -114,6 +114,7 @@ type runCmd func(ctx context.Context, dir string, env map[string]string, bin str
 // realRun is the production runCmd: os/exec with combined env.
 func realRun(ctx context.Context, dir string, env map[string]string, bin string, args ...string) (execResult, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
+	iac.SetupGracefulStop(cmd, 0)
 	cmd.Dir = dir
 	// TF_IN_AUTOMATION suppresses interactive-use hints in CLI output.
 	cmd.Env = append(os.Environ(), "TF_IN_AUTOMATION=1")

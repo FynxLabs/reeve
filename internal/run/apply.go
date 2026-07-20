@@ -105,6 +105,14 @@ type ApplyOutput struct {
 	RunID       string
 	DurationSec int
 	Blocked     bool // true if any stack was blocked by preconditions
+	// Failed is true when at least one stack's apply errored (lock storage,
+	// auth resolution, or engine failure). Callers MUST exit nonzero on it -
+	// a failed apply is never a green run. Blocked without Failed is a
+	// deliberate non-failure (preconditions held the run back; exit zero).
+	Failed bool
+	// FailedStacks lists the "project/stack" refs with StatusError, in run
+	// order, for the caller's exit-error summary line.
+	FailedStacks []string
 }
 
 // Apply runs apply for stacks affected by the PR. For each stack:
@@ -114,7 +122,7 @@ type ApplyOutput struct {
 // 4. Release lock (promotes queue).
 // 5. Emit audit entry.
 // The PR comment is updated at the end with the aggregated results.
-func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
+func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) {
 	start := time.Now()
 	runID := fmt.Sprintf("apply-%d-%s", in.RunNumber, shortSHA(in.CommitSHA))
 
@@ -125,9 +133,16 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 
 	// OTEL root span for this run. Finished at return.
 	ctx, endRun := in.OTEL.StartRunSpan(ctx, "apply", in.PRNumber, in.CommitSHA)
-	// "outcome" is filled in at return below.
+	// "outcome" is filled in along the way: explicit blocked/failed paths set
+	// it directly; any error return that did not set a more specific outcome
+	// is recorded as "error" so early failures never end the span "success".
 	outcome := "success"
-	defer func() { endRun(outcome) }()
+	defer func() {
+		if retErr != nil && outcome == "success" {
+			outcome = "error"
+		}
+		endRun(outcome)
+	}()
 
 	// Annotation: apply started.
 	PostAnnotation(ctx, in.Annotations, annotations.EventApplyStarted,
@@ -336,6 +351,39 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			detail += fmt.Sprintf(" — ⚠️ authorizing config modified in this PR (%s)", strings.Join(bgTouched, ", "))
 		}
 		timeline.add(ctx, "🚨", "break-glass override", detail)
+
+		// Break-glass intent audit: an emergency override MUST leave a
+		// durable trace even if the process dies mid-apply, so the intent
+		// entry is written BEFORE any lock, credential, or engine call - and
+		// its write is a hard requirement: if the audit store can't record
+		// the intent, the run refuses to start. ErrPreconditionFailed means
+		// the entry already exists (a retried run) - already recorded, fine.
+		if in.AuditWriter == nil {
+			outcome = "blocked"
+			return nil, errors.New("break-glass apply requires an audit writer; refusing to run without a durable audit trail")
+		}
+		intent := audit.Entry{
+			RunID:      runID + "-intent",
+			Op:         "apply",
+			StartedAt:  start.UTC().Format(time.RFC3339),
+			FinishedAt: time.Now().UTC().Format(time.RFC3339),
+			Actor:      in.Actor,
+			PR:         in.PRNumber,
+			CommitSHA:  in.CommitSHA,
+			Repo:       in.RepoFull,
+			RunURL:     in.CIRunURL,
+			Outcome:    "break_glass_intent",
+			BreakGlass: &audit.BreakGlass{
+				Justification:             in.BreakGlass.Justification,
+				AuthorizedVia:             bgDecision.Source,
+				AuthorizingConfigModified: len(bgTouched) > 0,
+				AuthorizingPathsModified:  bgTouched,
+			},
+		}
+		if err := in.AuditWriter.Write(ctx, intent); err != nil && !errors.Is(err, blob.ErrPreconditionFailed) {
+			timeline.add(ctx, "⛔", "break-glass refused", "intent audit entry could not be written; refusing to apply")
+			return nil, fmt.Errorf("break-glass intent audit write failed; refusing to apply: %w", err)
+		}
 	}
 
 	// Notify approved + applying before the loop (creates the message on
@@ -377,6 +425,18 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 			Project: s.Project, Stack: s.Name, Env: s.Env,
 		}
 
+		// Cancelled (SIGINT/SIGTERM or deadline): stop starting new stacks.
+		// The stack that was mid-apply has already been marked failed; the
+		// remaining ones are recorded as failed too so the run exits nonzero
+		// and the operator can see they never applied. No lock was acquired
+		// for them, so there is nothing to release.
+		if ctx.Err() != nil {
+			ss.Status = summary.StatusError
+			ss.Error = "run cancelled before this stack was applied: " + ctx.Err().Error()
+			summaries = append(summaries, ss)
+			continue
+		}
+
 		// Lock acquire. Holder identity is PR+RunID: a concurrent run of
 		// this same PR (double `/reeve apply`, workflow re-run) is refused
 		// with ErrHeldBySamePR and must not proceed to apply.
@@ -385,11 +445,15 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		}, ttl)
 		if errors.Is(err, corelocks.ErrHeldBySamePR) {
 			holderRun := "unknown"
+			expiry := "unknown"
 			if lock.Holder != nil {
 				holderRun = lock.Holder.RunID
+				if lock.Holder.ExpiresAt != "" {
+					expiry = lock.Holder.ExpiresAt
+				}
 			}
 			ss.Status = summary.StatusBlocked
-			ss.Error = fmt.Sprintf("another run of PR #%d (%s) currently holds the lock for this stack; wait for it to finish or for its lease to expire", in.PRNumber, holderRun)
+			ss.Error = fmt.Sprintf("another run of PR #%d (%s) currently holds the lock for this stack; wait for it to finish or for its lease to expire at %s", in.PRNumber, holderRun, expiry)
 			anyBlocked = true
 			slog.Info("lock held by concurrent run of same PR",
 				"stack", s.Ref(), "pr", in.PRNumber, "holder_run", holderRun, "this_run", runID)
@@ -541,7 +605,14 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		}
 		stackCtx, endStack := in.OTEL.StartStackSpan(ctx, s.Project, s.Name, s.Env, "apply")
 		stackStart := time.Now()
+		// Lease heartbeat: an apply longer than locking.ttl must not have
+		// its LIVE holder reaped mid-flight (two applies would then run
+		// concurrently). Refreshes every ttl/3 until the engine returns.
+		stopHeartbeat := in.Locks.StartHeartbeat(stackCtx, s.Project, s.Name, corelocks.Holder{
+			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunID: runID, Actor: in.Actor,
+		}, ttl)
 		res, aerr := in.Engine.Apply(stackCtx, s, iac.ApplyOpts{Cwd: absJoin(in.RepoRoot, s.Path), Env: authEnv})
+		stopHeartbeat()
 		authCleanup()
 		stackOutcome := "success"
 		if aerr != nil {
@@ -604,9 +675,24 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		BreakGlass:  bgNote,
 	})
 
-	// 5. Write run manifest.
-	if err := writeApplyManifest(ctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA); err != nil {
-		return nil, fmt.Errorf("write manifest: %w", err)
+	// Terminal persistence: once the run context has been cancelled the
+	// remaining writes (manifest, timeline, comment, notify, audit) run on a
+	// short detached deadline so the run's outcome is still recorded before
+	// the CI runner kills the process.
+	pctx, endTerminal := terminalContext(ctx)
+	defer endTerminal()
+
+	// 5. Write run manifest. A failure here must NOT short-circuit the
+	// terminal reporting below: infrastructure has (potentially) already
+	// changed, so the audit entry, timeline event, and PR comment are still
+	// written best-effort - each independently - and the run exits nonzero
+	// at the end with a clear message.
+	manifestErr := writeApplyManifest(pctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA)
+	if manifestErr != nil {
+		slog.Error("apply manifest persistence failed - infra may have changed; recording outcome on the PR anyway",
+			"err", manifestErr, "run_id", runID, "pr", in.PRNumber)
+		timeline.add(pctx, "⚠️", "manifest persistence failed", manifestErr.Error())
+		body += fmt.Sprintf("\n\n> [!WARNING]\n> **Run manifest persistence failed.** The stack results above reflect what actually applied, but the run manifest could not be written to blob storage (`%v`). The run exits nonzero; investigate the storage backend before re-running.", manifestErr)
 	}
 
 	// 5b. Timeline terminal event + applied-state pointer. Only a fully clean
@@ -615,11 +701,11 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	finalOutcome := aggregateOutcome(summaries, anyBlocked)
 	switch finalOutcome {
 	case "failed":
-		timeline.add(ctx, "🔴", "failed", failedStacksDetail(summaries))
+		timeline.add(pctx, "🔴", "failed", failedStacksDetail(summaries))
 	case "blocked":
-		timeline.add(ctx, "🔒", "blocked", blockedStacksDetail(summaries))
+		timeline.add(pctx, "🔒", "blocked", blockedStacksDetail(summaries))
 	default:
-		timeline.add(ctx, "✅", "applied", changedStacksDetail(summaries))
+		timeline.add(pctx, "✅", "applied", changedStacksDetail(summaries))
 		// The run is fully done - leave every lock the PR still appears in
 		// (queues on stacks a previous run wanted but this one no longer
 		// targets, plus the just-released holders as no-ops). RunID-scoped,
@@ -627,13 +713,13 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		if in.Locks != nil && in.PRNumber > 0 {
 			// force=true: this is the finishing run clearing its own
 			// runID-scoped entries; its lease may still look active.
-			if n, _, err := in.Locks.UnlockPRAll(ctx, in.PRNumber, runID, ttl, true); err != nil {
+			if n, _, err := in.Locks.UnlockPRAll(pctx, in.PRNumber, runID, ttl, true); err != nil {
 				slog.Warn("lock unlock sweep failed", "pr", in.PRNumber, "err", err)
 			} else if n > 0 {
 				slog.Info("removed lock entries after successful apply", "pr", in.PRNumber, "locks", n)
 			}
 		}
-		if err := writeAppliedState(ctx, in.Blob, AppliedState{
+		if err := writeAppliedState(pctx, in.Blob, AppliedState{
 			CommitSHA: in.CommitSHA, RunID: runID, RunNumber: in.RunNumber,
 			AppliedAt: time.Now().UTC().Format(time.RFC3339), PR: in.PRNumber,
 		}); err != nil {
@@ -643,19 +729,24 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 		}
 	}
 
-	// 6. Post PR comment.
+	// 6. Post PR comment. A comment failure no longer short-circuits the
+	// notify + audit steps below (each terminal write is independent); it is
+	// carried to the final return so the run still exits nonzero.
+	var commentErr error
 	if in.VCS != nil && in.PRNumber > 0 {
 		var cerr error
 		switch commentStyle {
 		case "append":
-			cerr = in.VCS.PostComment(ctx, in.PRNumber, body)
+			cerr = in.VCS.PostComment(pctx, in.PRNumber, body)
 		case "section":
-			cerr = in.VCS.UpsertComment(ctx, in.PRNumber, body, render.ApplyMarker)
+			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body, render.ApplyMarker)
 		default:
-			cerr = in.VCS.UpsertComment(ctx, in.PRNumber, body, render.Marker)
+			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body, render.Marker)
 		}
 		if cerr != nil {
-			return nil, fmt.Errorf("post pr comment: %w", cerr)
+			commentErr = fmt.Errorf("post pr comment: %w", cerr)
+			slog.Error("apply PR comment failed - continuing terminal reporting",
+				"err", cerr, "pr", in.PRNumber, "run_id", runID)
 		}
 	}
 
@@ -663,9 +754,9 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	// already shipped at this point; a notification failure must not abort
 	// the run.
 	if in.PRNumber > 0 && in.Notifications != nil {
-		channels := BuildNotifyChannels(ctx, in.Notifications, in.Blob, in.VCS)
+		channels := BuildNotifyChannels(pctx, in.Notifications, in.Blob, in.VCS)
 		ev := ApplyOutcomeEvent(summaries, anyBlocked)
-		if err := NotifyPREvent(ctx, channels, ev, PRNotifyInput{
+		if err := NotifyPREvent(pctx, channels, ev, PRNotifyInput{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: pr.Title, PRAuthor: pr.Author, Stacks: summaries,
 		}); err != nil {
@@ -700,7 +791,7 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 				AuthorizingPathsModified:  bgTouched,
 			}
 		}
-		if err := in.AuditWriter.Write(ctx, entry); err != nil && !errors.Is(err, blob.ErrPreconditionFailed) {
+		if err := in.AuditWriter.Write(pctx, entry); err != nil && !errors.Is(err, blob.ErrPreconditionFailed) {
 			slog.Error("audit write failed - run already shipped",
 				"err", err, "run_id", runID, "pr", in.PRNumber)
 		}
@@ -711,16 +802,38 @@ func Apply(ctx context.Context, in ApplyInput) (*ApplyOutput, error) {
 	if outcome == "failed" {
 		runEvent = annotations.EventApplyFailed
 	}
-	PostAnnotation(ctx, in.Annotations, runEvent,
+	PostAnnotation(pctx, in.Annotations, runEvent,
 		"", "", "", outcome, "", in.PRNumber, in.CommitSHA)
 
-	return &ApplyOutput{
-		Stacks:      summaries,
-		CommentBody: body,
-		RunID:       runID,
-		DurationSec: dur,
-		Blocked:     anyBlocked,
-	}, nil
+	failedRefs := failedStackRefs(summaries)
+	result := &ApplyOutput{
+		Stacks:       summaries,
+		CommentBody:  body,
+		RunID:        runID,
+		DurationSec:  dur,
+		Blocked:      anyBlocked,
+		Failed:       len(failedRefs) > 0,
+		FailedStacks: failedRefs,
+	}
+	// Post-apply persistence failure: everything above was still reported
+	// best-effort (timeline, comment, notify, audit), but the run must exit
+	// nonzero - infra changed and part of the durable record is missing.
+	if perr := errors.Join(manifestErr, commentErr); perr != nil {
+		return result, fmt.Errorf("apply run finished (outcome=%s) but post-apply persistence failed: %w", outcome, perr)
+	}
+	return result, nil
+}
+
+// failedStackRefs returns the refs of stacks whose apply errored, in run
+// order. Non-empty means the run must surface a nonzero exit.
+func failedStackRefs(ss []summary.StackSummary) []string {
+	var refs []string
+	for _, s := range ss {
+		if s.Status == summary.StatusError {
+			refs = append(refs, s.Ref())
+		}
+	}
+	return refs
 }
 
 func gatesToTrace(r preconditions.Result) []summary.GateTrace {
@@ -735,18 +848,40 @@ func gatesToTrace(r preconditions.Result) []summary.GateTrace {
 	return out
 }
 
+// terminalGrace bounds best-effort terminal writes (lock release, status
+// comment, audit entry) once the run context has been cancelled. GitHub
+// Actions sends SIGTERM and SIGKILLs ~7.5s later, so the budget must stay
+// comfortably under that window.
+const terminalGrace = 5 * time.Second
+
+// terminalContext returns ctx unchanged while the run is alive. Once ctx
+// has been cancelled (signal, deadline), it returns a detached context with
+// a short deadline so terminal best-effort writes can still land before the
+// process is killed - a cancelled Actions job must release its locks, not
+// pin them for the full lease ttl.
+func terminalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx.Err() == nil {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), terminalGrace)
+}
+
 // releaseLockOrLog releases a per-stack lock and logs a warning on failure
 // instead of swallowing the error. The lock-release path needs to be
 // best-effort (the work has already happened or been declined), but a silent
 // drop hid leaks until the reaper noticed - operators need a signal.
 // Release is RunID-scoped: only the run that holds the lock frees it, so a
 // concurrent run of the same PR cannot have its lease pulled out from under
-// it. ttl bounds the lease of any holder promoted from the queue.
+// it. ttl bounds the lease of any holder promoted from the queue. A
+// cancelled run context is swapped for a short detached one so the release
+// still lands during the CI kill grace window.
 func releaseLockOrLog(ctx context.Context, store *blocks.Store, project, stack string, pr int, runID string, ttl time.Duration, reason string) {
 	if store == nil {
 		return
 	}
-	if _, err := store.Release(ctx, project, stack, pr, runID, ttl); err != nil {
+	rctx, cancel := terminalContext(ctx)
+	defer cancel()
+	if _, err := store.Release(rctx, project, stack, pr, runID, ttl); err != nil {
 		slog.Warn("lock release failed",
 			"project", project, "stack", stack, "pr", pr, "run_id", runID, "reason", reason, "err", err)
 	}

@@ -43,13 +43,15 @@ func (f *bgEngine) Apply(ctx context.Context, s discovery.Stack, opts iac.ApplyO
 	return iac.ApplyResult{Counts: summary.Counts{Add: 1}}, nil
 }
 
-// bgVCS is a fake applyVCS with no approvals and configurable CODEOWNERS.
+// bgVCS is a fake applyVCS with configurable approvals and CODEOWNERS.
+// Break-glass tests leave approvalsList nil (approvals gate would fail).
 type bgVCS struct {
-	changed    []string
-	headSHA    string
-	codeowners string
-	comments   map[string][]string // marker → bodies (upserts)
-	posted     []string            // plain PostComment bodies
+	changed       []string
+	headSHA       string
+	codeowners    string
+	approvalsList []approvals.Approval
+	comments      map[string][]string // marker → bodies (upserts)
+	posted        []string            // plain PostComment bodies
 }
 
 func (f *bgVCS) ListChangedFiles(ctx context.Context, _ int) ([]string, error) {
@@ -78,7 +80,7 @@ func (f *bgVCS) ChecksGreen(ctx context.Context, _ string, _ vcs.ChecksGreenOpts
 func (f *bgVCS) CompareBranches(ctx context.Context, _, _ string) (int, error) { return 0, nil }
 func (f *bgVCS) Name() string                                                  { return "fake" }
 func (f *bgVCS) ListApprovals(ctx context.Context, _ approvals.PR) ([]approvals.Approval, error) {
-	return nil, nil // NO approvals: the approvals gate would fail normally
+	return f.approvalsList, nil // nil in break-glass tests: gate would fail normally
 }
 func (f *bgVCS) FetchCodeowners(ctx context.Context) (string, error) { return f.codeowners, nil }
 func (f *bgVCS) ListTeamMembers(ctx context.Context, slug string) ([]string, error) {
@@ -142,14 +144,25 @@ func newBGFixture() (*bgEngine, *bgVCS) {
 	return engine, fv
 }
 
+// readAuditEntry returns the single COMPLETION audit entry, skipping the
+// break-glass "-intent" entry written before the engine runs.
 func readAuditEntry(t *testing.T, store blob.Store) audit.Entry {
 	t.Helper()
 	ctx := context.Background()
 	keys, err := store.List(ctx, "audit/")
-	if err != nil || len(keys) != 1 {
-		t.Fatalf("want exactly one audit entry, got %v (err %v)", keys, err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	data, _, err := filesystem.ReadBytes(ctx, store, keys[0])
+	var completion []string
+	for _, k := range keys {
+		if !strings.HasSuffix(k, "-intent.json") {
+			completion = append(completion, k)
+		}
+	}
+	if len(completion) != 1 {
+		t.Fatalf("want exactly one completion audit entry, got %v (all: %v)", completion, keys)
+	}
+	data, _, err := filesystem.ReadBytes(ctx, store, completion[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,6 +171,32 @@ func readAuditEntry(t *testing.T, store blob.Store) audit.Entry {
 		t.Fatal(err)
 	}
 	return e
+}
+
+// readIntentEntry returns the break-glass intent audit entry, failing the
+// test if it is absent.
+func readIntentEntry(t *testing.T, store blob.Store) audit.Entry {
+	t.Helper()
+	ctx := context.Background()
+	keys, err := store.List(ctx, "audit/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range keys {
+		if strings.HasSuffix(k, "-intent.json") {
+			data, _, rerr := filesystem.ReadBytes(ctx, store, k)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			var e audit.Entry
+			if err := json.Unmarshal(data, &e); err != nil {
+				t.Fatal(err)
+			}
+			return e
+		}
+	}
+	t.Fatalf("no break-glass intent audit entry found in %v", keys)
+	return audit.Entry{}
 }
 
 func TestBreakGlassApplyOverridesApprovals(t *testing.T) {
