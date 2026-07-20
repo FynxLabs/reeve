@@ -7,11 +7,15 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/thefynx/reeve/internal/config/schemas"
 )
@@ -194,6 +198,133 @@ func TestParseDurationOrZero(t *testing.T) {
 	}
 }
 
+// decodeAuthYAML mirrors the loader's strict decode so these tests exercise
+// the real YAML → schema → factory path (the EnvMap passthrough bug was
+// invisible to tests that injected provider structs directly).
+func decodeAuthYAML(t *testing.T, doc string) *schemas.Auth {
+	t.Helper()
+	var a schemas.Auth
+	dec := yaml.NewDecoder(strings.NewReader(doc))
+	dec.KnownFields(true)
+	if err := dec.Decode(&a); err != nil {
+		t.Fatalf("decode auth yaml: %v", err)
+	}
+	return &a
+}
+
+// isolateAWS points the AWS SDK at the given endpoint and keeps it away
+// from host config, IMDS, and real endpoints.
+func isolateAWS(t *testing.T, service, url string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDEXAMPLE")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "example-secret")
+	t.Setenv("AWS_ENDPOINT_URL_"+service, url)
+}
+
+// TestGitHubSecretEnvMapFromYAML: the env_map declared in auth.yaml must
+// flow schema → factory → provider and produce the mapped env var. This is
+// the regression test for the dropped-EnvMap bug (schema field missing +
+// factory never passing it = every secret provider exported nothing).
+func TestGitHubSecretEnvMapFromYAML(t *testing.T) {
+	t.Setenv("REEVE_TEST_UPSTREAM", "hush-token")
+	cfg := decodeAuthYAML(t, `
+version: 1
+config_type: auth
+providers:
+  custom-token:
+    type: github_secret
+    env_var: REEVE_TEST_UPSTREAM
+    env_map:
+      MY_TOKEN: ""
+`)
+	r, err := Build(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	p, ok := r.Get("custom-token")
+	if !ok {
+		t.Fatal("provider not registered")
+	}
+	cred, err := p.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if cred.Env["MY_TOKEN"] != "hush-token" {
+		t.Fatalf("env_map not honored through the YAML path: %+v", cred.Env)
+	}
+}
+
+// TestAWSSecretsManagerEnvMapFromYAML covers the same passthrough for a
+// JSON-bundle secret with per-field mapping, plus the fail-closed error
+// when a mapped field is absent.
+func TestAWSSecretsManagerEnvMapFromYAML(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+		_, _ = w.Write([]byte(`{"ARN":"arn:aws:secretsmanager:us-east-1:000000000000:secret:app","Name":"app","SecretString":"{\"api_key\":\"k-1\",\"db_password\":\"hunter2-bundle\"}"}`))
+	}))
+	defer srv.Close()
+	isolateAWS(t, "SECRETS_MANAGER", srv.URL)
+
+	cfg := decodeAuthYAML(t, `
+version: 1
+config_type: auth
+providers:
+  cloudflare-token:
+    type: aws_secrets_manager
+    secret_id: app
+    region: us-east-1
+    env_map:
+      CLOUDFLARE_API_TOKEN: api_key
+`)
+	r, err := Build(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	p, _ := r.Get("cloudflare-token")
+	cred, err := p.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if cred.Env["CLOUDFLARE_API_TOKEN"] != "k-1" {
+		t.Fatalf("env_map field extraction failed: %+v", cred.Env)
+	}
+	if len(cred.Env) != 1 {
+		t.Fatalf("only mapped vars may be exported, got %+v", cred.Env)
+	}
+
+	// Missing field: hard error, whole bundle never exported.
+	bad := decodeAuthYAML(t, `
+version: 1
+config_type: auth
+providers:
+  cloudflare-token:
+    type: aws_secrets_manager
+    secret_id: app
+    region: us-east-1
+    env_map:
+      CLOUDFLARE_API_TOKEN: typo_field
+`)
+	rb, err := Build(context.Background(), bad)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	pb, _ := rb.Get("cloudflare-token")
+	cred, err = pb.Acquire(context.Background())
+	if err == nil {
+		t.Fatalf("missing field must fail closed, got %+v", cred)
+	}
+	if !strings.Contains(err.Error(), `"typo_field"`) {
+		t.Errorf("error should name the missing field: %v", err)
+	}
+	if strings.Contains(err.Error(), "hunter2-bundle") {
+		t.Errorf("error leaks the secret bundle: %v", err)
+	}
+}
+
 func TestValidateLint(t *testing.T) {
 	t.Run("nil config passes", func(t *testing.T) {
 		if err := ValidateLint(nil, nil); err != nil {
@@ -212,6 +343,26 @@ func TestValidateLint(t *testing.T) {
 	t.Run("env_passthrough with flag passes with warning", func(t *testing.T) {
 		cfg := &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
 			"leak": {Type: "env_passthrough", IUnderstandThisIsDangerous: true},
+		}}
+		if err := ValidateLint(cfg, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("secret provider without env_map is a lint error", func(t *testing.T) {
+		for _, typ := range []string{"aws_secrets_manager", "aws_ssm_parameter", "gcp_secret_manager", "azure_key_vault", "github_secret"} {
+			cfg := &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
+				"dead": {Type: typ},
+			}}
+			err := ValidateLint(cfg, nil)
+			if err == nil || !strings.Contains(err.Error(), "env_map is required") {
+				t.Errorf("%s: err = %v, want env_map-required error", typ, err)
+			}
+		}
+	})
+	t.Run("secret provider with env_map passes lint", func(t *testing.T) {
+		cfg := &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
+			"ok": {Type: "aws_secrets_manager", SecretID: "s", Region: "us-east-1",
+				EnvMap: map[string]string{"TOKEN": ""}},
 		}}
 		if err := ValidateLint(cfg, nil); err != nil {
 			t.Fatal(err)

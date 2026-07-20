@@ -64,7 +64,10 @@ func (p *GCPSecretManager) Acquire(ctx context.Context) (*auth.Credential, error
 	if err != nil {
 		return nil, err
 	}
-	env := applyEnvMap(p.EnvMap, decoded)
+	env, err := applyEnvMap(p.EnvMap, decoded)
+	if err != nil {
+		return nil, fmt.Errorf("gcp_secret_manager %q: %w", p.SecretName, err)
+	}
 	return &auth.Credential{
 		Env: env, Kind: "gcp-secret", Source: p.Name,
 		ExpiresAt: time.Now().Add(time.Hour),
@@ -101,7 +104,10 @@ func (p *AzureKeyVault) Acquire(ctx context.Context) (*auth.Credential, error) {
 	if resp.Value != nil {
 		value = *resp.Value
 	}
-	env := applyEnvMap(p.EnvMap, value)
+	env, err := applyEnvMap(p.EnvMap, value)
+	if err != nil {
+		return nil, fmt.Errorf("azure_key_vault %q: %w", p.SecretName, err)
+	}
 	return &auth.Credential{
 		Env: env, Kind: "azure-kv", Source: p.Name,
 		ExpiresAt: time.Now().Add(time.Hour),
