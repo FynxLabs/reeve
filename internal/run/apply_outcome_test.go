@@ -3,13 +3,16 @@ package run
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/thefynx/reeve/internal/blob"
 	"github.com/thefynx/reeve/internal/blob/filesystem"
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/approvals"
 	"github.com/thefynx/reeve/internal/core/discovery"
+	corelocks "github.com/thefynx/reeve/internal/core/locks"
 	"github.com/thefynx/reeve/internal/core/summary"
 	"github.com/thefynx/reeve/internal/iac"
 )
@@ -111,5 +114,46 @@ func TestApplyCleanRunNotFailed(t *testing.T) {
 	e := readAuditEntry(t, store)
 	if e.Outcome != "success" {
 		t.Fatalf("audit outcome = %q, want success", e.Outcome)
+	}
+}
+
+// TestApplySamePRActiveHolderBlockedWithExpiry: an actively acquired holder
+// from another run of the same PR blocks this run (not queued, not applied)
+// and the refusal names the holder run and its lease expiry.
+func TestApplySamePRActiveHolderBlockedWithExpiry(t *testing.T) {
+	ctx := context.Background()
+	engine := &failEngine{
+		bgEngine: bgEngine{enum: []discovery.Stack{{Project: "api", Path: "projects/api", Name: "prod", Env: "prod"}}},
+	}
+	fv := &bgVCS{changed: []string{"projects/api/main.ts"}, headSHA: bgSHA}
+	store, _ := filesystem.New(t.TempDir())
+	in := plainApplyInput(t, engine, fv, store)
+
+	// Another live run of the same PR holds the stack lock.
+	seeded, ok, err := in.Locks.TryAcquire(ctx, "api", "prod", corelocks.Holder{PR: 18, RunID: "other-run"}, time.Hour)
+	if err != nil || !ok {
+		t.Fatalf("seed: ok=%v err=%v", ok, err)
+	}
+
+	out, err := Apply(ctx, in)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !out.Blocked || out.Failed {
+		t.Fatalf("same-PR active holder must block, not fail: %+v", out)
+	}
+	if len(engine.applied) != 0 {
+		t.Fatalf("engine must not run: %v", engine.applied)
+	}
+	var msg string
+	for _, s := range out.Stacks {
+		if s.Ref() == "api/prod" {
+			msg = s.Error
+		}
+	}
+	for _, want := range []string{"other-run", seeded.Holder.ExpiresAt} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("blocked message %q missing %q", msg, want)
+		}
 	}
 }
