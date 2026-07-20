@@ -155,6 +155,3 @@ func firstLine(s string) string {
 	}
 	return s
 }
-
-// compile-time check
-var _ iac.Applier = (*Engine)(nil)

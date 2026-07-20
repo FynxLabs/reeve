@@ -15,9 +15,18 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/iac"
 )
+
+// init self-registers the pulumi engine; blank-importing this package
+// (internal/iac/all does for the default set) is what compiles it in.
+func init() {
+	iac.Register("pulumi", func(cfg schemas.EngineBody) (iac.Engine, error) {
+		return New(cfg.Binary.Path), nil
+	})
+}
 
 // Engine is the Pulumi iac.Engine adapter. Shells out to the pulumi CLI.
 type Engine struct {
@@ -39,6 +48,9 @@ func (e *Engine) Capabilities() iac.Capabilities {
 		SupportsSavedPlans:   true,
 		SupportsRefresh:      true,
 		SupportsPolicyNative: true,
+		// The secrets_provider types Pulumi accepts for stack-state
+		// encryption (engine.state.secrets_provider.type in config).
+		SecretsProviderTypes: []string{"awskms", "gcpkms", "azurekeyvault", "hashivault", "passphrase"},
 	}
 }
 
@@ -278,11 +290,8 @@ func flattenEnv(m map[string]string) []string {
 	return out
 }
 
-// compile-time checks
-var (
-	_ iac.Enumerator = (*Engine)(nil)
-	_ iac.Previewer  = (*Engine)(nil)
-)
+// compile-time check: pulumi satisfies the full engine contract.
+var _ iac.Engine = (*Engine)(nil)
 
 // ErrNoPulumi is returned if the Pulumi binary is not on PATH.
 var ErrNoPulumi = errors.New("pulumi binary not found on PATH")
