@@ -2,7 +2,7 @@ name: security
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [master, next]
   pull_request:
   schedule:
   # Weekly re-scan so CVEs that land after a dormant branch is merged
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   # Dependency review runs on PRs only - blocks PRs that introduce HIGH+
-  # CVEs in dependencies before they hit main.
+  # CVEs in dependencies before they hit master.
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest

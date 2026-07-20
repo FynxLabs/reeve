@@ -193,7 +193,7 @@ providers:
 
    ```text
    Issuer:    https://token.actions.githubusercontent.com
-   Subject:   repo:myorg/myrepo:ref:refs/heads/main
+   Subject:   repo:myorg/myrepo:ref:refs/heads/master
    Audience:  api://AzureADTokenExchange
    ```
 
