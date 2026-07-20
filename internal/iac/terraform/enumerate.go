@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -86,18 +87,27 @@ func ScanStacks(root string) ([]discovery.Stack, error) {
 
 // rootModuleDirs returns repo-relative directories that look like terraform
 // root modules. Directories named "modules" (shared child modules) and the
-// usual noise dirs are skipped entirely.
+// usual noise dirs are skipped entirely. The walk and reads go through a
+// root-scoped filesystem (os.Root) so a symlink swapped in mid-walk cannot
+// redirect a read outside the scan root (gosec G122 TOCTOU).
 func rootModuleDirs(root string) ([]string, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	rfs := r.FS()
+
 	var dirs []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(rfs, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			switch d.Name() {
 			case ".git", "node_modules", "venv", ".venv", ".terraform", "modules":
-				if path != root {
-					return filepath.SkipDir
+				if p != "." {
+					return fs.SkipDir
 				}
 			}
 			return nil
@@ -105,18 +115,13 @@ func rootModuleDirs(root string) ([]string, error) {
 		if !strings.HasSuffix(d.Name(), ".tf") {
 			return nil
 		}
-		dir := filepath.Dir(path)
-		rel, err := filepath.Rel(root, dir)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
+		rel := path.Dir(p) // fs paths are already slash-separated and root-relative
 		for _, seen := range dirs {
 			if seen == rel {
 				return nil
 			}
 		}
-		data, err := os.ReadFile(path)
+		data, err := fs.ReadFile(rfs, p)
 		if err != nil {
 			return err
 		}
