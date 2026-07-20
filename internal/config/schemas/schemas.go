@@ -19,6 +19,7 @@ type Shared struct {
 	Approvals     ApprovalsYAML      `yaml:"approvals"`
 	Preconditions PreconditionsYAML  `yaml:"preconditions"`
 	FreezeWindows []FreezeWindowYAML `yaml:"freeze_windows"`
+	BreakGlass    *BreakGlassYAML    `yaml:"break_glass,omitempty"`
 	Apply         ApplyConfig        `yaml:"apply"`
 	Retention     RetentionConfig    `yaml:"retention"`
 	LogLevel      string             `yaml:"log_level"`
@@ -76,6 +77,36 @@ type PreconditionsYAML struct {
 	RequireChecksPassing    *bool  `yaml:"require_checks_passing,omitempty"`
 	PreviewFreshness        string `yaml:"preview_freshness,omitempty"` // e.g. "2h"
 	PreviewMaxCommitsBehind int    `yaml:"preview_max_commits_behind"`
+}
+
+// BreakGlassYAML is the opt-in `break_glass:` block in shared.yaml.
+// Absent (nil) means break-glass is OFF: the `/reeve breakglass` command
+// errors politely. Authorization is resolved from the config as of the PR
+// HEAD (self-add is allowed by design; the audit record flags same-PR
+// modification of the authorizing files).
+type BreakGlassYAML struct {
+	Authorized BreakGlassAuthorized `yaml:"authorized"`
+	// OverrideFreeze: break-glass also overrides freeze windows. nil
+	// defaults to TRUE - an emergency override that stops at a scheduled
+	// freeze is not much of an override. Set false to keep freeze binding.
+	OverrideFreeze *bool `yaml:"override_freeze,omitempty"`
+}
+
+// BreakGlassAuthorized is the union of authorization sources - any source
+// granting the actor is enough.
+type BreakGlassAuthorized struct {
+	// InternalList holds explicit logins and "org/team" slugs.
+	InternalList []string `yaml:"internal_list,omitempty"`
+	// Codeowners: anyone CODEOWNERS makes an owner of a changed path.
+	Codeowners bool `yaml:"codeowners,omitempty"`
+	// Anyone: any actor may break-glass (justification + audit still apply).
+	Anyone bool `yaml:"anyone,omitempty"`
+	// VCSBypass: GitHub ruleset bypass actors. Config surface only - the
+	// runtime rejects it with a clear "not yet supported" error.
+	VCSBypass bool `yaml:"vcs_bypass,omitempty"`
+	// Groups holds phase-2 external identity group sources
+	// ("group:<provider>:<name>"). Parsed and rejected until phase 2.
+	Groups []string `yaml:"groups,omitempty"`
 }
 
 type FreezeWindowYAML struct {
