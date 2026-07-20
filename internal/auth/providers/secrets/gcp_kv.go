@@ -31,7 +31,7 @@ func (p *GCPSecretManager) Type() string         { return "gcp_secret_manager" }
 
 // secretManagerBase is a package var only so tests can point the lookup
 // at an httptest server; production behavior is unchanged.
-var secretManagerBase = "https://secretmanager.googleapis.com"
+var secretManagerBase = "https://secretmanager.googleapis.com" // #nosec G101 -- public API endpoint URL, not a credential
 
 func (p *GCPSecretManager) Acquire(ctx context.Context) (*auth.Credential, error) {
 	token := os.Getenv("CLOUDSDK_AUTH_ACCESS_TOKEN")
