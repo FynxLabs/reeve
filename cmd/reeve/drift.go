@@ -145,11 +145,16 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	}()
 
 	// Optional PR-overlap support (drift reports link back to open PRs).
+	// A client construction failure disables the feature EXPLICITLY - a
+	// silent skip would read as "no overlapping PRs".
 	var overlap drift.PROverlapFinder
 	repoFullForOverlap := os.Getenv("GITHUB_REPOSITORY")
 	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" && repoFullForOverlap != "" {
 		if parts := strings.SplitN(repoFullForOverlap, "/", 2); len(parts) == 2 {
-			if client, err := gh.New(ctx, tok, parts[0], parts[1]); err == nil {
+			client, err := gh.New(ctx, tok, parts[0], parts[1])
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: PR-overlap scan disabled (github client: %v)\n", err)
+			} else {
 				overlap = drift.NewGitHubPROverlap(client)
 			}
 		}
@@ -174,6 +179,12 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		opts.Parallel = cfg.Drift.Behavior.MaxParallelStacks
 		if cfg.Drift.Behavior.StateBootstrap.Mode != "" {
 			opts.BootstrapMode = cfg.Drift.Behavior.StateBootstrap.Mode
+		}
+		if ra := cfg.Drift.Behavior.RenotifyAfter; ra != "" {
+			// Validated at config load (validateDurations, extended units).
+			if d, err := config.ParseDurationExtended(ra); err == nil {
+				opts.RenotifyAfter = d
+			}
 		}
 		if w := cfg.Drift.Freshness.Window; w != "" && (cfg.Drift.Freshness.Enabled || flagBool(cmd, "if-stale")) {
 			if d, err := time.ParseDuration(w); err == nil {
@@ -222,7 +233,12 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	var issues notify.IssueClient
 	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
 		if parts := strings.SplitN(repoFull, "/", 2); len(parts) == 2 {
-			if client, err := gh.New(ctx, tok, parts[0], parts[1]); err == nil {
+			client, err := gh.New(ctx, tok, parts[0], parts[1])
+			if err != nil {
+				// Without a client the github_issue channel is skipped at
+				// build time; say so instead of silently dropping alerts.
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: github_issue channel disabled (github client: %v)\n", err)
+			} else {
 				issues = client
 			}
 		}

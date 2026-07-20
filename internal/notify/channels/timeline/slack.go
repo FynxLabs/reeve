@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/thefynx/reeve/internal/core/envref"
 	"github.com/thefynx/reeve/internal/notify"
 	slackchannel "github.com/thefynx/reeve/internal/notify/channels/slack"
 	slackapi "github.com/thefynx/reeve/internal/slack"
@@ -39,7 +40,7 @@ type SlackChannel struct {
 // without a token (auth_token or Deps.SlackToken) or a blob store, matching
 // the framework's unmet-optional-dependency convention.
 func NewSlack(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.Channel, error) {
-	token := slackchannel.ExpandEnvRef(cfg.AuthToken)
+	token := envref.Expand(cfg.AuthToken)
 	if token == "" {
 		token = deps.SlackToken
 	}
@@ -130,7 +131,7 @@ func (s *SlackChannel) Deliver(ctx context.Context, p notify.Payload) error {
 func anchorText(in notify.PRPayload) string {
 	link := fmt.Sprintf("PR #%d", in.PR)
 	if in.RepoFull != "" {
-		link = fmt.Sprintf("<https://github.com/%s/pull/%d|#%d>", in.RepoFull, in.PR, in.PR)
+		link = fmt.Sprintf("<%s/%s/pull/%d|#%d>", notify.GitHubServerURL(), in.RepoFull, in.PR, in.PR)
 	}
 	txt := fmt.Sprintf(":satellite_antenna: Deployment timeline — %s", link)
 	if in.Title != "" {

@@ -1,7 +1,7 @@
 // Package vcs defines the version-control system abstraction. Adapters
 // (internal/vcs/github, future: gitlab) satisfy small use-site interfaces
 // declared by their consumers. This file holds shared types referenced
-// across adapters and core. See PLAN.md §6.5.
+// across adapters and core.
 package vcs
 
 // PR is the minimum normalized PR shape consumed across reeve.

@@ -147,11 +147,12 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 		}
 		if hit {
 			out = append(out, approvals.PR{
-				Number:  p.GetNumber(),
-				HeadSHA: p.GetHead().GetSHA(),
-				Author:  p.GetUser().GetLogin(),
-				BaseRef: p.GetBase().GetRef(),
-				Changed: files,
+				Number:   p.GetNumber(),
+				HeadSHA:  p.GetHead().GetSHA(),
+				Author:   p.GetUser().GetLogin(),
+				BaseRef:  p.GetBase().GetRef(),
+				OpenedAt: p.GetCreatedAt().Time,
+				Changed:  files,
 			})
 		}
 	}
@@ -249,15 +250,25 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGre
 	// GitHub's own required-checks gate blocks on pending statuses too. The
 	// one subtlety: GitHub reports "pending" with an EMPTY status list when a
 	// commit has no statuses at all, so an empty list never blocks.
-	st, _, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, &gh.ListOptions{PerPage: 100})
-	if err != nil {
-		return false, nil, fmt.Errorf("combined status: %w", err)
+	var state string
+	var statuses []*gh.RepoStatus
+	stOpt := &gh.ListOptions{PerPage: 100}
+	for {
+		st, resp, err := c.gh.Repositories.GetCombinedStatus(ctx, c.owner, c.repo, sha, stOpt)
+		if err != nil {
+			return false, nil, fmt.Errorf("combined status: %w", err)
+		}
+		state = st.GetState()
+		statuses = append(statuses, st.Statuses...)
+		if resp.NextPage == 0 {
+			break
+		}
+		stOpt.Page = resp.NextPage
 	}
-	logger.Debug("combined_status", "state", st.GetState(), "n", len(st.Statuses))
-	state := st.GetState()
-	if (state == "failure" || state == "error" || state == "pending") && len(st.Statuses) > 0 {
+	logger.Debug("combined_status", "state", state, "n", len(statuses))
+	if (state == "failure" || state == "error" || state == "pending") && len(statuses) > 0 {
 		before := len(failing)
-		for _, s := range st.Statuses {
+		for _, s := range statuses {
 			switch s.GetState() {
 			case "success":
 			case "pending":
@@ -268,7 +279,7 @@ func (c *Client) ChecksGreen(ctx context.Context, sha string, opts vcs.ChecksGre
 		}
 		if len(failing) == before {
 			// Non-success combined state but every enumerated status looked
-			// fine - possible when >100 statuses paginate the culprit away.
+			// fine (statuses are fully paginated, so this should not happen).
 			// Fail closed with the combined verdict rather than passing.
 			failing = append(failing, "combined status:"+state)
 		}

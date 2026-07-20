@@ -209,13 +209,23 @@ func (e *Engine) Preview(ctx context.Context, stack discovery.Stack, opts iac.Pr
 			res := iac.PreviewResult{
 				Counts:      counts,
 				PlanSummary: short,
-				PlanDiff:    e.previewDiff(ctx, stack, opts),
 				FullPlan:    stderr.String() + string(out),
 			}
 			if diagErr != "" {
 				res.Error = diagErr
 			} else if runErr != nil {
 				res.Error = runErr.Error()
+			}
+			// The human-readable diff needs a SECOND `pulumi preview --diff`
+			// run: `--json` replaces the display output with the plan JSON,
+			// so one invocation cannot produce both the structured counts and
+			// the reviewer-facing diff (and reconstructing the diff from the
+			// JSON steps would be a lossy reimplementation of Pulumi's
+			// renderer). Skip that cost when the first run proved a clean
+			// no-op - the renderer collapses no-op stacks to a table row and
+			// never shows their diff.
+			if res.Error != "" || counts.Total() > 0 {
+				res.PlanDiff = e.previewDiff(ctx, stack, opts)
 			}
 			return res, nil
 		}

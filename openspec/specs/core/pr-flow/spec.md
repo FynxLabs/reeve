@@ -25,8 +25,12 @@ comment (or merge, depending on config), reeve acquires locks and runs **apply**
 
 - Preview runs in parallel across stacks; apply serializes per-stack via locks.
 - Preview artifacts persist under `runs/pr-{n}/{run-id}/` for the PR lifetime.
-- Apply uses the saved plan from the most recent successful preview on the
-  current HEAD SHA.
+- Apply does **not** replay a plan saved by the earlier preview. Preview
+  freshness is a gate, not plan reuse: apply requires a successful preview on
+  the current HEAD SHA within `preconditions.preview_freshness`, then
+  re-executes the engine (Pulumi runs `pulumi up`; Terraform/OpenTofu re-plan
+  inside Apply and apply that just-produced plan file, giving
+  plan-what-you-apply parity within the apply call itself).
 - Apply on **fork PRs** is **deny by default**. Opt-in per repo with documented
   risk; fork PRs otherwise get dry-run-only credentials.
 - Notifications run last in the pipeline so upstream failures are captured
