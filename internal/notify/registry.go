@@ -26,6 +26,15 @@ type IssueClient interface {
 	CloseIssue(ctx context.Context, number int, body string) error
 }
 
+// CommentClient is the narrow PR-comment surface the timeline channel needs.
+// internal/vcs/github.Client satisfies it; the run pipeline's comment poster
+// does too. Marker-based upsert keeps one comment per key, edited in place.
+type CommentClient interface {
+	// UpsertComment finds the PR comment containing marker and rewrites it,
+	// or creates it when absent.
+	UpsertComment(ctx context.Context, number int, body, marker string) error
+}
+
 // Deps carries runtime dependencies channels may need. Fields are optional; a
 // constructor whose dependencies are missing returns (nil, nil) and the channel
 // is skipped, matching the previous factory behavior.
@@ -37,6 +46,8 @@ type Deps struct {
 	Blob blob.Store
 	// Issues backs the github_issue channel.
 	Issues IssueClient
+	// Comments backs the timeline_github channel (PR comment upserts).
+	Comments CommentClient
 	// Emitters back the otel_annotation channel.
 	Emitters []annotations.Emitter
 	// SlackToken is the fallback bot token when a channel config carries no

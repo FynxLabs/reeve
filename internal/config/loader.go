@@ -207,9 +207,24 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// channelDefaultsSubscriptions reports whether a channel type has a non-empty
+// default subscription when `on:` is omitted, and is therefore exempt from
+// the empty-`on` warning: slack defaults to every lifecycle event at or
+// after its trigger, and the timeline channels default to every PR-flow
+// timeline event.
+func channelDefaultsSubscriptions(typ string) bool {
+	switch typ {
+	case "slack", "timeline_slack", "timeline_github":
+		return true
+	}
+	return false
+}
+
 // validateChannels checks every channel declaration (notifications.yaml `channels:`
 // and drift.yaml `channels:`): `on:` entries must be known event names, and an
 // empty subscription list draws a warning because the channel will never fire.
+// (Types with default subscriptions - see channelDefaultsSubscriptions - are
+// exempt.)
 func (c *Config) validateChannels() error {
 	check := func(file string, channels []schemas.ChannelYAML) error {
 		for _, s := range channels {
@@ -222,7 +237,7 @@ func (c *Config) validateChannels() error {
 						file, s.EffectiveName(), ev, strings.Join(schemas.ValidChannelEvents, ", "))
 				}
 			}
-			if len(s.On) == 0 && s.Type != "slack" {
+			if len(s.On) == 0 && !channelDefaultsSubscriptions(s.Type) {
 				slog.Warn("notification channel subscribes to no events and will never fire; set on:",
 					"file", file, "channel", s.EffectiveName(), "type", s.Type)
 			}

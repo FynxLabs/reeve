@@ -52,6 +52,7 @@ Valid `on:` values, in lifecycle order:
 
 | Event | Producer | Meaning |
 | --- | --- | --- |
+| `planning` | PR flow | Preview run started (timeline event) |
 | `plan` | PR flow | Preview finished; pending approval |
 | `ready` | PR flow | `/reeve ready` (or `auto_ready`) |
 | `approved` | PR flow | Preconditions passed; apply imminent |
@@ -59,15 +60,21 @@ Valid `on:` values, in lifecycle order:
 | `applied` | PR flow | Apply finished successfully |
 | `failed` | PR flow | Apply errored |
 | `blocked` | PR flow | Apply blocked (gates/locks) |
+| `break_glass` | PR flow | Reserved for emergency-override runs (no producer yet; the timeline renders it) |
 | `drift_detected` | drift | New drift on a stack |
 | `drift_ongoing` | drift | Still drifted since the last run |
 | `drift_resolved` | drift | Was drifted, now clean |
 | `check_failed` | drift | Drift check errored |
 
 Unknown names in `on:` fail `reeve lint` / config load. A channel with an
-empty `on:` list draws a warning — it will never fire (exception: a Slack
+empty `on:` list draws a warning — it will never fire (exceptions: a Slack
 channel defaults to every PR-flow event at or after its `trigger`, preserving
-the legacy behavior).
+the legacy behavior; timeline channels default to every PR-flow timeline
+event, `planning` through `break_glass`).
+
+`planning` and `break_glass` are timeline additions: they are **not** part
+of the legacy Slack trigger-onward default, so existing channels'
+subscriptions are unchanged unless you list them explicitly.
 
 ### Channel types
 
@@ -78,9 +85,68 @@ the legacy behavior).
 | `pagerduty` | PagerDuty Events API v2 | drift: trigger/resolve per stack; PR: `failed`/`blocked` trigger, `applied` resolves; `integration_key`, `severity_map` |
 | `github_issue` | GitHub issue per drifted stack | Drift events only; `labels`, `assignees`. Requires `GITHUB_TOKEN` with `issues: write` |
 | `otel_annotation` | Annotation emitters (Grafana/Datadog/Dash0) | Maps drift + apply lifecycle onto annotation events; configure emitters in `observability.yaml` |
+| `timeline_slack` | Slack thread under one PR-level anchor | Deployment timeline (see below). `channel`, `auth_token` |
+| `timeline_github` | One PR comment per commit SHA | Deployment timeline (see below). Requires `GITHUB_TOKEN` with PR write |
 
 Common fields on every channel: `type`, `name` (defaults to the type),
 `enabled` (defaults to `true`), `on`.
+
+## The deployment timeline
+
+The dashboard surfaces above (the PR status comment, the Slack per-PR
+message) are **snapshots**: edited in place to show the current state.
+GitHub renders comment edits silently, so a snapshot alone can't answer
+"did the preview even run for this push?". The **timeline** is the
+complementary append-only activity heartbeat: one entry per lifecycle
+event, each carrying the event, the short commit SHA, a timestamp, and the
+CI run URL of the run that produced it (preview and apply are different
+Actions runs, and each entry links its own).
+
+Both timeline channels are **off by default** — enable them explicitly:
+
+```yaml
+version: 2
+config_type: notifications
+
+channels:
+  - type: slack                      # dashboard: current status, one message per PR
+    channel: "#infra-deploys"
+    auth_token: ${env:SLACK_BOT_TOKEN}
+    trigger: plan
+
+  - type: timeline_slack             # heartbeat: every event as a thread reply
+    channel: "#infra-deploys"
+    auth_token: ${env:SLACK_BOT_TOKEN}
+    # on: defaults to [planning, plan, ready, approved, applying,
+    #                  applied, failed, blocked, break_glass]
+
+  - type: timeline_github            # heartbeat: one comment per commit SHA
+```
+
+**Slack** (`timeline_slack`): every entry is a thread reply under ONE
+PR-level anchor message — no channel spam. When the dashboard `slack` channel
+is also enabled, its per-PR status message *is* the anchor (both share the
+per-PR blob state), and the dashboard stops posting its own terse thread
+notes — the timeline's richer entries replace them. Without a dashboard
+channel, the timeline creates a minimal anchor message itself.
+
+**GitHub** (`timeline_github`): one comment per commit SHA, updated in
+place as that SHA's events land:
+
+> ### 🛰️ reeve · deployment timeline · commit `abc1234`
+> - 🔍 **preview started** · 2026-07-19 12:03:05 UTC · [run](#)
+> - 📋 **preview finished**: app/prod +1 ~2 -0 ±0, 1 no-op · 2026-07-19 12:04:41 UTC · [run](#)
+> - 🚀 **apply started** · 2026-07-19 12:10:02 UTC · [run](#)
+> - ✅ **apply finished**: app/prod +1 ~2 -0 ±0 · 2026-07-19 12:12:30 UTC · [run](#)
+
+Pushing a new commit starts a new comment; the old SHA's history stays
+intact. Timeline comments use their own marker namespace
+(`reeve:timeline:v1:{sha}`) — existing status/help/apply comment markers
+are untouched, so enabling the timeline never orphans an existing comment.
+
+Entry history is persisted in the state bucket
+(`notifications/pr-{n}/timeline.json`) with conditional writes, so
+concurrent runs merge instead of overwriting each other.
 
 ### Delivery guarantees
 

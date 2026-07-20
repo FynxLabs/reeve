@@ -64,6 +64,25 @@ func TestNotifyPREventRespectsSubscriptions(t *testing.T) {
 	}
 }
 
+func TestNotifyPREventPlanningReachesTimelineNotLegacyDefaults(t *testing.T) {
+	// planning (preview started) is a timeline event: channels on the timeline
+	// default receive it; channels on the legacy PR-lifecycle default do not,
+	// so existing subscriptions keep their exact behavior.
+	timeline := &captureChannel{events: notify.TimelinePREvents()}
+	legacy := &captureChannel{events: notify.PREvents()}
+	err := NotifyPREvent(context.Background(), []notify.Channel{timeline, legacy}, notify.EventPlanning,
+		PRNotifyInput{PR: 3, CommitSHA: "abc", RunURL: "https://ci/run/1"})
+	if err != nil {
+		t.Fatalf("NotifyPREvent: %v", err)
+	}
+	if len(timeline.payloads) != 1 || timeline.payloads[0].Event != notify.EventPlanning {
+		t.Fatalf("timeline subscriber: %+v", timeline.payloads)
+	}
+	if len(legacy.payloads) != 0 {
+		t.Fatalf("legacy default must not widen: %+v", legacy.payloads)
+	}
+}
+
 func TestApplyOutcomeEvent(t *testing.T) {
 	errStack := []summary.StackSummary{{Status: summary.StatusError}}
 	okStack := []summary.StackSummary{{Status: summary.StatusPlanned}}

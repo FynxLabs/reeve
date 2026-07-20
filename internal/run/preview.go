@@ -91,6 +91,22 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	outcome := "success"
 	defer func() { endRun(outcome) }()
 
+	// Channels are built once and reused for the preview-started and
+	// preview-finished events below.
+	var channels []notify.Channel
+	if in.PRNumber > 0 && in.Notifications != nil {
+		channels = BuildNotifyChannels(ctx, in.Notifications, in.Blob, in.Comments)
+		// Timeline heartbeat: preview started. PR title/author are not
+		// fetched yet; the payload carries what the timeline needs (event,
+		// SHA, this run's CI URL).
+		if err := NotifyPREvent(ctx, channels, notify.EventPlanning, PRNotifyInput{
+			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
+			PRTitle: in.PRTitle,
+		}); err != nil {
+			slog.Warn("notify planning failed", "err", err, "pr", in.PRNumber)
+		}
+	}
+
 	if err := PulumiLogin(ctx, in.Config); err != nil {
 		outcome = "failed"
 		return nil, err
@@ -197,7 +213,6 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 
 	// Notifications run last in the pipeline so upstream failures are captured.
 	if in.PRNumber > 0 && in.Notifications != nil {
-		channels := BuildNotifyChannels(ctx, in.Notifications, in.Blob)
 		if err := NotifyPREvent(ctx, channels, notify.EventPlan, PRNotifyInput{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: prTitle, PRAuthor: prAuthor, Stacks: summaries,

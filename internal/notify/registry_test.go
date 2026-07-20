@@ -89,7 +89,9 @@ func TestParseEventsDropsUnknown(t *testing.T) {
 }
 
 func TestEventNamesMatchSchemas(t *testing.T) {
-	all := append(PREvents(), DriftEvents()...)
+	// TimelinePREvents is the full PR-flow set (core lifecycle + planning +
+	// break_glass); with the drift events it must cover schemas exactly.
+	all := append(TimelinePREvents(), DriftEvents()...)
 	if len(all) != len(schemas.ValidChannelEvents) {
 		t.Fatalf("event count mismatch: notify %d vs schemas %d", len(all), len(schemas.ValidChannelEvents))
 	}
@@ -97,5 +99,18 @@ func TestEventNamesMatchSchemas(t *testing.T) {
 		if !schemas.IsValidChannelEvent(string(e)) {
 			t.Fatalf("event %q missing from schemas.ValidChannelEvents", e)
 		}
+	}
+}
+
+func TestTimelinePREventsSupersetOfCore(t *testing.T) {
+	// The legacy default set must stay exactly the core lifecycle: widening
+	// it would silently change existing channels' subscriptions.
+	core := PREvents()
+	if core[0] != EventPlan || len(core) != 7 {
+		t.Fatalf("core lifecycle changed: %v", core)
+	}
+	tl := TimelinePREvents()
+	if tl[0] != EventPlanning || tl[len(tl)-1] != EventBreakGlass || len(tl) != len(core)+2 {
+		t.Fatalf("timeline events: %v", tl)
 	}
 }

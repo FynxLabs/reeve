@@ -81,6 +81,37 @@ channels:
 	}
 }
 
+func TestTimelineChannelsLoadAndValidate(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": sharedYAMLMin,
+		"pulumi.yaml": engineYAMLMin,
+		"notifications.yaml": `version: 2
+config_type: notifications
+channels:
+  - type: timeline_slack
+    channel: "#infra-deploys"
+    auth_token: xoxb-x
+  - type: timeline_github
+    on: [planning, plan, applying, applied, failed, blocked, break_glass]
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	channels := cfg.Notifications.Channels
+	if len(channels) != 2 || channels[0].Type != "timeline_slack" || channels[1].Type != "timeline_github" {
+		t.Fatalf("channels: %+v", channels)
+	}
+	// timeline_slack with no on: is valid (defaults to all timeline events).
+	if len(channels[0].On) != 0 {
+		t.Fatalf("on: %v", channels[0].On)
+	}
+}
+
 func TestNotificationsV3Rejected(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": sharedYAMLMin,

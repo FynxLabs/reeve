@@ -52,6 +52,7 @@ func (s ChannelYAML) EffectiveName() string {
 // runner. The strings are shared with internal/notify's Event constants.
 const (
 	// PR-flow events.
+	ChannelEventPlanning = "planning" // preview run started
 	ChannelEventPlan     = "plan"     // preview finished, pending approval
 	ChannelEventReady    = "ready"    // /reeve ready (or auto_ready)
 	ChannelEventApproved = "approved" // preconditions passed, apply imminent
@@ -59,6 +60,10 @@ const (
 	ChannelEventApplied  = "applied"  // apply finished successfully
 	ChannelEventFailed   = "failed"   // apply errored
 	ChannelEventBlocked  = "blocked"  // apply blocked (gates/locks)
+	// ChannelEventBreakGlass is reserved for emergency-override runs. It is a
+	// valid subscription (the deployment timeline renders it) but no producer
+	// emits it yet.
+	ChannelEventBreakGlass = "break_glass"
 
 	// Drift events.
 	ChannelEventDriftDetected = "drift_detected"
@@ -69,6 +74,7 @@ const (
 
 // ValidChannelEvents enumerates every valid `on:` entry, in documentation order.
 var ValidChannelEvents = []string{
+	ChannelEventPlanning,
 	ChannelEventPlan,
 	ChannelEventReady,
 	ChannelEventApproved,
@@ -76,6 +82,7 @@ var ValidChannelEvents = []string{
 	ChannelEventApplied,
 	ChannelEventFailed,
 	ChannelEventBlocked,
+	ChannelEventBreakGlass,
 	ChannelEventDriftDetected,
 	ChannelEventDriftOngoing,
 	ChannelEventDriftResolved,

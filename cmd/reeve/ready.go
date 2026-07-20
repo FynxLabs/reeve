@@ -90,7 +90,7 @@ func runReady(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	channels := run.BuildNotifyChannels(ctx, cfg.Notifications, store)
+	channels := run.BuildNotifyChannels(ctx, cfg.Notifications, store, client)
 	if err := run.NotifyPREvent(ctx, channels, notify.EventReady, run.PRNotifyInput{
 		PR: pr, CommitSHA: sha, RunURL: runURL,
 		PRTitle: prMeta.Title, PRAuthor: prMeta.Author,
