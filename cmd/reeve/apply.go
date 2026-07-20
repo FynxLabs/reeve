@@ -15,6 +15,7 @@ import (
 	"github.com/thefynx/reeve/internal/blob/factory"
 	blocks "github.com/thefynx/reeve/internal/blob/locks"
 	"github.com/thefynx/reeve/internal/config"
+	"github.com/thefynx/reeve/internal/core/breakglass"
 	"github.com/thefynx/reeve/internal/iac/pulumi"
 	"github.com/thefynx/reeve/internal/run"
 	gh "github.com/thefynx/reeve/internal/vcs/github"
@@ -28,6 +29,8 @@ func newApplyCmd() *cobra.Command {
 	}
 	addPreviewFlags(cmd)
 	cmd.Flags().String("actor", "", "User triggering the apply (default: $GITHUB_ACTOR)")
+	cmd.Flags().Bool("break-glass", false, "Emergency apply: override approvals (and freeze unless disabled); requires break_glass config and a justification")
+	cmd.Flags().String("justification", "", "Mandatory justification for --break-glass (or parsed from $REEVE_BREAK_GLASS_COMMENT)")
 	return cmd
 }
 
@@ -94,6 +97,32 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Break-glass: resolve the justification, either from --justification or
+	// by strictly parsing the triggering comment ($REEVE_BREAK_GLASS_COMMENT,
+	// set by action.yml). A malformed command posts a helpful PR comment and
+	// runs NOTHING.
+	force := flagBool(cmd, "force")
+	var bgReq *run.BreakGlassRequest
+	if flagBool(cmd, "break-glass") {
+		justification := cmd.Flag("justification").Value.String()
+		if strings.TrimSpace(justification) == "" {
+			raw := os.Getenv("REEVE_BREAK_GLASS_COMMENT")
+			if strings.TrimSpace(raw) == "" {
+				return fmt.Errorf("--break-glass requires --justification %q (or $REEVE_BREAK_GLASS_COMMENT to parse)", "<non-empty text>")
+			}
+			parsed, perr := breakglass.ParseCommand(raw)
+			if perr != nil {
+				if cerr := client.PostComment(ctx, pr, breakglass.MalformedComment(perr)); cerr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "posting malformed-command comment failed: %v\n", cerr)
+				}
+				return fmt.Errorf("break-glass command malformed (no run): %w", perr)
+			}
+			justification = parsed.Justification
+			force = force || parsed.Force
+		}
+		bgReq = &run.BreakGlassRequest{Justification: justification}
+	}
+
 	engineCfg := cfg.Engines[0]
 	engine := pulumi.New(engineCfg.Engine.Binary.Path)
 
@@ -132,7 +161,8 @@ func runApply(cmd *cobra.Command, _ []string) error {
 		Locks:          lockStore,
 		VCS:            client,
 		AuditWriter:    audit.NewWriter(store),
-		Force:          flagBool(cmd, "force"),
+		Force:          force,
+		BreakGlass:     bgReq,
 	})
 	if err != nil {
 		return err

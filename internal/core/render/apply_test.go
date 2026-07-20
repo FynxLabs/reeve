@@ -94,3 +94,39 @@ func TestApplyPreviewGatesRender(t *testing.T) {
 	}
 	assertGolden(t, "preview_with_gates.md", Preview(in))
 }
+
+func TestApplyBreakGlassSectionIsLoud(t *testing.T) {
+	body := Apply(ApplyInput{
+		RunNumber: 4, CommitSHA: "abcdef1234",
+		Stacks: []summary.StackSummary{{Project: "api", Stack: "prod", Status: summary.StatusPlanned}},
+		BreakGlass: &BreakGlassNote{
+			Actor:              "alice",
+			Justification:      "prod is down\nsecond line",
+			AuthorizedVia:      "internal_list",
+			Overridden:         []string{"approvals", "not_in_freeze"},
+			ConfigModifiedInPR: true,
+		},
+	})
+	for _, want := range []string{
+		BreakGlassMarker,
+		"[!WARNING]",
+		"BREAK-GLASS APPLY",
+		"@alice",
+		"`internal_list`",
+		"`approvals`", "`not_in_freeze`",
+		"modified in this same PR",
+		"> > prod is down",
+		"> > second line",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("break-glass comment missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestApplyWithoutBreakGlassHasNoMarker(t *testing.T) {
+	body := Apply(ApplyInput{RunNumber: 4, CommitSHA: "abcdef1234"})
+	if strings.Contains(body, BreakGlassMarker) {
+		t.Fatal("non-break-glass apply must not carry the break-glass marker")
+	}
+}

@@ -98,6 +98,15 @@ type Inputs struct {
 	// Freeze windows: true if currently in a freeze that blocks this stack.
 	InFreeze   bool
 	FreezeName string
+
+	// Break-glass emergency override (already authorized by
+	// core/breakglass before it reaches here). It overrides the approvals
+	// gate always, overrides freeze only when BreakGlassOverrideFreeze,
+	// and NEVER touches any other gate - locks, checks, preview
+	// freshness, policy, fork/draft all still apply. Break-glass replaces
+	// human sign-off; it is not a license to apply stale/unchecked code.
+	BreakGlass               bool
+	BreakGlassOverrideFreeze bool
 }
 
 // Result aggregates gate outcomes for a single stack.
@@ -105,6 +114,9 @@ type Result struct {
 	StackRef string
 	Gates    []GateResult
 	Blocked  bool // true if any gate failed with OutcomeFail
+	// Overridden lists gates that WOULD have failed but were overridden
+	// by break-glass. Feeds the audit record and the loud PR comment.
+	Overridden []GateID
 }
 
 // Evaluate runs gates in GateOrder. Fail-fast stops the trace at the first
@@ -112,8 +124,11 @@ type Result struct {
 func Evaluate(cfg Config, in Inputs) Result {
 	res := Result{StackRef: in.StackRef}
 	for _, g := range GateOrder {
-		gr := evalGate(g, cfg, in)
+		gr, overridden := evalGate(g, cfg, in)
 		res.Gates = append(res.Gates, gr)
+		if overridden {
+			res.Overridden = append(res.Overridden, g)
+		}
 		if gr.Outcome == OutcomeFail {
 			res.Blocked = true
 			break
@@ -122,7 +137,31 @@ func Evaluate(cfg Config, in Inputs) Result {
 	return res
 }
 
-func evalGate(g GateID, cfg Config, in Inputs) GateResult {
+// evalGate evaluates one gate. The second return is true when the gate
+// would have failed but was overridden by break-glass (approvals always;
+// freeze only with BreakGlassOverrideFreeze). Overridden gates come back
+// as OutcomeWarning so they stay visible in the gate trace without
+// blocking. Every other gate is delegated to the base logic untouched -
+// break-glass NEVER overrides locks, checks, preview state, policy, or
+// the fork/draft gates.
+func evalGate(g GateID, cfg Config, in Inputs) (GateResult, bool) {
+	if in.BreakGlass {
+		switch g {
+		case GateApprovals:
+			if in.ApprovalsSatisfied {
+				return pass(g, "approvals satisfied"), false
+			}
+			return warn(g, "approvals not satisfied - overridden by break-glass"), true
+		case GateFreeze:
+			if in.InFreeze && in.BreakGlassOverrideFreeze {
+				return warn(g, fmt.Sprintf("in freeze window %q - overridden by break-glass", in.FreezeName)), true
+			}
+		}
+	}
+	return evalGateBase(g, cfg, in), false
+}
+
+func evalGateBase(g GateID, cfg Config, in Inputs) GateResult {
 	switch g {
 	case GateFork:
 		if in.PRIsFork && !in.ForkOptInAllowed {
