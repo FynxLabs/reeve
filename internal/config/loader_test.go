@@ -223,6 +223,45 @@ engine:
 `
 }
 
+func TestValidateApprovalSources(t *testing.T) {
+	valid := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket: {type: filesystem, name: ./x}
+approvals:
+  sources:
+    - {type: pr_review, enabled: true}
+    - {type: pr_comment, enabled: true, command: "/reeve approve"}
+`,
+		"pulumi.yaml": minimalPulumi(),
+	})
+	cfg, err := Load(valid)
+	if err != nil {
+		t.Fatalf("Load valid: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid sources should pass, got %v", err)
+	}
+
+	bad := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket: {type: filesystem, name: ./x}
+approvals:
+  sources:
+    - {type: pr_commnet, enabled: true}
+`,
+		"pulumi.yaml": minimalPulumi(),
+	})
+	cfg2, err := Load(bad)
+	if err != nil {
+		t.Fatalf("Load bad: %v", err)
+	}
+	if err := cfg2.Validate(); err == nil || !strings.Contains(err.Error(), "unknown source type") {
+		t.Fatalf("typo'd source type must be rejected, got %v", err)
+	}
+}
+
 func TestLogSettingsNilShared(t *testing.T) {
 	// The panic guard: commands call LogSettings() before Validate(), so it
 	// must not dereference a nil Shared (missing .reeve/shared.yaml).

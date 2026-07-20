@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/thefynx/reeve/internal/core/approvals"
 )
 
 // Config is the loaded, validated set of .reeve/*.yaml files.
@@ -240,6 +241,29 @@ func (c *Config) Validate() error {
 	}
 	if err := c.validateDurations(); err != nil {
 		return err
+	}
+	if err := c.validateApprovalSources(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateApprovalSources rejects unknown approvals.sources[].type values so a
+// typo like `pr_commnet` fails loudly at load time instead of silently never
+// gathering that source (a fail-open-looking surprise).
+func (c *Config) validateApprovalSources() error {
+	if c.Shared == nil {
+		return nil
+	}
+	for _, s := range c.Shared.Approvals.Sources {
+		switch s.Type {
+		case approvals.SourcePRReview, approvals.SourcePRComment:
+		case "":
+			return fmt.Errorf("shared.yaml: approvals.sources: entry is missing required 'type'")
+		default:
+			return fmt.Errorf("shared.yaml: approvals.sources: unknown source type %q (valid: %s, %s)",
+				s.Type, approvals.SourcePRReview, approvals.SourcePRComment)
+		}
 	}
 	return nil
 }

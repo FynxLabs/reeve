@@ -222,7 +222,7 @@ reeve expects these events:
 - `pull_request` (`ready_for_review`) - fires `ready` (if `auto_ready: true` and plan succeeded)
 - `pull_request` (any other action, e.g. `labeled`, `assigned`, `edited`) - no-op
 - `pull_request_review` (`submitted`, state `approved`) - fires `approved` (Slack status update), **only** when the action input `run-on-approval` is `"true"`; skipped by default since the apply gate re-checks approvals anyway
-- `issue_comment` (`created`, first word matches a `command-prefix` entry - default `/reeve` or `@reeve` - followed by `apply` (or `up`), `ready`, `preview` (or `plan`), or `help`) - fires respective command; comments authored by bots (user type `Bot` or login ending in `[bot]`) are always skipped to prevent self-trigger loops
+- `issue_comment` (`created`, first word matches a `command-prefix` entry - default `/reeve` or `@reeve` - followed by `apply` (or `up`), `ready`, `preview` (or `plan`), `approve`, or `help`) - fires respective command; comments authored by bots (user type `Bot` or login ending in `[bot]`) are always skipped to prevent self-trigger loops. `approve` fires `approved` (the Slack "ready to apply" refresh) and only counts as an approval when the opt-in `pr_comment` source is enabled in `approvals.sources`; the apply gate re-reads the comment and re-checks `author_association` at apply time
 - `schedule` - fires `drift run`
 - `workflow_dispatch` - manual re-runs
 
