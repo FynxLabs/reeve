@@ -157,6 +157,32 @@ func TestDuplicateEngineTypeRejected(t *testing.T) {
 	}
 }
 
+func TestMultipleEngineConfigsRejected(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": minimalShared(),
+		"pulumi.yaml": minimalPulumi(),
+		"terraform.yaml": `version: 1
+config_type: engine
+engine:
+  type: terraform
+  binary:
+    path: terraform
+  stacks: []
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "multiple engine configs found") {
+		t.Fatalf("expected multiple-engine validate error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "pulumi") || !strings.Contains(err.Error(), "terraform") {
+		t.Fatalf("error should name the engine types, got %v", err)
+	}
+}
+
 func TestMissingEngineRejected(t *testing.T) {
 	root := writeReeve(t, map[string]string{"shared.yaml": minimalShared()})
 	cfg, err := Load(root)

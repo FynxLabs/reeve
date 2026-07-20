@@ -27,7 +27,7 @@ func newStacksCmd() *cobra.Command {
 			if err := cfg.Validate(); err != nil {
 				return err
 			}
-			// Single-engine routing: first engine config wins (multi-engine
+			// Validate guarantees exactly one engine config (multi-engine
 			// routing is a later phase).
 			var engineCfg = cfg.Engines[0]
 			e, err := iac.New(engineCfg.Engine)
