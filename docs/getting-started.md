@@ -17,8 +17,10 @@ see [configuration.md](configuration.md) and [auth.md](auth.md).
 
 ## 1. Install reeve locally
 
-reeve is pre-release. No published binary, no Homebrew tap, no container
-image. Build from source:
+Grab a prebuilt tarball from the
+[releases page](https://github.com/FynxLabs/reeve/releases) (verify its
+sha256 against the release's cosign-signed `checksums.txt`), or build
+from source:
 
 ```bash
 git clone https://github.com/FynxLabs/reeve

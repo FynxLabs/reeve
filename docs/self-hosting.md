@@ -309,9 +309,9 @@ overriding the workflow's default token.
 ## Distribution
 
 Tagged releases (`vX.Y.Z`) ship per-platform tarballs with a
-`checksums.txt` signed via cosign keyless, a container image on GHCR, and
-a Homebrew tap - all produced by goreleaser from
-`.github/workflows/release.yml`. Building from source
+`checksums.txt` signed via cosign keyless, plus a container image on GHCR
+and a Homebrew cask push to `FynxLabs/brew-tap` - all produced by
+goreleaser from `.github/workflows/release.yml`. Building from source
 (`go build ./cmd/reeve`) always remains supported.
 
 ### Pinning and binaries (GitHub Action)
@@ -320,7 +320,7 @@ The composite action resolves its binary in three tiers, cache first:
 
 | Pin                 | Binary source                                                                    |
 | ------------------- | -------------------------------------------------------------------------------- |
-| `@vX.Y.Z`           | Signed release tarball, verified against the release's `checksums.txt`           |
+| `@vX.Y.Z`           | Release tarball, verified against the release's cosign-signed `checksums.txt`    |
 | `@master` / `@next` | Rolling edge binary from the `edge-<branch>` prerelease, matched to the action's exact source hash (unsigned, auto-fallback to source build) |
 | anything else       | Built from source on the runner (SHA pins, branches, forks)                      |
 
@@ -341,7 +341,8 @@ pinned source).
 
 ### Binary
 
-`brew upgrade reeve`, or grab the latest release tarball. CI jobs pick up
+Grab the latest release tarball (or `brew upgrade reeve` if you installed
+via the cask). CI jobs pick up
 new binaries per the pinning table above: `@vX.Y.Z` pins move when you
 edit the workflow; `@master`/`@next` pins track each push via edge
 binaries (or a source build while the edge build is still running).
