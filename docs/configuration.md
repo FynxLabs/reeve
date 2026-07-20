@@ -278,6 +278,10 @@ engine:
       required: true
 ```
 
+`engine.type` selects a registered engine adapter — the binary compiles in a
+default set (pulumi today; terraform and opentofu are coming in this line),
+and `reeve lint` fails when the type doesn't resolve to a compiled-in engine.
+
 ### Discovery pipeline
 
 1. **Declare** - literal `{project, path, stacks}` entries and `pattern:`
