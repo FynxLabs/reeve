@@ -1,0 +1,118 @@
+name: edge-build
+
+# Rolling prebuilt binaries for the GitHub Action fast-path. Every push to
+# master/next builds linux amd64+arm64 binaries, names them after the exact
+# source hash the composite action computes (.github/scripts/source-hash.sh,
+# shared so the two can never drift), and publishes them to a rolling
+# prerelease tagged edge-<branch>. The action, when pinned @master or @next,
+# downloads the asset matching its own source hash - a name match proves the
+# binary was built from exactly the checked-out action source. These builds
+# are unsigned; regular v*.*.* releases remain the signed distribution.
+#
+# The edge-<branch> tags do NOT match the release workflow's v*.*.* trigger,
+# so publishing here never starts the goreleaser pipeline.
+
+on:
+  push:
+    branches: [master, next]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Hash reeve source
+        id: hash
+        run: echo "hash=$(.github/scripts/source-hash.sh .)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and package (linux amd64 + arm64)
+        env:
+          SRCHASH: ${{ steps.hash.outputs.hash }}
+        run: |
+          set -euo pipefail
+          BRANCH="$GITHUB_REF_NAME"
+          SHORTSHA="${GITHUB_SHA::7}"
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          mkdir -p dist
+          for ARCH in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -trimpath \
+              -ldflags="-s -w -X main.version=${BRANCH}-${SHORTSHA} -X main.commit=${SHORTSHA} -X main.date=${DATE}" \
+              -o "dist/${ARCH}/reeve" ./cmd/reeve
+            tar -C "dist/${ARCH}" -czf "dist/reeve_edge_linux_${ARCH}_${SRCHASH}.tar.gz" reeve
+          done
+          (cd dist && sha256sum reeve_edge_linux_*_"${SRCHASH}".tar.gz > "checksums_${SRCHASH}.txt")
+          ls -l dist
+
+      - name: Publish to rolling edge prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SRCHASH: ${{ steps.hash.outputs.hash }}
+        run: |
+          set -euo pipefail
+          TAG="edge-${GITHUB_REF_NAME}"
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --title "reeve edge (${GITHUB_REF_NAME})" \
+              --target "$GITHUB_SHA" \
+              --notes "$(cat <<'EOF'
+          Rolling, **unsigned** builds of this branch, consumed by the reeve
+          GitHub Action fast-path: when a workflow pins the action to this
+          branch (`@master` / `@next`), the action downloads the asset whose
+          name embeds the sha256 hash of the action source it just checked
+          out, verifies the checksum sidecar, and skips the Go toolchain +
+          source build. If no asset matches (a push's edge build is still
+          running), the action silently builds from source.
+
+          Do not consume these assets directly - use the signed `vX.Y.Z` releases.
+          EOF
+          )" || echo "release create failed (raced with a concurrent push?) - continuing"
+          fi
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "dist/reeve_edge_linux_amd64_${SRCHASH}.tar.gz" \
+            "dist/reeve_edge_linux_arm64_${SRCHASH}.tar.gz" \
+            "dist/checksums_${SRCHASH}.txt"
+
+      # Keep the newest N source-hashes per platform and delete the rest.
+      # Keep-latest-N (instead of delete-all-but-current) because concurrent
+      # pushes race: an in-flight consumer may still be resolving an asset a
+      # sibling run would otherwise have deleted.
+      - name: Prune old edge assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: "5"
+        run: |
+          set -euo pipefail
+          TAG="edge-${GITHUB_REF_NAME}"
+          # Newest-first hashes, derived from the checksum sidecars' creation
+          # times; everything past the first $KEEP gets pruned.
+          mapfile -t OLD_HASHES < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" \
+              --jq '.assets | map(select(.name | startswith("checksums_"))) | sort_by(.created_at) | reverse | .[].name' \
+            | sed -nE 's/^checksums_([0-9a-f]+)\.txt$/\1/p' \
+            | tail -n +"$((KEEP + 1))"
+          )
+          if [ "${#OLD_HASHES[@]}" -eq 0 ]; then
+            echo "nothing to prune"
+            exit 0
+          fi
+          for H in "${OLD_HASHES[@]}"; do
+            echo "Pruning edge assets for source hash $H"
+            for A in "reeve_edge_linux_amd64_${H}.tar.gz" \
+                     "reeve_edge_linux_arm64_${H}.tar.gz" \
+                     "checksums_${H}.txt"; do
+              gh release delete-asset "$TAG" "$A" --repo "$GITHUB_REPOSITORY" --yes \
+                || echo "could not delete $A (already pruned by a sibling run?)"
+            done
+          done
