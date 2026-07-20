@@ -60,6 +60,12 @@ type PreviewInput struct {
 	Blob          blob.Store
 	VCS           prReader      // may be nil for --local
 	Comments      commentPoster // may be nil for --local
+	// ChannelSourceFiles are the repo-relative config files the loader
+	// sourced notification channels from (config.Config.ChannelSourceFiles).
+	// If the PR's changed files include any of them, pre-approval events
+	// (planning/plan) are NOT dispatched to channels. Empty falls back to
+	// the default .reeve file names (fail closed).
+	ChannelSourceFiles []string
 	// Local skips change-mapping (run on all declared stacks).
 	Local bool
 	// Force re-runs even when this commit is already recorded as applied,
@@ -91,10 +97,37 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	outcome := "success"
 	defer func() { endRun(outcome) }()
 
+	// Changed files are fetched up front (also reused for change mapping
+	// below): pre-approval channel dispatch must be decided BEFORE the
+	// first event fires.
+	var changed []string
+	var changedErr error
+	if !in.Local && in.VCS != nil {
+		changed, changedErr = in.VCS.ListChangedFiles(ctx, in.PRNumber)
+	}
+
+	// Pre-approval suppression: previews run automatically on the untrusted
+	// PR HEAD, so when the PR modifies the notification config itself (or
+	// the changed-file list is unavailable), no channel may receive the
+	// planning/plan events - a webhook channel added in the PR could
+	// otherwise exfiltrate expanded credentials before any human approves.
+	notifyActive := in.PRNumber > 0 && in.Notifications != nil
+	suppressChannels := false
+	suppressReason := ""
+	if notifyActive {
+		suppressChannels, suppressReason = SuppressPreApprovalChannels(
+			in.Local, in.VCS != nil, changed, changedErr, in.ChannelSourceFiles)
+		if suppressChannels {
+			slog.Warn("SECURITY: notification channels suppressed for this pre-approval preview",
+				"reason", suppressReason, "pr", in.PRNumber, "sha", in.CommitSHA,
+				"note", "channels resume after approval/apply")
+		}
+	}
+
 	// Channels are built once and reused for the preview-started and
 	// preview-finished events below.
 	var channels []notify.Channel
-	if in.PRNumber > 0 && in.Notifications != nil {
+	if notifyActive && !suppressChannels {
 		channels = BuildNotifyChannels(ctx, in.Notifications, in.Blob, in.Comments)
 		// Timeline heartbeat: preview started. PR title/author are not
 		// fetched yet; the payload carries what the timeline needs (event,
@@ -127,9 +160,9 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		target = declared
 		slog.Debug("preview target: all declared stacks", "count", len(target))
 	} else {
-		changed, err := in.VCS.ListChangedFiles(ctx, in.PRNumber)
-		if err != nil {
-			return nil, fmt.Errorf("list changed files: %w", err)
+		if changedErr != nil {
+			outcome = "failed"
+			return nil, fmt.Errorf("list changed files: %w", changedErr)
 		}
 		slog.Debug("changed files", "count", len(changed), "files", changed)
 		cm := changeMappingFromConfig(in.Config)
@@ -161,6 +194,11 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	// caller didn't force, flag it so reviewers know an apply re-run would be
 	// a no-op (the plan still renders; preview is read-only).
 	notice := mappingNotice
+	if suppressChannels {
+		notice = joinNotices(notice, fmt.Sprintf(
+			"⚠️ Notification channels suppressed for this preview: %s; channels resume after approval/apply.",
+			suppressReason))
+	}
 	if !in.Force {
 		if prior, _ := readAppliedState(ctx, in.Blob, in.PRNumber, in.CommitSHA); prior != nil {
 			appliedNote := fmt.Sprintf("Commit %s was already applied on run #%d (%s). Re-running apply is a no-op unless you comment `/reeve apply --force`.",
@@ -211,8 +249,9 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		prTitle = in.PRTitle
 	}
 
-	// Notifications run last in the pipeline so upstream failures are captured.
-	if in.PRNumber > 0 && in.Notifications != nil {
+	// Notifications run last in the pipeline so upstream failures are
+	// captured. Same pre-approval suppression as the planning event above.
+	if notifyActive && !suppressChannels {
 		if err := NotifyPREvent(ctx, channels, notify.EventPlan, PRNotifyInput{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunURL: in.CIRunURL,
 			PRTitle: prTitle, PRAuthor: prAuthor, Stacks: summaries,

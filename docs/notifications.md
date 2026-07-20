@@ -91,6 +91,27 @@ subscriptions are unchanged unless you list them explicitly.
 Common fields on every channel: `type`, `name` (defaults to the type),
 `enabled` (defaults to `true`), `on`.
 
+### Pre-approval channel isolation
+
+Previews run **automatically on the PR HEAD before any approval**, and
+channel config (webhook URLs, headers, tokens) is loaded from that same
+HEAD. To stop a branch pusher from adding a channel that exfiltrates
+expanded credentials, pre-approval events (`planning`, `plan`) are **not
+dispatched to any channel** when the PR's changed files include a
+channel-bearing config file (`.reeve/notifications.yaml`,
+`.reeve/drift.yaml` — derived from the files actually loaded). The
+preview still runs and the PR comment carries a visible line:
+
+> ⚠️ Notification channels suppressed for this preview: notification
+> config `.reeve/notifications.yaml` modified in this PR; channels resume
+> after approval/apply.
+
+This fails closed: if the changed-file list cannot be fetched in a
+VCS-connected run, dispatch is suppressed too. Post-approval events
+(`ready`, `approved`, `applying`, `applied`, …) dispatch normally — the
+approval that gates them covers the config change. `--local` runs are
+unaffected (no VCS interaction).
+
 ## The deployment timeline
 
 The dashboard surfaces above (the PR status comment, the Slack per-PR

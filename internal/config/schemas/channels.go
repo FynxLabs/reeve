@@ -12,19 +12,22 @@ type ChannelYAML struct {
 
 	// slack
 	Channel   string            `yaml:"channel,omitempty"`
-	AuthToken string            `yaml:"auth_token,omitempty"` // "${env:SLACK_BOT_TOKEN}"
+	AuthToken string            `yaml:"auth_token,omitempty" expand:"env"` // "${env:SLACK_BOT_TOKEN}"
 	Trigger   SlackTrigger      `yaml:"trigger,omitempty"`
 	Icons     *SlackIcons       `yaml:"icons,omitempty"`
 	Rules     []SlackNotifyRule `yaml:"rules,omitempty"`
 	Grouping  string            `yaml:"grouping,omitempty"`
 
-	// webhook
-	URL     string            `yaml:"url,omitempty"`
-	Headers map[string]string `yaml:"headers,omitempty"`
+	// webhook. URL and header VALUES are on the env-expansion allow-list
+	// (docs show ${env:...} tokens embedded in both); pre-approval previews
+	// additionally suppress channel dispatch entirely when the PR modifies
+	// notification config - see internal/run/preview.go.
+	URL     string            `yaml:"url,omitempty" expand:"env"`
+	Headers map[string]string `yaml:"headers,omitempty" expand:"env"`
 	Payload DriftPayload      `yaml:"payload,omitempty"`
 
 	// pagerduty
-	IntegrationKey string            `yaml:"integration_key,omitempty"`
+	IntegrationKey string            `yaml:"integration_key,omitempty" expand:"env"`
 	SeverityMap    map[string]string `yaml:"severity_map,omitempty"`
 
 	// otel_annotation

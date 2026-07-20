@@ -653,17 +653,37 @@ config_type: user
 
 ## Token expansion
 
-The following fields accept `${env:NAME}` references:
+`${env:NAME}` expansion is restricted to an **enumerated allow-list of
+credential-bearing fields**. Config is loaded from the PR HEAD, which is
+untrusted before approval — expanding env references everywhere would turn
+any config field into an env-var oracle. The designated fields are, exactly:
 
-- `shared.yaml`: `bucket.*`, `locking.admin_override.*`
-- `auth.yaml`: provider fields (see [auth.md](auth.md) for the full list)
-- `notifications.yaml`: `slack.auth_token`
-- `observability.yaml`: `otel.endpoint`, `otel.headers`, `annotations.*.api_key`, etc.
-- `drift.yaml`: channel credentials
+- `shared.yaml`: `bucket.name`, `bucket.region`, `bucket.prefix`,
+  `locking.admin_override.allowed`
+- `auth.yaml` providers: `tenant_id`, `client_id`, `subscription_id`,
+  `private_key`, `app_id`, `installation_id`
+- `notifications.yaml` / `drift.yaml` channels: `auth_token` (slack),
+  `integration_key` (pagerduty), `url` and `headers` values (webhook)
+- `observability.yaml`: `otel.endpoint`, `otel.headers`,
+  `otel.resource_attributes`, and `annotations[*]` `url`, `endpoint`,
+  `api_key`, `headers`
 
-`${env:X}` expands at runtime via `os.Getenv("X")`. Missing env vars expand
-to empty strings (not an error) - so token references safely degrade when
-a feature is optional.
+Designated fields support both exact references (`${env:TOKEN}`) and
+embedded ones (`Bearer ${env:TOKEN}`, `https://host/${env:TOKEN}`).
+`${env:X}` expands at load time via `os.Getenv("X")`. Missing env vars
+expand to empty strings (not an error) - so token references safely
+degrade when a feature is optional.
+
+Everywhere else `${env:...}` is kept as **literal text** and `reeve lint`
+(and the loader log) warns "env expansion is not supported for this
+field", so typos and unsupported placements surface instead of failing
+silently. A new config field gets no expansion unless it is deliberately
+added to the allow-list (`expand:"env"` struct tag in
+`internal/config/schemas`).
+
+Note that even for designated channel fields, pre-approval previews
+suppress all channel dispatch when the PR modifies notification config —
+see [notifications.md](notifications.md#pre-approval-channel-isolation).
 
 ## Lint
 

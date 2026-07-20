@@ -32,6 +32,12 @@ func newLintCmd() *cobra.Command {
 			if err := cfg.Validate(); err != nil {
 				return err
 			}
+			// ${env:...} references outside the designated allow-list are
+			// kept literal; surface them so typos and unsupported
+			// placements don't fail silently at run time.
+			for _, w := range cfg.EnvExpandWarnings {
+				fmt.Fprintf(os.Stderr, "⚠️  %s\n", w)
+			}
 			// Engine configs: every engine.type must resolve to a compiled-in
 			// engine, so a typo'd (or not-yet-shipped) type fails the CI gate
 			// here instead of at run time.

@@ -22,6 +22,19 @@ type Config struct {
 	Notifications *schemas.Notifications
 	Drift         *schemas.Drift
 	Observability *schemas.Observability
+
+	// ChannelSourceFiles lists the repo-relative config files that declare
+	// notification channels (e.g. ".reeve/notifications.yaml",
+	// ".reeve/drift.yaml"), derived from the file names actually loaded.
+	// The preview path uses it to suppress pre-approval channel dispatch
+	// when a PR modifies those files (PR-head config is untrusted before
+	// approval).
+	ChannelSourceFiles []string
+
+	// EnvExpandWarnings holds load-time warnings about "${env:...}"
+	// references in non-designated fields (left literal). Surfaced by
+	// `reeve lint` and logged at load.
+	EnvExpandWarnings []string
 }
 
 // Load reads .reeve/ under root (or root itself if root points at a file),
@@ -131,6 +144,7 @@ func Load(root string) (*Config, error) {
 				return nil, fmt.Errorf("%s: the slack: block was replaced by channels: - run `reeve migrate-config` to convert the file (see docs/notifications.md)", f)
 			}
 			cfg.Notifications = &n
+			cfg.ChannelSourceFiles = append(cfg.ChannelSourceFiles, repoRelConfigPath(f))
 		case "drift":
 			if prev, ok := seenType["drift"]; ok {
 				return nil, fmt.Errorf("%s: duplicate config_type drift (also in %s)", f, prev)
@@ -146,6 +160,7 @@ func Load(root string) (*Config, error) {
 				return nil, fmt.Errorf("%s: sinks: was renamed to channels: - run `reeve migrate-config` to convert the file, or rename the key", f)
 			}
 			cfg.Drift = &d
+			cfg.ChannelSourceFiles = append(cfg.ChannelSourceFiles, repoRelConfigPath(f))
 		case "observability":
 			if prev, ok := seenType["observability"]; ok {
 				return nil, fmt.Errorf("%s: duplicate config_type observability (also in %s)", f, prev)
@@ -168,9 +183,14 @@ func Load(root string) (*Config, error) {
 		}
 	}
 
-	// Resolve ${env:NAME} references across every field before use, so
-	// credentials and endpoints can be supplied via environment variables.
-	cfg.ExpandEnv()
+	// Resolve ${env:NAME} references in the DESIGNATED credential-bearing
+	// fields only (see env_expand.go); everywhere else the reference stays
+	// literal and draws a warning, because config is loaded from the PR
+	// HEAD and must not become an env-var oracle.
+	cfg.EnvExpandWarnings = cfg.ExpandEnv()
+	for _, w := range cfg.EnvExpandWarnings {
+		slog.Warn("config: " + w)
+	}
 
 	if cfg.Shared != nil {
 		slog.Info("config loaded", "dir", dir, "log_level", cfg.Shared.LogLevel, "log_format", cfg.Shared.LogFormat)
@@ -281,6 +301,12 @@ func strictDecode(data []byte, out any) error {
 		return fmt.Errorf("multiple YAML documents in one file are not supported (found a second document)")
 	}
 	return nil
+}
+
+// repoRelConfigPath maps an absolute loaded-config path to the
+// repo-relative form used in PR changed-file lists (".reeve/<name>").
+func repoRelConfigPath(f string) string {
+	return ".reeve/" + filepath.Base(f)
 }
 
 func nonStrictDecode(data []byte, out any) error {

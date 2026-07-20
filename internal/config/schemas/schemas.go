@@ -47,7 +47,7 @@ type LockingConfig struct {
 }
 
 type AdminOverride struct {
-	Allowed        []string `yaml:"allowed"`
+	Allowed        []string `yaml:"allowed" expand:"env"`
 	RequiresReason bool     `yaml:"requires_reason"`
 }
 
@@ -131,11 +131,14 @@ type ApplyConfig struct {
 	AutoReady bool `yaml:"auto_ready"`
 }
 
+// BucketConfig fields carry `expand:"env"`: they are part of the enumerated
+// env-expansion allow-list (see internal/config/env_expand.go and
+// docs/configuration.md#token-expansion).
 type BucketConfig struct {
-	Type   string `yaml:"type"`   // filesystem | s3 | gcs | azblob | r2
-	Name   string `yaml:"name"`   // bucket name, or directory for filesystem
-	Region string `yaml:"region"` // optional
-	Prefix string `yaml:"prefix"` // optional sub-prefix
+	Type   string `yaml:"type"`                // filesystem | s3 | gcs | azblob | r2
+	Name   string `yaml:"name" expand:"env"`   // bucket name, or directory for filesystem
+	Region string `yaml:"region" expand:"env"` // optional
+	Prefix string `yaml:"prefix" expand:"env"` // optional sub-prefix
 }
 
 type CommentsConfig struct {
