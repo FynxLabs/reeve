@@ -33,7 +33,8 @@ const (
 // Options selects what `reeve init` writes. The zero value is the safe
 // baseline: pulumi engine, no stacks pre-filled, every optional gate off.
 type Options struct {
-	// EngineType is the IaC engine ("pulumi"; the only implemented engine).
+	// EngineType is the IaC engine: "pulumi", "terraform", or "tofu"
+	// (OpenTofu). Empty defaults to pulumi.
 	EngineType string
 	// Stacks pre-fills engine.stacks from the discovery scan. Empty writes
 	// stacks: [] plus a pointer at `reeve stacks discover --write`.
@@ -72,9 +73,9 @@ type File struct {
 // Validate rejects option combinations that would render broken config.
 func (o Options) Validate() error {
 	switch o.EngineType {
-	case "", "pulumi":
+	case "", "pulumi", "terraform", "tofu":
 	default:
-		return fmt.Errorf("engine %q is not supported yet (pulumi only)", o.EngineType)
+		return fmt.Errorf("unknown engine %q (pulumi | terraform | tofu)", o.EngineType)
 	}
 	switch o.ApprovalMode {
 	case ApprovalBaseline, ApprovalCodeowners:
@@ -222,7 +223,43 @@ apply:
 }
 
 func renderEngine(opts Options) ([]byte, error) {
-	base := []byte(`version: 1
+	var base []byte
+	switch opts.EngineType {
+	case "terraform", "tofu":
+		binary := opts.EngineType // terraform | tofu
+		base = []byte(`version: 1
+config_type: engine
+
+engine:
+  type: ` + opts.EngineType + `
+  binary:
+    path: ` + binary + `              # resolved on $PATH; pin with version below
+    # version: 1.9.8
+
+  # Declared stacks. A root-module directory is a project; a workspace is a
+  # stack. Dir-per-env layouts use the default workspace per directory:
+  #   - pattern: "envs/*"
+  #     stacks: [default]
+  # Declared stacks are authoritative (no workspace enumeration needed).
+  # Regenerate this block any time with:
+  #   reeve stacks discover --engine ` + opts.EngineType + ` --write
+  stacks: []
+
+  filters:
+    exclude: []
+
+  change_mapping:
+    # Files that never trigger a run (docs/images are skipped by default).
+    ignore_changes:
+      - "**/.terraform/**"
+
+  execution:
+    max_parallel_stacks: 2
+    preview_timeout: 10m
+    apply_timeout: 30m
+`)
+	default: // pulumi
+		base = []byte(`version: 1
 config_type: engine
 
 engine:
@@ -251,6 +288,7 @@ engine:
     preview_timeout: 10m
     apply_timeout: 30m
 `)
+	}
 	if len(opts.Stacks) == 0 {
 		return base, nil
 	}

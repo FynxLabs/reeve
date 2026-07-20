@@ -253,7 +253,7 @@ version: 1
 config_type: engine
 
 engine:
-  type: pulumi                     # pulumi | terraform | opentofu (future)
+  type: pulumi                     # pulumi | terraform | tofu
 
   binary:
     path: pulumi
@@ -305,15 +305,68 @@ engine:
 ```
 
 `engine.type` selects a registered engine adapter — the binary compiles in a
-default set (pulumi today; terraform and opentofu are coming in this line),
-and `reeve lint` fails when the type doesn't resolve to a compiled-in engine.
+default set (`pulumi`, `terraform`, `tofu`), and `reeve lint` fails when the
+type doesn't resolve to a compiled-in engine.
+
+### Terraform / OpenTofu
+
+`engine.type: terraform` drives the `terraform` CLI; `engine.type: tofu`
+drives OpenTofu — one adapter, two registrations, so everything below
+applies to both (`engine.binary.path` overrides the binary for either).
+
+```yaml
+version: 1
+config_type: engine
+
+engine:
+  type: terraform                  # or tofu
+  binary:
+    path: terraform                # or tofu, or an absolute path
+
+  # A root-module DIRECTORY is a project; a WORKSPACE is a stack.
+  stacks:
+    - project: network             # literal root module
+      path: envs/network
+      stacks: [dev, prod]          # workspaces
+
+    - pattern: "envs/*"            # doublestar glob over root-module paths
+      stacks: [default]            # dir-per-env layouts: default workspace
+```
+
+**Stack model.** A directory containing root-module `.tf` files (a
+`terraform {}` block or provider config) is a project; each `terraform
+workspace` in it is a stack. Layouts that use one directory per
+environment enumerate as `<project>/default` — declare
+`stacks: [default]` for them.
+
+**Declared stacks are authoritative.** When `stacks:` entries match a
+root module, reeve uses the declared workspace names without running
+`terraform workspace list` (no init required just to enumerate). A
+declared-but-missing workspace is created on first use; an undeclared
+workspace is never created. Without declarations, `reeve stacks
+discover` lists workspaces via the CLI when the module is initialized
+and falls back to `default` (with a log line) when it isn't.
+
+**Lifecycle.** Per stack reeve runs `init -input=false` →
+`workspace select` → `plan -detailed-exitcode -out=<planfile>` →
+`show -json <planfile>`. Apply consumes that exact saved plan file
+(plan-what-you-apply parity). Drift checks use `plan -refresh-only`,
+which inspects live infrastructure without writing state. Sensitive
+values (`before_sensitive`/`after_sensitive` in the plan JSON) are
+masked in every rendered diff and in the stored plan JSON.
+
+reeve never touches engine state: backends, state encryption, and
+credentials stay yours — configure the backend in your `.tf` files and
+provide credentials via `auth.yaml` env bindings, exactly as you would
+for the CLI.
 
 ### Discovery pipeline
 
 1. **Declare** - literal `{project, path, stacks}` entries and `pattern:`
    globs from this file.
-2. **Include** - engine enumerates on disk via `Pulumi.yaml` +
-   `Pulumi.<stack>.yaml` files.
+2. **Include** - engine enumerates on disk (pulumi: `Pulumi.yaml` +
+   `Pulumi.<stack>.yaml` files; terraform/tofu: root-module dirs +
+   workspaces).
 3. **Exclude** - `filters.exclude` drops entries.
 4. **Resolve** - engine validates each remaining stack.
 5. **Map to changes** - drop skippable files, match the rest to stacks by path

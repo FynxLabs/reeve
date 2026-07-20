@@ -9,7 +9,12 @@ same bucket. Different trigger (scheduled), different urgency model
 
 A drift check asks: *"does the real infrastructure match the state the
 last apply wrote?"* For Pulumi, that's `preview --expect-no-changes` with
-`refresh` on first. Any non-zero change count on a stack means drift.
+`refresh` on first. For Terraform and OpenTofu, it's
+`plan -refresh-only -detailed-exitcode`: the refresh-only plan compares
+state against live infrastructure without writing state (the drifted
+resources come from the plan's `resource_drift`, so
+`refresh_before_check` needs no separate refresh step). Any non-zero
+change count on a stack means drift.
 
 reeve classifies each check into one of four events based on the prior
 state file:

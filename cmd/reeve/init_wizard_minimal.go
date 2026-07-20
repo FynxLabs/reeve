@@ -16,6 +16,6 @@ import (
 )
 
 // runInitWizard is unavailable in minimal builds.
-func runInitWizard(_ []discovery.Declaration) (scaffold.Options, error) {
+func runInitWizard(_ string, _ map[string][]discovery.Declaration) (scaffold.Options, error) {
 	return scaffold.Options{}, errors.New("interactive init is not available in this build; use --non-interactive")
 }

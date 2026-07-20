@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/thefynx/reeve/internal/config/scaffold"
 	"github.com/thefynx/reeve/internal/core/discovery"
 	"github.com/thefynx/reeve/internal/iac/pulumi"
+	"github.com/thefynx/reeve/internal/iac/terraform"
 )
 
 // stdinIsTTY reports whether stdin is an interactive terminal. Package var so
@@ -33,11 +33,13 @@ func newInitCmd() *cobra.Command {
 		Short: "Scaffold .reeve/ configuration for this repository",
 		Long: `Scaffold a .reeve/ configuration directory with sane defaults.
 
-reeve init inspects the repository, discovers Pulumi stacks (the same scan
-as ` + "`reeve stacks discover`" + `), and writes strict-loader-clean YAML:
+reeve init inspects the repository, discovers Pulumi stacks and Terraform
+root modules (the same scan as ` + "`reeve stacks discover`" + `), and writes
+strict-loader-clean YAML:
 
   .reeve/shared.yaml         bucket, approvals, preconditions, apply gates
-  .reeve/pulumi.yaml         engine config + discovered stack declarations
+  .reeve/<engine>.yaml       engine config + discovered stack declarations
+                             (pulumi.yaml, terraform.yaml, or tofu.yaml)
   .reeve/notifications.yaml  only when a Slack channel is configured
 
 Modes:
@@ -50,8 +52,10 @@ Modes:
 
   --non-interactive / -n (auto-selected when stdin is not a terminal, and
   the only mode in minimal builds): zero prompts. The engine is detected
-  from repo files (Pulumi.yaml -> pulumi), stacks are scanned and
-  pre-filled, and a safe baseline is written with every optional gate off.
+  from repo files (Pulumi.yaml -> pulumi, root-module *.tf -> terraform;
+  OpenTofu is never auto-picked - select it in the wizard or set
+  engine.type: tofu), stacks are scanned and pre-filled, and a safe
+  baseline is written with every optional gate off.
 
 Idempotency: an existing .reeve/ is never clobbered - init fills in only
 the missing config types and leaves existing files untouched. Use --force
@@ -82,15 +86,24 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Stack scan: filesystem walk for Pulumi.yaml projects (no pulumi binary
-	// needed), clustered into suggested declarations - the same path as
-	// `reeve stacks discover --write`.
-	enum, scanErr := pulumi.New("").EnumerateStacks(context.Background(), root)
+	// Stack scan: filesystem walks for Pulumi.yaml projects and terraform
+	// root modules (no engine binaries needed), clustered into suggested
+	// declarations - the same path as `reeve stacks discover --write`.
+	pulumiEnum, scanErr := pulumi.New("").EnumerateStacks(context.Background(), root)
 	if scanErr != nil {
-		fmt.Fprintf(w, "warning: stack scan failed (%v); continuing with an empty stacks: block\n", scanErr)
+		fmt.Fprintf(w, "warning: pulumi stack scan failed (%v); continuing with an empty stacks: block\n", scanErr)
 	}
-	decls := discovery.Cluster(enum)
-	printDiscoveredStacks(w, enum, decls)
+	tfEnum, tfScanErr := terraform.ScanStacks(root)
+	if tfScanErr != nil {
+		fmt.Fprintf(w, "warning: terraform root-module scan failed (%v); continuing with an empty stacks: block\n", tfScanErr)
+	}
+	declsByEngine := map[string][]discovery.Declaration{
+		"pulumi":    discovery.Cluster(pulumiEnum),
+		"terraform": discovery.Cluster(tfEnum),
+		"tofu":      discovery.Cluster(tfEnum), // OpenTofu shares the terraform layout
+	}
+	printDiscoveredStacks(w, "Pulumi", pulumiEnum, declsByEngine["pulumi"])
+	printDiscoveredStacks(w, "Terraform", tfEnum, declsByEngine["terraform"])
 
 	var opts scaffold.Options
 	if interactive {
@@ -98,12 +111,13 @@ func runInit(cmd *cobra.Command, _ []string) error {
 			fmt.Fprintf(w, "Existing .reeve/ config found (%s): only missing config types will be written; use --force to regenerate.\n\n",
 				strings.Join(existingSummary(existing), ", "))
 		}
-		opts, err = runInitWizard(decls)
+		opts, err = runInitWizard(suggestEngine(pulumiEnum, tfEnum), declsByEngine)
 		if err != nil {
 			return err
 		}
 	} else {
-		opts = scaffold.Options{EngineType: detectEngine(w, root, enum), Stacks: decls}
+		engine := detectEngine(w, pulumiEnum, tfEnum)
+		opts = scaffold.Options{EngineType: engine, Stacks: declsByEngine[engine]}
 	}
 
 	files, err := scaffold.Render(opts)
@@ -139,44 +153,31 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// detectEngine picks the engine for non-interactive mode from repo files.
-// Pulumi.yaml projects -> pulumi. Terraform files draw a heads-up (the
-// engine is not implemented yet) but still scaffold pulumi config, the only
-// engine reeve can run today.
-func detectEngine(w io.Writer, root string, enum []discovery.Stack) string {
-	if len(enum) > 0 {
+// detectEngine picks the engine for non-interactive mode from repo files:
+// Pulumi.yaml projects -> pulumi, terraform root modules -> terraform.
+// OpenTofu is never auto-picked: the tofu CLI consumes the same *.tf files,
+// so choosing it is always an explicit user decision (wizard selection or
+// engine.type: tofu).
+func detectEngine(w io.Writer, pulumiEnum, tfEnum []discovery.Stack) string {
+	switch {
+	case len(pulumiEnum) > 0:
+		return "pulumi"
+	case len(tfEnum) > 0:
+		fmt.Fprintln(w, "note: terraform root modules detected - scaffolding terraform engine config (OpenTofu users: set engine.type: tofu, or pick it in the interactive wizard).")
+		return "terraform"
+	default:
+		fmt.Fprintln(w, "note: no Pulumi projects or Terraform root modules found - writing an empty stacks: block; re-run `reeve stacks discover --write` once projects exist.")
 		return "pulumi"
 	}
-	if hasTerraformFiles(root) {
-		fmt.Fprintln(w, "note: Terraform files detected, but terraform support is coming soon - scaffolding pulumi engine config (the only engine reeve can run today).")
-	} else {
-		fmt.Fprintln(w, "note: no Pulumi projects found - writing an empty stacks: block; re-run `reeve stacks discover --write` once projects exist.")
-	}
-	return "pulumi"
 }
 
-// hasTerraformFiles reports whether any *.tf file exists under root,
-// skipping the usual noise directories.
-func hasTerraformFiles(root string) bool {
-	found := false
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr // best-effort detection only
-		}
-		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "venv", ".venv", ".terraform":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(d.Name(), ".tf") {
-			found = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return found
+// suggestEngine is detectEngine without the console notes - the wizard's
+// pre-selected default.
+func suggestEngine(pulumiEnum, tfEnum []discovery.Stack) string {
+	if len(pulumiEnum) == 0 && len(tfEnum) > 0 {
+		return "terraform"
+	}
+	return "pulumi"
 }
 
 // writeScaffold writes the rendered files into dir, skipping any whose
@@ -224,11 +225,11 @@ func existingSummary(existing map[string]string) []string {
 	return out
 }
 
-func printDiscoveredStacks(w io.Writer, enum []discovery.Stack, decls []discovery.Declaration) {
+func printDiscoveredStacks(w io.Writer, label string, enum []discovery.Stack, decls []discovery.Declaration) {
 	if len(enum) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "Discovered %d Pulumi stack(s) -> %d stack config entr%s:\n", len(enum), len(decls), plural(len(decls), "y", "ies"))
+	fmt.Fprintf(w, "Discovered %d %s stack(s) -> %d stack config entr%s:\n", len(enum), label, len(decls), plural(len(decls), "y", "ies"))
 	for _, d := range decls {
 		if d.Pattern != "" {
 			fmt.Fprintf(w, "  pattern=%q stacks=%v\n", d.Pattern, d.Stacks)

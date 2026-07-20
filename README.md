@@ -4,8 +4,9 @@
 
 # reeve
 
-**PR-native, self-hosted GitOps orchestrator for Pulumi.** No control plane,
-no vendor backend, no telemetry, no account - you own everything.
+**PR-native, self-hosted GitOps orchestrator for Pulumi, Terraform, and
+OpenTofu.** No control plane, no vendor backend, no telemetry, no account -
+you own everything.
 
 > Named after the medieval reeve: an official empowered to enforce rules and
 > manage an estate on behalf of those who own it. A tool whose entire job is
@@ -18,7 +19,8 @@ no vendor backend, no telemetry, no account - you own everything.
 
 `reeve` is a single Go binary you drop into your CI. On a PR it:
 
-1. Runs `pulumi preview` for every stack touched by the changed files.
+1. Runs the engine's preview (`pulumi preview` / `terraform plan`) for
+   every stack touched by the changed files.
 2. Posts a single PR comment with per-stack change counts and a collapsible
    plan - edited in place on every push.
 3. Gates `/reeve apply` behind approvals, CODEOWNERS, required checks,
@@ -60,8 +62,9 @@ go build -o bin/reeve ./cmd/reeve
 ## Configure
 
 Scaffold `.reeve/` in your repo - `reeve init` discovers your Pulumi stacks
-and walks you through approvals, freeze windows, and notifications (use
-`--non-interactive` for a zero-prompt safe baseline):
+or Terraform root modules, lets you pick the engine (pulumi / terraform /
+OpenTofu), and walks you through approvals, freeze windows, and
+notifications (use `--non-interactive` for a zero-prompt safe baseline):
 
 ```bash
 reeve init
@@ -91,7 +94,7 @@ preconditions:
 version: 1
 config_type: engine
 engine:
-  type: pulumi
+  type: pulumi               # or terraform / tofu
   stacks:
     - pattern: "projects/*"
       stacks: [dev, staging, prod]
@@ -174,7 +177,7 @@ flowchart TB
   subgraph CI["CI Runner (GitHub Actions)"]
     subgraph Reeve["reeve (binary)"]
       Core["<b>Pure Core</b><br/>stack discovery · rule resolver · lock FSM<br/>precondition eval · comment render · redact"]
-      Core --> IaC["IaC<br/><i>Pulumi</i>"]
+      Core --> IaC["IaC<br/><i>Pulumi / Terraform / OpenTofu</i>"]
       Core --> VCS["VCS<br/><i>GitHub</i>"]
       Core --> Blob["Blob<br/><i>S3 / GCS / Azure</i>"]
       Core --> Notify["Notify<br/><i>Slack</i>"]
@@ -184,7 +187,7 @@ flowchart TB
     end
   end
 
-  IaC --> PulumiCLI(["pulumi CLI"])
+  IaC --> PulumiCLI(["pulumi / terraform / tofu CLI"])
   VCS --> GitHubAPI(["GitHub API"])
   Blob --> Bucket[("user's bucket")]
   Notify --> SlackAPI(["Slack API"])

@@ -197,9 +197,38 @@ func TestRenderAllGatesOn(t *testing.T) {
 	}
 }
 
+// TestRenderTerraformAndTofu: each engine type renders its own
+// strict-loader-clean config file with the right type, binary, and
+// pre-filled stacks (workspace = stack model).
+func TestRenderTerraformAndTofu(t *testing.T) {
+	for _, engine := range []string{"terraform", "tofu"} {
+		cfg := loadRendered(t, Options{
+			EngineType: engine,
+			Stacks:     []discovery.Declaration{{Pattern: "envs/*", Stacks: []string{"default"}}},
+		})
+		if len(cfg.Engines) != 1 || cfg.Engines[0].Engine.Type != engine {
+			t.Fatalf("%s: want one %s engine, got %+v", engine, engine, cfg.Engines)
+		}
+		if got := cfg.Engines[0].Engine.Binary.Path; got != engine {
+			t.Errorf("%s: binary.path = %q, want %q", engine, got, engine)
+		}
+		if len(cfg.Engines[0].Engine.Stacks) != 1 {
+			t.Errorf("%s: stacks not pre-filled: %+v", engine, cfg.Engines[0].Engine.Stacks)
+		}
+
+		files, err := Render(Options{EngineType: engine})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if files[1].Name != engine+".yaml" {
+			t.Errorf("%s: engine file name = %q", engine, files[1].Name)
+		}
+	}
+}
+
 func TestOptionsValidateRejections(t *testing.T) {
 	cases := []Options{
-		{EngineType: "terraform"},
+		{EngineType: "cloudformation"},
 		{ApprovalMode: ApprovalApprovers}, // no approvers
 		{ApprovalMode: "bogus"},
 		{Freshness: "2 days"},
