@@ -10,10 +10,9 @@ branding:
 #   2. Cache miss -> try a prebuilt binary:
 #        @vX.Y.Z       -> that release's tarball, verified against the
 #                         release's checksums.txt (signed release pipeline).
-#        @master/@next -> the rolling edge-<branch> prerelease asset whose
-#                         name embeds this exact source hash, so the binary
-#                         provably matches the checked-out action source
-#                         (unsigned; published by edge-build.yml).
+#        @master/@next -> the newest <branch>-<sha> per-push prerelease
+#                         (unsigned; one release per commit, published by
+#                         edge-build.yml).
 #   3. Any other ref (SHA pins, branches, forks), or any download/verify
 #      failure -> build from source (~30s on the first miss), as before.
 
