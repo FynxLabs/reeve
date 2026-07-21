@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thefynx/reeve/internal/blob/filesystem"
-	"github.com/thefynx/reeve/internal/core/approvals"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/core/redact"
-	"github.com/thefynx/reeve/internal/core/summary"
-	"github.com/thefynx/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/blob/filesystem"
+	"github.com/FynxLabs/reeve/internal/core/approvals"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/core/redact"
+	"github.com/FynxLabs/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/iac"
 )
 
 // enumeratingEngine reports fixed stacks, all drifted.

@@ -10,12 +10,12 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
-	authfac "github.com/thefynx/reeve/internal/auth/factory"
-	"github.com/thefynx/reeve/internal/config"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/drift"
-	"github.com/thefynx/reeve/internal/iac"
-	"github.com/thefynx/reeve/internal/vcs/codeowners"
+	authfac "github.com/FynxLabs/reeve/internal/auth/factory"
+	"github.com/FynxLabs/reeve/internal/config"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/drift"
+	"github.com/FynxLabs/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/vcs/codeowners"
 )
 
 func newLintCmd() *cobra.Command {

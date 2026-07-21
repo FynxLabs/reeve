@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thefynx/reeve/internal/blob"
-	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
 )
 
 func TestOpenFilesystemEndToEnd(t *testing.T) {

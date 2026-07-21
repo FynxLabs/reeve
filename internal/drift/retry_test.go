@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/core/redact"
-	"github.com/thefynx/reeve/internal/core/summary"
-	"github.com/thefynx/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/core/redact"
+	"github.com/FynxLabs/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/iac"
 )
 
 func TestClassifyDriftErrorTaxonomy(t *testing.T) {

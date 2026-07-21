@@ -5,10 +5,10 @@
 package all
 
 import (
-	_ "github.com/thefynx/reeve/internal/notify/channels/github_issue"
-	_ "github.com/thefynx/reeve/internal/notify/channels/otel"
-	_ "github.com/thefynx/reeve/internal/notify/channels/pagerduty"
-	_ "github.com/thefynx/reeve/internal/notify/channels/slack"
-	_ "github.com/thefynx/reeve/internal/notify/channels/timeline"
-	_ "github.com/thefynx/reeve/internal/notify/channels/webhook"
+	_ "github.com/FynxLabs/reeve/internal/notify/channels/github_issue"
+	_ "github.com/FynxLabs/reeve/internal/notify/channels/otel"
+	_ "github.com/FynxLabs/reeve/internal/notify/channels/pagerduty"
+	_ "github.com/FynxLabs/reeve/internal/notify/channels/slack"
+	_ "github.com/FynxLabs/reeve/internal/notify/channels/timeline"
+	_ "github.com/FynxLabs/reeve/internal/notify/channels/webhook"
 )

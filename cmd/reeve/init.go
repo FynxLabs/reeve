@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/thefynx/reeve/internal/config"
-	"github.com/thefynx/reeve/internal/config/scaffold"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/iac/pulumi"
-	"github.com/thefynx/reeve/internal/iac/terraform"
+	"github.com/FynxLabs/reeve/internal/config"
+	"github.com/FynxLabs/reeve/internal/config/scaffold"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/iac/pulumi"
+	"github.com/FynxLabs/reeve/internal/iac/terraform"
 )
 
 // stdinIsTTY reports whether stdin is an interactive terminal. Package var so

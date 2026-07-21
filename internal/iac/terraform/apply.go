@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/core/summary"
-	"github.com/thefynx/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/iac"
 )
 
 // Apply runs the saved-plan lifecycle for one stack:

@@ -10,14 +10,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/thefynx/reeve/internal/auth"
-	"github.com/thefynx/reeve/internal/auth/providers/awsoidc"
-	"github.com/thefynx/reeve/internal/auth/providers/azurefed"
-	"github.com/thefynx/reeve/internal/auth/providers/gcpwif"
-	"github.com/thefynx/reeve/internal/auth/providers/githubapp"
-	"github.com/thefynx/reeve/internal/auth/providers/local"
-	"github.com/thefynx/reeve/internal/auth/providers/secrets"
-	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/auth"
+	"github.com/FynxLabs/reeve/internal/auth/providers/awsoidc"
+	"github.com/FynxLabs/reeve/internal/auth/providers/azurefed"
+	"github.com/FynxLabs/reeve/internal/auth/providers/gcpwif"
+	"github.com/FynxLabs/reeve/internal/auth/providers/githubapp"
+	"github.com/FynxLabs/reeve/internal/auth/providers/local"
+	"github.com/FynxLabs/reeve/internal/auth/providers/secrets"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
 )
 
 // Build returns a ready Registry for the given auth config. Each provider

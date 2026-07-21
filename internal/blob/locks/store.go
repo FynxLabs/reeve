@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/thefynx/reeve/internal/blob"
-	corelocks "github.com/thefynx/reeve/internal/core/locks"
+	"github.com/FynxLabs/reeve/internal/blob"
+	corelocks "github.com/FynxLabs/reeve/internal/core/locks"
 )
 
 // Store wraps a blob.Store with lock-specific key conventions.

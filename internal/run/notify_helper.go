@@ -9,10 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/thefynx/reeve/internal/blob"
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/core/summary"
-	"github.com/thefynx/reeve/internal/notify"
+	"github.com/FynxLabs/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/notify"
 )
 
 // PulumiLogin runs `pulumi login <backendURL>` if a backend URL is configured.

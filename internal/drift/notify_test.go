@@ -3,9 +3,9 @@ package drift
 import (
 	"testing"
 
-	"github.com/thefynx/reeve/internal/core/summary"
-	"github.com/thefynx/reeve/internal/iac"
-	"github.com/thefynx/reeve/internal/notify"
+	"github.com/FynxLabs/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/notify"
 )
 
 func TestNotifyPayloadsMapsItemsAndSkipsSilent(t *testing.T) {

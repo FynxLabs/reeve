@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thefynx/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/blob"
 )
 
 func TestPutGet(t *testing.T) {

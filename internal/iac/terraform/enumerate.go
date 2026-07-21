@@ -13,7 +13,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
-	"github.com/thefynx/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
 )
 
 const defaultWorkspace = "default"

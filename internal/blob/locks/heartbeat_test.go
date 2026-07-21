@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thefynx/reeve/internal/blob/filesystem"
-	corelocks "github.com/thefynx/reeve/internal/core/locks"
+	"github.com/FynxLabs/reeve/internal/blob/filesystem"
+	corelocks "github.com/FynxLabs/reeve/internal/core/locks"
 )
 
 // TestHeartbeatKeepsLongApplyAlive drives an apply that outlives the lock

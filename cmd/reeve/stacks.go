@@ -7,10 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/thefynx/reeve/internal/config"
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/config"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/iac"
 )
 
 func newStacksCmd() *cobra.Command {

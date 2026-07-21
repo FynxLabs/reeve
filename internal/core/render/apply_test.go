@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thefynx/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/core/summary"
 )
 
 func TestApplyGolden_Mixed(t *testing.T) {

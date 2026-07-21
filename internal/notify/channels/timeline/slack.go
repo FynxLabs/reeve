@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/core/envref"
-	"github.com/thefynx/reeve/internal/notify"
-	slackchannel "github.com/thefynx/reeve/internal/notify/channels/slack"
-	slackapi "github.com/thefynx/reeve/internal/slack"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/core/envref"
+	"github.com/FynxLabs/reeve/internal/notify"
+	slackchannel "github.com/FynxLabs/reeve/internal/notify/channels/slack"
+	slackapi "github.com/FynxLabs/reeve/internal/slack"
 )
 
 func init() {

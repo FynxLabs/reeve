@@ -6,9 +6,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/thefynx/reeve/internal/blob"
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/observability/annotations"
+	"github.com/FynxLabs/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/observability/annotations"
 )
 
 // IssueClient is the narrow, consumer-defined VCS surface the github_issue

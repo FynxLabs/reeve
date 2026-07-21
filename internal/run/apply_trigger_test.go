@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thefynx/reeve/internal/audit"
-	"github.com/thefynx/reeve/internal/blob"
-	"github.com/thefynx/reeve/internal/blob/filesystem"
-	blocks "github.com/thefynx/reeve/internal/blob/locks"
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/core/approvals"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	corelocks "github.com/thefynx/reeve/internal/core/locks"
-	"github.com/thefynx/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/audit"
+	"github.com/FynxLabs/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/blob/filesystem"
+	blocks "github.com/FynxLabs/reeve/internal/blob/locks"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/core/approvals"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	corelocks "github.com/FynxLabs/reeve/internal/core/locks"
+	"github.com/FynxLabs/reeve/internal/core/summary"
 )
 
 // trigApplyInput builds a NON-break-glass apply input whose gates all pass

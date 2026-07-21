@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/thefynx/reeve/internal/auth"
+	"github.com/FynxLabs/reeve/internal/auth"
 )
 
 // Provider is a single gcp_wif provider instance.

@@ -13,7 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	azsecrets "github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
 
-	"github.com/thefynx/reeve/internal/auth"
+	"github.com/FynxLabs/reeve/internal/auth"
 )
 
 // GCPSecretManager reads a secret via the Google SDK-free REST API.

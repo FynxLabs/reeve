@@ -43,7 +43,7 @@ linters:
           - "**/internal/core/**/*.go"
           allow:
           - $gostd
-          - github.com/thefynx/reeve/internal/core
+          - github.com/FynxLabs/reeve/internal/core
           deny:
           - pkg: github.com/aws
             desc: "internal/core must be pure - move adapter code out of core/"

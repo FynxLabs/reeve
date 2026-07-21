@@ -3,8 +3,8 @@ package pulumi
 import (
 	"testing"
 
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/iac"
 )
 
 // TestRegistryResolvesPulumi exercises the init() self-registration: the
