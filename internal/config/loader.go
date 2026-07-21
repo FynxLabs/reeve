@@ -13,6 +13,7 @@ import (
 
 	"github.com/thefynx/reeve/internal/config/schemas"
 	"github.com/thefynx/reeve/internal/core/approvals"
+	"github.com/thefynx/reeve/internal/notify"
 )
 
 // Config is the loaded, validated set of .reeve/*.yaml files.
@@ -308,6 +309,10 @@ func (c *Config) validateChannels() error {
 			if len(s.On) == 0 && !channelDefaultsSubscriptions(s.Type) {
 				slog.Warn("notification channel subscribes to no events and will never fire; set on:",
 					"file", file, "channel", s.EffectiveName(), "type", s.Type)
+			}
+			if !notify.IsValidGroupingMode(s.Grouping) {
+				return fmt.Errorf("%s: channel %q: unknown grouping %q (valid: %s)",
+					file, s.EffectiveName(), s.Grouping, strings.Join(notify.ValidGroupingModes, ", "))
 			}
 		}
 		return nil

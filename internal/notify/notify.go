@@ -101,6 +101,14 @@ type Payload struct {
 	Event Event
 	Drift *DriftPayload
 	PR    *PRPayload
+	// Group, when non-empty, lists every drift member batched into this single
+	// delivery by channel grouping (see GroupPayloads). It always includes the
+	// member Drift points at, so a grouping-unaware channel that only reads
+	// Drift still renders a valid (if un-batched) message. GroupKey identifies
+	// the group (the environment for by_environment) for stateful channels that
+	// keep one record per group. Empty Group == an ordinary per-stack delivery.
+	Group    []DriftPayload
+	GroupKey string
 }
 
 // DriftPayload is one stack's drift-check outcome, flattened from

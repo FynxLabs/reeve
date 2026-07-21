@@ -122,6 +122,37 @@ func TestResolvedClosesIssue(t *testing.T) {
 	}
 }
 
+func TestGroupedIssuePerEnvironment(t *testing.T) {
+	f := &fakeIssues{byMarker: map[string]int{}}
+	s, err := New(context.Background(), schemas.ChannelYAML{
+		Type: "github_issue", On: []string{"drift_detected"},
+		Grouping: notify.GroupingByEnvironment,
+	}, notify.Deps{Issues: f})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Deliver(context.Background(), notify.Payload{
+		Event: notify.EventDriftDetected, GroupKey: "prod",
+		Drift: &notify.DriftPayload{Project: "net", Stack: "a", Env: "prod", RunID: "drift-1"},
+		Group: []notify.DriftPayload{
+			{Project: "net", Stack: "a", Env: "prod", Change: 1, RunID: "drift-1"},
+			{Project: "net", Stack: "c", Env: "prod", Add: 2, RunID: "drift-1"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.created) != 1 || f.created[0] != "drift: prod (2 stacks)" {
+		t.Fatalf("grouped issue title: %v", f.created)
+	}
+	if !strings.Contains(f.lastBody, "<!-- reeve:drift:group:prod -->") {
+		t.Fatalf("group marker missing: %q", f.lastBody)
+	}
+	if !strings.Contains(f.lastBody, "`net/a`") || !strings.Contains(f.lastBody, "`net/c`") {
+		t.Fatalf("grouped issue must list both stacks: %q", f.lastBody)
+	}
+}
+
 func TestPRPayloadIsNoOp(t *testing.T) {
 	f := &fakeIssues{byMarker: map[string]int{}}
 	s := newChannel(t, f)

@@ -74,6 +74,42 @@ func TestDriftWireFormatUnchanged(t *testing.T) {
 	}
 }
 
+func TestGroupedDriftWireFormat(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := build(t, schemas.ChannelYAML{
+		Type: "webhook", URL: srv.URL, On: []string{"drift_detected"},
+		Grouping: notify.GroupingByEnvironment,
+	})
+	err := s.Deliver(context.Background(), notify.Payload{
+		Event: notify.EventDriftDetected, GroupKey: "prod",
+		Drift: &notify.DriftPayload{Project: "net", Stack: "a", Env: "prod", RunID: "drift-9"},
+		Group: []notify.DriftPayload{
+			{Project: "net", Stack: "a", Env: "prod", Change: 1, RunID: "drift-9"},
+			{Project: "net", Stack: "c", Env: "prod", Add: 2, RunID: "drift-9"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["event"] != "drift_detected" || got["group"] != "prod" || got["run_id"] != "drift-9" {
+		t.Fatalf("grouped payload: %v", got)
+	}
+	stacks, ok := got["stacks"].([]any)
+	if !ok || len(stacks) != 2 {
+		t.Fatalf("grouped payload must carry 2 stacks, got %v", got["stacks"])
+	}
+}
+
 func TestPRPayloadShape(t *testing.T) {
 	var body []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

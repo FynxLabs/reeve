@@ -25,6 +25,7 @@ type Channel struct {
 	labels    []string
 	assignees []string
 	events    []notify.Event
+	grouping  string
 }
 
 // New is the registered constructor. Without an issue client (no GitHub
@@ -42,16 +43,24 @@ func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.C
 		// A check_failed subscription implies check_recovered: the issue a
 		// failed check opens must close when the check heals, even if the
 		// config predates the recovery event.
-		events: notify.WithImpliedEvents(notify.ParseEvents(cfg.On)),
+		events:   notify.WithImpliedEvents(notify.ParseEvents(cfg.On)),
+		grouping: cfg.Grouping,
 	}, nil
 }
 
 func (s *Channel) Name() string               { return s.name }
 func (s *Channel) Subscribes() []notify.Event { return s.events }
 
-// Deliver maintains two independent issues per stack, with distinct
-// markers so they never stomp each other:
-//   - "reeve:drift:<ref>":       drift_detected/ongoing open+update, drift_resolved closes
+// GroupingMode implements notify.Grouper: with by_environment the channel
+// manages one issue per environment (marker keyed by env) whose body lists
+// every drifted stack, instead of one issue per stack. check_failed is never
+// grouped (one incident per stack).
+func (s *Channel) GroupingMode() string { return s.grouping }
+
+// Deliver maintains independent issues, with distinct markers so they never
+// stomp each other:
+//   - "reeve:drift:<ref>" / "reeve:drift:group:<env>": drift_detected/ongoing
+//     open+update, drift_resolved closes
 //   - "reeve:drift-check:<ref>": check_failed opens, check_recovered closes
 //
 // Sharing one marker (the old behavior) let a check_failed blip overwrite
@@ -61,16 +70,26 @@ func (s *Channel) Deliver(ctx context.Context, p notify.Payload) error {
 	if p.Drift == nil {
 		return nil
 	}
-
-	marker := fmt.Sprintf("<!-- reeve:drift:%s -->", p.Drift.Ref())
-	title := fmt.Sprintf("drift: %s", p.Drift.Ref())
+	var marker, title, body string
 	closing := p.Event == notify.EventDriftResolved
-	if p.Event == notify.EventCheckFailed || p.Event == notify.EventCheckRecovered {
+	switch {
+	case p.Event == notify.EventCheckFailed || p.Event == notify.EventCheckRecovered:
+		// check_failed/check_recovered are never grouped (one incident per
+		// stack) and live on a separate marker so a check blip can't stomp a
+		// real drift issue.
 		marker = fmt.Sprintf("<!-- reeve:drift-check:%s -->", p.Drift.Ref())
 		title = fmt.Sprintf("drift check failed: %s", p.Drift.Ref())
+		body = marker + "\n\n" + renderBody(p)
 		closing = p.Event == notify.EventCheckRecovered
+	case len(p.Group) > 0:
+		marker = fmt.Sprintf("<!-- reeve:drift:group:%s -->", p.GroupKey)
+		title = fmt.Sprintf("drift: %s (%d stacks)", p.GroupKey, len(p.Group))
+		body = marker + "\n\n" + renderGroupBody(p)
+	default:
+		marker = fmt.Sprintf("<!-- reeve:drift:%s -->", p.Drift.Ref())
+		title = fmt.Sprintf("drift: %s", p.Drift.Ref())
+		body = marker + "\n\n" + renderBody(p)
 	}
-	body := marker + "\n\n" + renderBody(p)
 
 	number, found, err := s.issues.FindIssueByMarker(ctx, marker)
 	if err != nil {
@@ -117,5 +136,27 @@ func renderBody(p notify.Payload) string {
 		}
 	}
 	fmt.Fprintf(&b, "\n_run:_ `%s`\n", d.RunID)
+	return b.String()
+}
+
+// renderGroupBody renders one issue body covering every drifted stack in the
+// environment group, one section per stack.
+func renderGroupBody(p notify.Payload) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Drift detected in `%s` (%d stacks)\n\n", p.GroupKey, len(p.Group))
+	fmt.Fprintf(&b, "- **Event:** %s\n\n", p.Event)
+	runID := ""
+	for _, d := range p.Group {
+		if runID == "" {
+			runID = d.RunID
+		}
+		fmt.Fprintf(&b, "### `%s`\n\n", d.Ref())
+		fmt.Fprintf(&b, "- **Changes:** +%d ~%d -%d ±%d\n", d.Add, d.Change, d.Delete, d.Replace)
+		if d.PlanSummary != "" {
+			fmt.Fprintf(&b, "\n```\n%s\n```\n", d.PlanSummary)
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "_run:_ `%s`\n", runID)
 	return b.String()
 }

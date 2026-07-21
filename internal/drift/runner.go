@@ -48,6 +48,13 @@ type Options struct {
 	// RenotifyAfter enables flap damping for drift notifications (see
 	// dampNotification). Zero disables damping: every detection notifies.
 	RenotifyAfter time.Duration
+	// PerStackTimeout bounds a single stack's drift check attempt (wall clock).
+	// Zero disables the bound (the pre-existing behavior). A stack that overruns
+	// is classified as a check error (check_failed) with a timeout reason, and
+	// the engine process is freed via context cancellation; the run continues
+	// with the remaining stacks. A timeout is a run error, never a transient the
+	// retry logic should re-attempt.
+	PerStackTimeout time.Duration
 	// AuthResolver acquires creds per stack.
 	AuthResolver AuthResolver
 	// Parallel caps concurrent checks. Default 1.
@@ -361,10 +368,12 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		res      iac.PreviewResult
 		checkErr error
 		haveAuth bool
+		timedOut bool
 	)
 	retriesUsed, rebindUsed := 0, false
 	start := time.Now()
 	for {
+		timedOut = false
 		if opts.AuthResolver != nil && !haveAuth {
 			e, err := opts.AuthResolver(ctx, ref)
 			if err != nil {
@@ -377,15 +386,35 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 			}
 		}
 		if haveAuth || opts.AuthResolver == nil {
-			res, checkErr = opts.Engine.DriftCheck(ctx, s, iac.PreviewOpts{
+			// Per-stack timeout bounds THIS attempt on the wall clock, derived
+			// from the run context so a run-wide cancellation (SIGINT) still
+			// propagates. The engine honors ctx cancellation (SetupGracefulStop),
+			// so the deadline frees the engine process rather than leaking it.
+			checkCtx := ctx
+			var cancel context.CancelFunc
+			if opts.PerStackTimeout > 0 {
+				checkCtx, cancel = context.WithTimeout(ctx, opts.PerStackTimeout)
+			}
+			res, checkErr = opts.Engine.DriftCheck(checkCtx, s, iac.PreviewOpts{
 				Cwd: opts.RepoRoot + "/" + s.Path,
 				Env: env,
 			}, opts.RefreshFirst)
+			// A per-stack timeout is the deadline firing while the parent ctx is
+			// still live (distinguished from a run-wide cancellation). Computed
+			// before cancel() so checkCtx.Err() still reports the deadline.
+			timedOut = opts.PerStackTimeout > 0 &&
+				checkCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+			if cancel != nil {
+				cancel()
+			}
 		}
 
 		msg := failureText(res, checkErr)
 		if msg == "" {
 			break // check produced a verdict
+		}
+		if timedOut {
+			break // a timeout is NOT transient - never retry it
 		}
 		if retriesUsed >= opts.RetryOnTransientError || ctx.Err() != nil {
 			break
@@ -425,10 +454,17 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 	item.Counts.PlanSummary = opts.Redactor.Redact(res.PlanSummary)
 	item.Counts.FullPlan = opts.Redactor.Redact(res.FullPlan)
 
-	// A failed check (non-nil error, or an Error string) is NEVER "no drift".
-	// Treating an empty/failed result as no-drift would falsely resolve an
-	// active drift alert, so classify it as an error and fail closed.
+	// timedOut (tracked across the retry loop above) marks a per-stack timeout -
+	// the deadline firing while the parent ctx stayed live, distinct from a
+	// run-wide cancellation. It is a check error attributed to timeout_per_stack.
+
+	// A failed check (timeout, non-nil error, or an Error string) is NEVER "no
+	// drift". Treating an empty/failed result as no-drift would falsely resolve
+	// an active drift alert, so classify it as an error and fail closed.
 	switch {
+	case timedOut:
+		item.Outcome = OutcomeError
+		item.Error = fmt.Sprintf("stack check exceeded timeout_per_stack=%s", opts.PerStackTimeout)
 	case checkErr != nil || res.Error != "":
 		item.Outcome = OutcomeError
 		if res.Error != "" {

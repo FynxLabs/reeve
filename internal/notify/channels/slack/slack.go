@@ -20,14 +20,15 @@ func init() {
 
 // Channel delivers events as Slack messages.
 type Channel struct {
-	name    string
-	client  Client
-	channel string
-	events  []notify.Event
-	trigger schemas.SlackTrigger
-	icons   *schemas.SlackIcons
-	rules   []schemas.SlackNotifyRule
-	blob    blob.Store
+	name     string
+	client   Client
+	channel  string
+	events   []notify.Event
+	trigger  schemas.SlackTrigger
+	icons    *schemas.SlackIcons
+	rules    []schemas.SlackNotifyRule
+	blob     blob.Store
+	grouping string
 }
 
 // Client is the slack API surface the channel consumes; *slack.Client
@@ -56,19 +57,24 @@ func New(_ context.Context, cfg schemas.ChannelYAML, deps notify.Deps) (notify.C
 		events = defaultPREvents(cfg.Trigger)
 	}
 	return &Channel{
-		name:    cfg.EffectiveName(),
-		client:  slack.New(token),
-		channel: cfg.Channel,
-		events:  events,
-		trigger: cfg.Trigger,
-		icons:   cfg.Icons,
-		rules:   cfg.Rules,
-		blob:    deps.Blob,
+		name:     cfg.EffectiveName(),
+		client:   slack.New(token),
+		channel:  cfg.Channel,
+		events:   events,
+		trigger:  cfg.Trigger,
+		icons:    cfg.Icons,
+		rules:    cfg.Rules,
+		blob:     deps.Blob,
+		grouping: cfg.Grouping,
 	}, nil
 }
 
 func (s *Channel) Name() string               { return s.name }
 func (s *Channel) Subscribes() []notify.Event { return s.events }
+
+// GroupingMode implements notify.Grouper: drift alerts for this channel are
+// batched per the configured `grouping:` value (none | by_environment).
+func (s *Channel) GroupingMode() string { return s.grouping }
 
 // Deliver routes by producer: drift payloads post standalone messages,
 // PR payloads drive the per-PR message lifecycle.

@@ -190,6 +190,13 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 				opts.RenotifyAfter = d
 			}
 		}
+		if to := cfg.Drift.Behavior.TimeoutPerStack; to != "" {
+			d, perr := time.ParseDuration(to)
+			if perr != nil {
+				return fmt.Errorf("drift.yaml: behavior.timeout_per_stack %q: %w", to, perr)
+			}
+			opts.PerStackTimeout = d
+		}
 		if w := cfg.Drift.Freshness.Window; w != "" && (cfg.Drift.Freshness.Enabled || flagBool(cmd, "if-stale")) {
 			if d, err := time.ParseDuration(w); err == nil {
 				opts.FreshnessWindow = d
