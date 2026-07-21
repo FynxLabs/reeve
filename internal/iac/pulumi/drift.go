@@ -91,6 +91,7 @@ func (e *Engine) DriftCheck(ctx context.Context, stack discovery.Stack, opts iac
 				FullPlan:    stderr.String() + string(out),
 				Error:       diagErr,
 				DriftedURNs: driftedURNsFromJSON(out),
+				Resources:   driftResourcesFromJSON(out),
 			}, nil
 		}
 	}
@@ -142,4 +143,74 @@ func driftedURNsFromJSON(stdout []byte) []string {
 		}
 	}
 	return urns
+}
+
+// driftResourcesFromJSON converts changed preview steps into the normalized
+// iac.ResourceChange shape the drift runner filters over. Unchanged
+// (same/read) steps are excluded. Best-effort: nil on unparseable input.
+func driftResourcesFromJSON(stdout []byte) []iac.ResourceChange {
+	var p previewJSON
+	if err := json.Unmarshal(stdout, &p); err != nil {
+		return nil
+	}
+	var out []iac.ResourceChange
+	for _, s := range p.Steps {
+		op := normalizeOp(s.Op)
+		if op == "" {
+			continue
+		}
+		var paths []string
+		for path := range s.DetailedDiff {
+			paths = append(paths, path)
+		}
+		out = append(out, iac.ResourceChange{
+			Address:  s.URN,
+			Type:     fullType(s),
+			Op:       op,
+			Paths:    paths,
+			Category: pulumiCategory(op),
+		})
+	}
+	return out
+}
+
+// normalizeOp maps a Pulumi step op onto the drift runner's normalized verb
+// set (create | update | delete | replace). Unchanged/read steps map to "".
+func normalizeOp(op string) string {
+	switch op {
+	case "create", "import":
+		return "create"
+	case "update":
+		return "update"
+	case "delete":
+		return "delete"
+	case "replace", "create-replacement", "delete-replaced":
+		return "replace"
+	}
+	return ""
+}
+
+// pulumiCategory classifies a normalized op for treat_as_drift. After a
+// refresh, a program-declared resource that no longer exists in the cloud
+// surfaces as a create step (Pulumi wants to recreate it): that is an
+// orphaned-state drift. Everything else is a property/shape change.
+func pulumiCategory(op string) string {
+	if op == "create" {
+		return iac.DriftOrphaned
+	}
+	return iac.DriftChanged
+}
+
+// fullType returns the resource's full Pulumi type token
+// ("aws:ec2/instance:Instance"), preferring the step type and falling back
+// to the old/new state's type. This is what ignore_properties.resource_type
+// matches against (unlike shortType, which compresses for display).
+func fullType(s previewStep) string {
+	if s.Type != "" {
+		return s.Type
+	}
+	if s.NewState.Type != "" {
+		return s.NewState.Type
+	}
+	return s.OldState.Type
 }

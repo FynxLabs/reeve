@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/thefynx/reeve/internal/core/summary"
+	"github.com/thefynx/reeve/internal/iac"
 )
 
 // planJSON is the subset of `terraform show -json <planfile>` output we
@@ -138,6 +139,110 @@ func changedAddresses(changes []resourceChange) []string {
 			out = append(out, rc.Address)
 		}
 	}
+	return out
+}
+
+// driftResources converts a resource-change list into the normalized
+// iac.ResourceChange shape the drift runner filters over. No-op/read
+// entries are excluded. Property paths (dotted, for ignore_properties) are
+// computed for update/replace ops from the before/after attribute diff.
+func driftResources(changes []resourceChange) []iac.ResourceChange {
+	var out []iac.ResourceChange
+	for _, rc := range changes {
+		op := opOf(rc.Change.Actions)
+		if opPrefix(op) == "" {
+			continue
+		}
+		var paths []string
+		if op == opUpdate || op == opReplace {
+			paths = changedPaths(rc.Change.Before, rc.Change.After)
+		}
+		out = append(out, iac.ResourceChange{
+			Address:  rc.Address,
+			Type:     rc.Type,
+			Op:       op,
+			Paths:    paths,
+			Category: terraformCategory(op),
+		})
+	}
+	return out
+}
+
+// terraformCategory classifies a refresh-only drift op for treat_as_drift.
+// In `resource_drift`, a delete means the resource vanished from the cloud
+// while state still tracks it (orphaned); a create means the cloud has a
+// resource state does not (missing). Updates/replaces are property changes.
+func terraformCategory(op string) string {
+	switch op {
+	case opDelete:
+		return iac.DriftOrphaned
+	case opCreate:
+		return iac.DriftMissing
+	default:
+		return iac.DriftChanged
+	}
+}
+
+// changedPaths returns the dotted property paths whose scalar values differ
+// between before and after ("tags.LastScanned", "ingress[0].cidr"). Nested
+// maps and lists are walked recursively so ignore_properties can target a
+// single nested attribute. Mirrors the Pulumi detailedDiff path style.
+func changedPaths(before, after any) []string {
+	var out []string
+	var walk func(prefix string, b, a any)
+	walk = func(prefix string, b, a any) {
+		if reflect.DeepEqual(b, a) {
+			return
+		}
+		bm, bok := b.(map[string]any)
+		am, aok := a.(map[string]any)
+		if bok || aok {
+			seen := map[string]bool{}
+			for k := range bm {
+				seen[k] = true
+			}
+			for k := range am {
+				seen[k] = true
+			}
+			keys := make([]string, 0, len(seen))
+			for k := range seen {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				child := k
+				if prefix != "" {
+					child = prefix + "." + k
+				}
+				walk(child, bm[k], am[k])
+			}
+			return
+		}
+		bl, blok := b.([]any)
+		al, alok := a.([]any)
+		if blok || alok {
+			n := len(bl)
+			if len(al) > n {
+				n = len(al)
+			}
+			for i := 0; i < n; i++ {
+				var bv, av any
+				if i < len(bl) {
+					bv = bl[i]
+				}
+				if i < len(al) {
+					av = al[i]
+				}
+				walk(fmt.Sprintf("%s[%d]", prefix, i), bv, av)
+			}
+			return
+		}
+		// Scalar leaf that differs.
+		if prefix != "" {
+			out = append(out, prefix)
+		}
+	}
+	walk("", before, after)
 	return out
 }
 

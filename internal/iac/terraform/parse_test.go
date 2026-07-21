@@ -349,3 +349,37 @@ func TestMaskValueStructureMismatchFailsClosed(t *testing.T) {
 		t.Fatalf("expected full mask on structure mismatch, got %v", got)
 	}
 }
+
+func TestDriftResourcesAndChangedPaths(t *testing.T) {
+	changes := []resourceChange{
+		{
+			Address: "aws_instance.web",
+			Type:    "aws_instance",
+			Change: changeDetail{
+				Actions: []string{"update"},
+				Before:  map[string]any{"tags": map[string]any{"LastScanned": "old", "Name": "web"}},
+				After:   map[string]any{"tags": map[string]any{"LastScanned": "new", "Name": "web"}},
+			},
+		},
+		{
+			Address: "aws_s3_bucket.gone",
+			Type:    "aws_s3_bucket",
+			Change:  changeDetail{Actions: []string{"delete"}, Before: map[string]any{"id": "b"}, After: nil},
+		},
+		{
+			Address: "aws_vpc.noop",
+			Type:    "aws_vpc",
+			Change:  changeDetail{Actions: []string{"no-op"}},
+		},
+	}
+	got := driftResources(changes)
+	if len(got) != 2 {
+		t.Fatalf("no-op must be excluded; expected 2 resources, got %d", len(got))
+	}
+	if got[0].Op != "update" || len(got[0].Paths) != 1 || got[0].Paths[0] != "tags.LastScanned" {
+		t.Fatalf("nested changed path should be tags.LastScanned, got %+v", got[0])
+	}
+	if got[1].Op != "delete" || got[1].Category != "orphaned" {
+		t.Fatalf("a delete in resource_drift is orphaned-state drift, got %+v", got[1])
+	}
+}

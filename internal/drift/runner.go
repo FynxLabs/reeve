@@ -64,6 +64,18 @@ type Options struct {
 	// PROverlap is optional. If set, drifted stacks are annotated with
 	// open PRs touching their paths.
 	PROverlap PROverlapFinder
+	// RetryOnTransientError bounds how many times a per-stack check is retried
+	// on a transient failure (network error, expired credentials). Zero (the
+	// default) means no retries. Non-transient failures are never retried.
+	RetryOnTransientError int
+	// Classification filters engine diffs (ignore_properties / ignore_resources
+	// / treat_as_drift) before a stack is classified as drift. nil / empty
+	// leaves the engine's raw verdict untouched.
+	Classification *Classification
+	// PermanentSuppressions silence drift-lifecycle dispatch for matching
+	// stacks unconditionally. Matched stacks are still checked and their state
+	// persisted; check_failed is never suppressed.
+	PermanentSuppressions []PermanentSuppression
 	// Now is injectable for tests.
 	Now func() time.Time
 }
@@ -101,6 +113,7 @@ type Item struct {
 	Error          string
 	DurationMS     int64
 	Suppressed     bool
+	SuppressReason string
 	OverlappingPRs []OverlappingPR
 	// OngoingSince carries the persisted episode start (state.OngoingSince
 	// after classification) so run-level consumers (OTEL) don't have to
@@ -329,28 +342,85 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		return item, EventCheckFailed, false, ""
 	}
 
-	// Auth.
-	var env map[string]string
-	if opts.AuthResolver != nil {
-		var err error
-		env, err = opts.AuthResolver(ctx, ref)
-		if err != nil {
-			item.Outcome = OutcomeError
-			item.Error = opts.Redactor.Redact(err.Error())
-			item.NotifyEvent = EventCheckFailed
-			return item, EventCheckFailed, false, ""
+	// Permanent suppression (config-level, always-on): matched stacks are
+	// still checked and their state persisted, but their drift-lifecycle
+	// dispatch is silenced later. Resolved here so it can also flag the item.
+	permSup, permMatched := matchPermanentSuppression(opts.PermanentSuppressions, ref, now)
+	if permMatched {
+		item.Suppressed = true
+		item.SuppressReason = permSup.Reason
+	}
+
+	// Resolve auth and run the drift check, retrying transient failures
+	// (network errors, expired credentials) up to RetryOnTransientError
+	// times. Expired credentials trigger a single rebind (re-resolve auth);
+	// non-transient failures are never retried. Context cancellation between
+	// retries stops the loop.
+	var (
+		env      map[string]string
+		res      iac.PreviewResult
+		checkErr error
+		haveAuth bool
+	)
+	retriesUsed, rebindUsed := 0, false
+	start := time.Now()
+	for {
+		if opts.AuthResolver != nil && !haveAuth {
+			e, err := opts.AuthResolver(ctx, ref)
+			if err != nil {
+				res, checkErr = iac.PreviewResult{}, err
+			} else {
+				env, haveAuth = e, true
+				for _, v := range env {
+					opts.Redactor.AddSecret(v)
+				}
+			}
 		}
-		for _, v := range env {
-			opts.Redactor.AddSecret(v)
+		if haveAuth || opts.AuthResolver == nil {
+			res, checkErr = opts.Engine.DriftCheck(ctx, s, iac.PreviewOpts{
+				Cwd: opts.RepoRoot + "/" + s.Path,
+				Env: env,
+			}, opts.RefreshFirst)
+		}
+
+		msg := failureText(res, checkErr)
+		if msg == "" {
+			break // check produced a verdict
+		}
+		if retriesUsed >= opts.RetryOnTransientError || ctx.Err() != nil {
+			break
+		}
+		switch classifyDriftError(msg) {
+		case errTransientNetwork:
+			retriesUsed++
+			slog.Warn("drift: retrying after transient network error",
+				"stack", ref, "attempt", retriesUsed, "max", opts.RetryOnTransientError,
+				"error", opts.Redactor.Redact(msg))
+			continue
+		case errAuthExpired:
+			if rebindUsed {
+				break // already rebound once; expiry persists
+			}
+			rebindUsed, haveAuth = true, false
+			retriesUsed++
+			slog.Warn("drift: rebinding and retrying after expired credentials",
+				"stack", ref, "attempt", retriesUsed, "max", opts.RetryOnTransientError)
+			continue
+		}
+		break // non-transient failure
+	}
+	item.DurationMS = time.Since(start).Milliseconds()
+
+	// Filter drift noise (ignore_properties / ignore_resources /
+	// treat_as_drift) before classification. Only when the check succeeded and
+	// exposed a structured resource set; otherwise the raw verdict stands.
+	if checkErr == nil && res.Error == "" && !opts.Classification.empty() && len(res.Resources) > 0 {
+		if kept, removed := opts.Classification.filter(res.Resources); removed {
+			res.Resources = kept
+			res.Counts, res.DriftedURNs = applyCounts(kept)
 		}
 	}
 
-	start := time.Now()
-	res, checkErr := opts.Engine.DriftCheck(ctx, s, iac.PreviewOpts{
-		Cwd: opts.RepoRoot + "/" + s.Path,
-		Env: env,
-	}, opts.RefreshFirst)
-	item.DurationMS = time.Since(start).Milliseconds()
 	item.Counts = res
 	item.Counts.PlanSummary = opts.Redactor.Redact(res.PlanSummary)
 	item.Counts.FullPlan = opts.Redactor.Redact(res.FullPlan)
@@ -392,7 +462,7 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 		ev = EventNone
 	}
 	item.Event = ev
-	// Flap damping: decide what (if anything) actually goes to channels,
+	// Flap damping (#47): decide what (if anything) actually goes to channels,
 	// and stamp the notification time into the persisted state.
 	notifyEv, notified := dampNotification(prev, ev, now, opts.RenotifyAfter)
 	item.NotifyEvent = notifyEv
@@ -405,6 +475,12 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 	// all-clear even when the classification itself is silent.
 	item.CheckRecovered = prev.ConsecutiveErrors > 0 && item.Outcome != OutcomeError
 	item.OngoingSince = next.OngoingSince
+
+	// Persist state BEFORE applying permanent suppression (damping has already
+	// stamped next.LastNotifiedAt) so a suppressed stack's resolution is still
+	// tracked; then silence its drift-lifecycle dispatch. A failed check is
+	// never suppressed - suppressing drift you have accepted must not hide the
+	// checker itself breaking.
 	if opts.StateStore != nil {
 		if err := opts.StateStore.Save(ctx, next); err != nil {
 			// A lost save means the next run re-classifies from stale state
@@ -412,6 +488,16 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 			slog.Warn("drift: state save failed", "stack", ref, "err", err)
 		}
 	}
+	// Permanent-suppression silencing (#50). Two separate notification signals
+	// must both be quieted or a suppressed stack still notifies: the
+	// classification event ev (drives reports/exit_on/OTEL) AND the
+	// damping-produced NotifyEvent (drives channel dispatch). A check_failed is
+	// never silenced.
+	if permMatched && ev != EventCheckFailed {
+		ev = EventNone
+		item.NotifyEvent = EventNone
+	}
+	item.Event = ev
 	return item, ev, false, ""
 }
 
@@ -426,6 +512,19 @@ func prTouchesPath(pr OverlappingPR, path string) bool {
 		}
 	}
 	return false
+}
+
+// failureText returns the check's failure message, preferring the structured
+// PreviewResult.Error over a returned error. Empty means the check produced a
+// verdict (no failure).
+func failureText(res iac.PreviewResult, err error) string {
+	if res.Error != "" {
+		return res.Error
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // stackPath returns the filesystem path declared for a stack ref,

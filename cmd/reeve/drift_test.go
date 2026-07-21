@@ -233,3 +233,45 @@ func TestDriftExitError(t *testing.T) {
 		t.Fatalf("clean run must exit 0: %v", err)
 	}
 }
+
+func TestBuildClassificationTreatDefaultsTrue(t *testing.T) {
+	// Omitted treat_as_drift block must default both flags to true (the
+	// documented default: orphaned/missing count as drift).
+	c := buildClassification(schemas.DriftClassification{})
+	if !c.TreatOrphanedAsDrift || !c.TreatMissingAsDrift {
+		t.Fatalf("treat flags must default true when unset, got orphaned=%v missing=%v",
+			c.TreatOrphanedAsDrift, c.TreatMissingAsDrift)
+	}
+	// An explicit false opts out.
+	no := false
+	c = buildClassification(schemas.DriftClassification{
+		TreatAsDrift: schemas.TreatAsDrift{OrphanedState: &no},
+	})
+	if c.TreatOrphanedAsDrift {
+		t.Fatal("explicit orphaned_state:false must disable treating orphaned as drift")
+	}
+	if !c.TreatMissingAsDrift {
+		t.Fatal("missing_state left unset must stay true")
+	}
+}
+
+func TestBuildPermanentSuppressions(t *testing.T) {
+	sups := buildPermanentSuppressions([]schemas.SuppressionYAML{
+		{Stack: "prod/legacy", Reason: "vendor"},
+		{Stack: "prod/frozen", Until: "2099-01-01T00:00:00Z"},
+		{Stack: "prod/bad", Until: "not-a-date"}, // unparseable -> permanent
+		{Stack: ""},                              // dropped
+	})
+	if len(sups) != 3 {
+		t.Fatalf("expected 3 suppressions (empty stack dropped), got %d", len(sups))
+	}
+	if !sups[0].Until.IsZero() {
+		t.Fatal("omitted until must be permanent (zero)")
+	}
+	if sups[1].Until.IsZero() {
+		t.Fatal("valid RFC3339 until must parse")
+	}
+	if !sups[2].Until.IsZero() {
+		t.Fatal("unparseable until must fall back to permanent (zero), not drop the suppression")
+	}
+}

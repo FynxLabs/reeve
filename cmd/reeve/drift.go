@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -177,6 +178,9 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 	if cfg.Drift != nil {
 		opts.RefreshFirst = cfg.Drift.Behavior.RefreshBeforeCheck
 		opts.Parallel = cfg.Drift.Behavior.MaxParallelStacks
+		opts.RetryOnTransientError = cfg.Drift.Behavior.RetryOnTransientError
+		opts.Classification = buildClassification(cfg.Drift.Classification)
+		opts.PermanentSuppressions = buildPermanentSuppressions(cfg.Drift.PermanentSuppressions)
 		if cfg.Drift.Behavior.StateBootstrap.Mode != "" {
 			opts.BootstrapMode = cfg.Drift.Behavior.StateBootstrap.Mode
 		}
@@ -319,6 +323,49 @@ func driftExitError(cfg *config.Config, out *drift.RunOutput) error {
 		return nil
 	}
 	return fmt.Errorf("drift run exit condition met: %s", strings.Join(reasons, "; "))
+}
+
+// buildClassification maps the drift.yaml classification block onto the
+// runner's filter. treat_as_drift.orphaned_state / missing_state default to
+// true (a resource that has gone missing, or exists untracked, is drift);
+// only an explicit `false` opts that category out.
+func buildClassification(c schemas.DriftClassification) *drift.Classification {
+	out := &drift.Classification{
+		IgnoreResources:      c.IgnoreResources,
+		TreatOrphanedAsDrift: c.TreatAsDrift.OrphanedState == nil || *c.TreatAsDrift.OrphanedState,
+		TreatMissingAsDrift:  c.TreatAsDrift.MissingState == nil || *c.TreatAsDrift.MissingState,
+	}
+	for _, ip := range c.IgnoreProperties {
+		out.IgnoreProperties = append(out.IgnoreProperties, drift.IgnoreProperty{
+			ResourceType: ip.ResourceType,
+			Properties:   ip.Properties,
+		})
+	}
+	return out
+}
+
+// buildPermanentSuppressions maps drift.yaml permanent_suppressions onto the
+// runner. `until` is an optional RFC3339 expiry; omitted means permanent. An
+// unparseable `until` is treated as permanent (logged), never as "no
+// suppression", so a typo can't silently un-suppress accepted drift.
+func buildPermanentSuppressions(sups []schemas.SuppressionYAML) []drift.PermanentSuppression {
+	out := make([]drift.PermanentSuppression, 0, len(sups))
+	for _, s := range sups {
+		if s.Stack == "" {
+			continue
+		}
+		ps := drift.PermanentSuppression{Stack: s.Stack, Reason: s.Reason}
+		if s.Until != "" {
+			if t, err := time.Parse(time.RFC3339, s.Until); err == nil {
+				ps.Until = t
+			} else {
+				slog.Warn("drift: permanent suppression has an unparseable until (want RFC3339 date); treating as permanent",
+					"stack", s.Stack, "until", s.Until)
+			}
+		}
+		out = append(out, ps)
+	}
+	return out
 }
 
 func buildScope(cfg *config.Config, cmd *cobra.Command) (include, exclude []string, err error) {
