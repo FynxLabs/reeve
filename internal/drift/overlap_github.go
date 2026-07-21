@@ -3,7 +3,7 @@ package drift
 import (
 	"context"
 
-	"github.com/thefynx/reeve/internal/core/approvals"
+	"github.com/FynxLabs/reeve/internal/core/approvals"
 )
 
 // ghOverlap wraps *github.Client into a PROverlapFinder.

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/thefynx/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/blob"
 )
 
 // Store is the filesystem:// blob adapter. Atomic writes via tmpfile +

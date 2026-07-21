@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/thefynx/reeve/internal/blob/filesystem"
-	"github.com/thefynx/reeve/internal/notify"
+	"github.com/FynxLabs/reeve/internal/blob/filesystem"
+	"github.com/FynxLabs/reeve/internal/notify"
 )
 
 // flakyChannel fails deliveries while fail is true and records successes.

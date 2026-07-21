@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/thefynx/reeve/internal/notify"
-	"github.com/thefynx/reeve/internal/slack"
+	"github.com/FynxLabs/reeve/internal/notify"
+	"github.com/FynxLabs/reeve/internal/slack"
 )
 
 // deliverDrift posts one message per drift event (dashboard-style; drift

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/notify"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/notify"
 )
 
 func testServer(t *testing.T) (*httptest.Server, *[]map[string]any) {

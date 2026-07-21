@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/thefynx/reeve/internal/core/render"
-	"github.com/thefynx/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/core/render"
+	"github.com/FynxLabs/reeve/internal/core/summary"
 )
 
 // applyTimeline accumulates a single apply run's timeline and upserts it to

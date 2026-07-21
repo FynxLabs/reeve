@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/notify"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/notify"
 )
 
 func init() {

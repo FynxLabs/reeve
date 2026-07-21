@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thefynx/reeve/internal/config"
+	"github.com/FynxLabs/reeve/internal/config"
 )
 
 // fakeTTY overrides the injected TTY probe for one test.

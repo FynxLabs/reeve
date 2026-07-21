@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/thefynx/reeve/internal/notify"
-	slackapi "github.com/thefynx/reeve/internal/slack"
+	"github.com/FynxLabs/reeve/internal/notify"
+	slackapi "github.com/FynxLabs/reeve/internal/slack"
 )
 
 // Entry is one timeline line. It is also the JSON record persisted in the

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thefynx/reeve/internal/config"
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/drift"
+	"github.com/FynxLabs/reeve/internal/config"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/drift"
 )
 
 // driftRepo scaffolds a repo via init and chdirs into it.

@@ -7,21 +7,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thefynx/reeve/internal/audit"
-	"github.com/thefynx/reeve/internal/blob"
-	"github.com/thefynx/reeve/internal/blob/filesystem"
-	blocks "github.com/thefynx/reeve/internal/blob/locks"
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/core/approvals"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	corelocks "github.com/thefynx/reeve/internal/core/locks"
-	"github.com/thefynx/reeve/internal/core/summary"
-	"github.com/thefynx/reeve/internal/iac"
-	"github.com/thefynx/reeve/internal/vcs"
+	"github.com/FynxLabs/reeve/internal/audit"
+	"github.com/FynxLabs/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/blob/filesystem"
+	blocks "github.com/FynxLabs/reeve/internal/blob/locks"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/core/approvals"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	corelocks "github.com/FynxLabs/reeve/internal/core/locks"
+	"github.com/FynxLabs/reeve/internal/core/summary"
+	"github.com/FynxLabs/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/vcs"
 
 	// Register the timeline channels so the break_glass notify emission can be
 	// observed through a configured timeline_github channel.
-	_ "github.com/thefynx/reeve/internal/notify/channels/timeline"
+	_ "github.com/FynxLabs/reeve/internal/notify/channels/timeline"
 )
 
 // bgEngine is a fake applyEngine recording Apply invocations.

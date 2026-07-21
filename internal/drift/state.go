@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/thefynx/reeve/internal/blob"
+	"github.com/FynxLabs/reeve/internal/blob"
 )
 
 // Outcome classifies a single drift-check result.

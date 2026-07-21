@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/iac"
 )
 
 // Plan exit codes under -detailed-exitcode.

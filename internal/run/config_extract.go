@@ -5,13 +5,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/core/approvals"
-	"github.com/thefynx/reeve/internal/core/breakglass"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/core/freeze"
-	"github.com/thefynx/reeve/internal/core/preconditions"
-	"github.com/thefynx/reeve/internal/core/render"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/core/approvals"
+	"github.com/FynxLabs/reeve/internal/core/breakglass"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/core/freeze"
+	"github.com/FynxLabs/reeve/internal/core/preconditions"
+	"github.com/FynxLabs/reeve/internal/core/render"
 )
 
 // mappingNoticeFor returns a PR-comment banner explaining a non-normal

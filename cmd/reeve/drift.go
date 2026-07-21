@@ -13,17 +13,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/thefynx/reeve/internal/auth"
-	authfac "github.com/thefynx/reeve/internal/auth/factory"
-	"github.com/thefynx/reeve/internal/blob/factory"
-	"github.com/thefynx/reeve/internal/config"
-	"github.com/thefynx/reeve/internal/config/schemas"
-	"github.com/thefynx/reeve/internal/core/discovery"
-	"github.com/thefynx/reeve/internal/drift"
-	"github.com/thefynx/reeve/internal/iac"
-	"github.com/thefynx/reeve/internal/notify"
-	"github.com/thefynx/reeve/internal/run"
-	gh "github.com/thefynx/reeve/internal/vcs/github"
+	"github.com/FynxLabs/reeve/internal/auth"
+	authfac "github.com/FynxLabs/reeve/internal/auth/factory"
+	"github.com/FynxLabs/reeve/internal/blob/factory"
+	"github.com/FynxLabs/reeve/internal/config"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/core/discovery"
+	"github.com/FynxLabs/reeve/internal/drift"
+	"github.com/FynxLabs/reeve/internal/iac"
+	"github.com/FynxLabs/reeve/internal/notify"
+	"github.com/FynxLabs/reeve/internal/run"
+	gh "github.com/FynxLabs/reeve/internal/vcs/github"
 )
 
 func newDriftCmd() *cobra.Command {

@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/thefynx/reeve/internal/blob/factory"
-	"github.com/thefynx/reeve/internal/config"
-	"github.com/thefynx/reeve/internal/core/render"
-	gh "github.com/thefynx/reeve/internal/vcs/github"
+	"github.com/FynxLabs/reeve/internal/blob/factory"
+	"github.com/FynxLabs/reeve/internal/config"
+	"github.com/FynxLabs/reeve/internal/core/render"
+	gh "github.com/FynxLabs/reeve/internal/vcs/github"
 )
 
 func newHelpCmd() *cobra.Command {

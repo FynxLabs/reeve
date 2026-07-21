@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/thefynx/reeve/internal/blob/filesystem"
-	blocks "github.com/thefynx/reeve/internal/blob/locks"
-	corelocks "github.com/thefynx/reeve/internal/core/locks"
+	"github.com/FynxLabs/reeve/internal/blob/filesystem"
+	blocks "github.com/FynxLabs/reeve/internal/blob/locks"
+	corelocks "github.com/FynxLabs/reeve/internal/core/locks"
 )
 
 // lockRepo scaffolds a repo (via init) whose bucket is the local

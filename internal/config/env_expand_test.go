@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/thefynx/reeve/internal/config/schemas"
+	"github.com/FynxLabs/reeve/internal/config/schemas"
 )
 
 func TestExpandEnvDesignatedFields(t *testing.T) {
