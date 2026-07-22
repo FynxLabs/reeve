@@ -61,7 +61,7 @@ func TestEvaluateRequiredApprovals(t *testing.T) {
 func TestEvaluateDismissOnNewCommit(t *testing.T) {
 	rules := Rules{RequiredApprovals: 1, Approvers: []string{"alice"}, DismissOnNewCommit: true}
 	pr := PR{Number: 7, HeadSHA: "sha2"}
-	approvals := []Approval{{Approver: "alice", CommitSHA: "sha1"}}
+	approvals := []Approval{{Approver: "alice", CommitSHA: "sha1", Pinned: true}}
 	res := Evaluate(rules, approvals, pr, nil, "dave", evalNow)
 	if res.Satisfied {
 		t.Fatalf("expected unsatisfied after dismissal: %+v", res)
@@ -193,7 +193,7 @@ func TestEvaluateTeamWithCodeowners(t *testing.T) {
 	}
 	pr := PR{Number: 42, HeadSHA: headSHA, Author: "charlie"}
 	rawApprovals := []Approval{
-		{Approver: "alice", CommitSHA: headSHA, Source: "pr_review"},
+		{Approver: "alice", CommitSHA: headSHA, Source: "pr_review", Pinned: true},
 	}
 	codeowners := map[string][]string{
 		"infra/main.tf":  {"@acme/platform"},

@@ -20,7 +20,15 @@ type Approval struct {
 	Source      string // "pr_review" | "pr_comment" | ...
 	Approver    string // user login (no leading @)
 	SubmittedAt time.Time
-	CommitSHA   string // HEAD SHA at time of approval; used for dismissal
+	CommitSHA   string // the commit this approval is bound to; used for dismissal
+	// Pinned reports whether CommitSHA authoritatively identifies the approved
+	// commit. A pr_review is always pinned (GitHub records its commit_id). A
+	// pr_comment is pinned only when the commenter named the SHA explicitly
+	// (`/reeve approve <sha>`); a bare `/reeve approve` is unpinned, because the
+	// SHA that was HEAD when the comment was posted cannot be reconstructed
+	// from forgeable git timestamps. Evaluate dismisses unpinned approvals when
+	// dismiss_on_new_commit is enabled.
+	Pinned bool
 }
 
 // Source is a pluggable approval backend (v1: pr_review, pr_comment).
@@ -157,9 +165,15 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 	effective := make([]Approval, 0, len(approvals))
 	var stale []string
 	for _, a := range approvals {
-		if rules.DismissOnNewCommit && a.CommitSHA != "" && a.CommitSHA != pr.HeadSHA {
-			res.Trace = append(res.Trace, fmt.Sprintf("dismissed %s (approval on %s, HEAD is %s)", a.Approver, short(a.CommitSHA), short(pr.HeadSHA)))
-			continue
+		if rules.DismissOnNewCommit {
+			if !a.Pinned {
+				res.Trace = append(res.Trace, fmt.Sprintf("dismissed %s (approval not pinned to a commit; re-approve naming the SHA, e.g. `approve %s`)", a.Approver, short(pr.HeadSHA)))
+				continue
+			}
+			if a.CommitSHA != "" && a.CommitSHA != pr.HeadSHA {
+				res.Trace = append(res.Trace, fmt.Sprintf("dismissed %s (approval on %s, HEAD is %s)", a.Approver, short(a.CommitSHA), short(pr.HeadSHA)))
+				continue
+			}
 		}
 		if a.Approver == author {
 			res.Trace = append(res.Trace, fmt.Sprintf("ignored %s (self-approval)", a.Approver))

@@ -95,7 +95,7 @@ func TestEvaluate_CommentAuthorSelfApprovalIgnored(t *testing.T) {
 func TestEvaluate_DismissOnNewCommitAppliesToComments(t *testing.T) {
 	pr := PR{Number: 1, HeadSHA: "sha2", Author: "author", RepoPrivate: true}
 	rules := Rules{RequiredApprovals: 1, DismissOnNewCommit: true}
-	appr := []Approval{{Source: SourcePRComment, Approver: "reviewer", CommitSHA: "sha1", SubmittedAt: time.Now()}}
+	appr := []Approval{{Source: SourcePRComment, Approver: "reviewer", CommitSHA: "sha1", SubmittedAt: time.Now(), Pinned: true}}
 	res := Evaluate(rules, appr, pr, nil, pr.Author, time.Now())
 	if res.Satisfied {
 		t.Fatalf("comment approval on old commit must be dismissed under dismiss_on_new_commit; trace=%v", res.Trace)
@@ -105,5 +105,24 @@ func TestEvaluate_DismissOnNewCommitAppliesToComments(t *testing.T) {
 	res = Evaluate(rules, appr, pr, nil, pr.Author, time.Now())
 	if !res.Satisfied {
 		t.Fatalf("comment approval on current HEAD should count; trace=%v", res.Trace)
+	}
+}
+
+// An unpinned comment approval (a bare `/reeve approve` with no SHA) cannot be
+// trusted to identify the commit it approved, so dismiss_on_new_commit must
+// dismiss it - otherwise a stale approval survives an unreviewed push. With
+// dismiss_on_new_commit off, an unpinned approval still counts.
+func TestEvaluate_UnpinnedCommentApprovalDismissedOnNewCommit(t *testing.T) {
+	pr := PR{Number: 1, HeadSHA: "sha2", Author: "author", RepoPrivate: true}
+	appr := []Approval{{Source: SourcePRComment, Approver: "reviewer", CommitSHA: "sha2", SubmittedAt: time.Now(), Pinned: false}}
+
+	dismiss := Rules{RequiredApprovals: 1, DismissOnNewCommit: true}
+	if res := Evaluate(dismiss, appr, pr, nil, pr.Author, time.Now()); res.Satisfied {
+		t.Fatalf("unpinned comment approval must be dismissed under dismiss_on_new_commit; trace=%v", res.Trace)
+	}
+
+	keep := Rules{RequiredApprovals: 1, DismissOnNewCommit: false}
+	if res := Evaluate(keep, appr, pr, nil, pr.Author, time.Now()); !res.Satisfied {
+		t.Fatalf("unpinned comment approval should count when dismiss_on_new_commit is off; trace=%v", res.Trace)
 	}
 }

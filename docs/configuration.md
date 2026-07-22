@@ -303,9 +303,24 @@ only when every condition holds:
 - The commenter is not a bot and is **not the PR author** (the same non-author
   rule reviews follow — an author never self-approves).
 
-Comment approvals honor `dismiss_on_new_commit` (default on): each is stamped
-with the SHA that was HEAD when the comment was posted, so pushing a new commit
-invalidates it just like a stale review.
+**Commit binding under `dismiss_on_new_commit` (default on).** A PR review
+carries an authoritative commit id from GitHub, but a comment does not — and the
+SHA that was HEAD when a comment was posted *cannot* be reconstructed after the
+fact, because git committer timestamps are settable by whoever pushes (a commit
+can be backdated to appear older than an approval). So a comment approval is
+bound to a commit **only when the commenter names it**:
+
+- `/reeve approve <sha>` — pins the approval to `<sha>` (a 7+ character prefix of
+  the commit). If `<sha>` is the current HEAD the approval counts; once a new
+  commit lands it no longer matches HEAD and is dismissed, exactly like a stale
+  review. Re-approve the new HEAD to satisfy the gate again.
+- Bare `/reeve approve` (no SHA) — is **unpinned**. When `dismiss_on_new_commit`
+  is on (the default) an unpinned comment approval is **dismissed** (the rule
+  trace explains why and suggests re-approving with the SHA). When
+  `dismiss_on_new_commit` is `false`, a bare `/reeve approve` counts.
+
+reeve posts the current HEAD short-SHA in its PR comments, so approvers can copy
+`/reeve approve <sha>` directly.
 
 > Posting `/reeve approve` also refreshes the approved-state notification
 > (Slack "ready to apply"), mirroring the `pull_request_review` path. The
