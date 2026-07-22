@@ -114,6 +114,23 @@ touches `.reeve/*.yaml` or a CODEOWNERS file (`CODEOWNERS`,
 `.github/CODEOWNERS`, `docs/CODEOWNERS`), listing the touched paths. A
 self-add cannot happen quietly.
 
+> **Known and intentional.** Same-PR self-authorization is a deliberate
+> tradeoff: at 3am the responder who needs to act may be the only one who
+> can grant access, and blocking that would defeat the purpose of
+> break-glass. It is safe *because* it is loud — every self-add is flagged
+> and written to the immutable audit trail. This is a documented property,
+> not a gap.
+
+### Locking it down (`reject_self_authorization`)
+
+If your threat model prefers availability-loss over any chance of same-PR
+self-authorization, set `break_glass.reject_self_authorization: true`
+(default `false`). With it set, a PR that modifies its own authorizing files
+cannot authorize a break-glass apply *at all* — the run is denied before any
+source is evaluated, and the denial trace names the touched paths. Everything
+else about break-glass is unchanged. The default stays allow-and-audit; this
+is the opt-in for teams that want the harder guarantee.
+
 ## Audit trail
 
 Every break-glass run writes the standard write-once audit entry

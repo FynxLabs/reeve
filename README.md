@@ -51,8 +51,9 @@ Every arrow leaves your trust boundary. `reeve` holds nothing.
 Alpha. [v0.2.0](https://github.com/FynxLabs/reeve/releases/latest) is the
 current release: per-platform tarballs (linux/darwin, amd64/arm64) with a
 sha256 `checksums.txt` whose cosign keyless signature ships alongside as
-`checksums.txt.bundle`. Rolling unsigned `edge-<branch>` prerelease
-builds back the GitHub Action fast-path (see the pinning table below).
+`checksums.txt.bundle`. Per-push `<branch>-<sha>` prerelease builds (one per
+commit, cosign-signed) back the GitHub Action fast-path (see the pinning
+table below).
 The release pipeline also publishes a container image
 (`ghcr.io/fynxlabs/reeve`) and is wired to push a Homebrew cask to
 `FynxLabs/brew-tap`. Expect breaking config changes until 1.0 (`reeve
@@ -132,7 +133,7 @@ all of this only matters on a cache miss:
 | Pin                | Binary source                                                                                           |
 | ------------------ | ------------------------------------------------------------------------------------------------------- |
 | `@vX.Y.Z`          | Release tarball from that release, verified against its cosign-signed `checksums.txt`                   |
-| `@master` / `@next`| Rolling edge binary whose name embeds the exact source hash of the checked-out action source (unsigned) |
+| `@master` / `@next`| Newest per-push `<branch>-<sha>` prerelease binary, verified against its checksum and cosign signature (best-effort; set `REEVE_REQUIRE_SIGNATURE=1` to require it) |
 | anything else      | Built from source on the runner (SHA pins, feature branches, forks)                                     |
 
 Prebuilt paths save the ~30s+ Go toolchain setup + build on first runs. Any

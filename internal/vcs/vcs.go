@@ -6,15 +6,22 @@ package vcs
 
 // PR is the minimum normalized PR shape consumed across reeve.
 type PR struct {
-	Number   int
-	HeadSHA  string
-	BaseRef  string
-	Title    string
-	Author   string
-	IsFork   bool
-	IsDraft  bool
-	OpenedAt string // RFC3339
-	URL      string
+	Number  int
+	HeadSHA string
+	BaseRef string
+	Title   string
+	Author  string
+	IsFork  bool
+	IsDraft bool
+	// RepoPrivate reports whether the base repository is private. It gates
+	// the approvals safety default: on a public repo any GitHub user can
+	// submit an approving review, so unlisted reviews are not counted
+	// unless explicitly opted in. Defaults false (public) when an adapter
+	// cannot determine visibility, which is the fail-closed (stricter)
+	// choice.
+	RepoPrivate bool
+	OpenedAt    string // RFC3339
+	URL         string
 }
 
 // CommentCapabilities describes optional VCS features. Capability detection

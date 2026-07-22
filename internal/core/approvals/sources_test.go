@@ -61,7 +61,7 @@ func TestMergeApprovals_Concatenates(t *testing.T) {
 // exactly once toward required_approvals.
 func TestEvaluate_DedupAcrossSources(t *testing.T) {
 	head := "sha1"
-	pr := PR{Number: 1, HeadSHA: head, Author: "author"}
+	pr := PR{Number: 1, HeadSHA: head, Author: "author", RepoPrivate: true}
 	one := 1
 	rules := Rules{RequiredApprovals: one}
 	merged := MergeApprovals(
@@ -93,7 +93,7 @@ func TestEvaluate_CommentAuthorSelfApprovalIgnored(t *testing.T) {
 // dismiss_on_new_commit invalidates a comment approval stamped with an older
 // commit, exactly as it does a stale review.
 func TestEvaluate_DismissOnNewCommitAppliesToComments(t *testing.T) {
-	pr := PR{Number: 1, HeadSHA: "sha2", Author: "author"}
+	pr := PR{Number: 1, HeadSHA: "sha2", Author: "author", RepoPrivate: true}
 	rules := Rules{RequiredApprovals: 1, DismissOnNewCommit: true}
 	appr := []Approval{{Source: SourcePRComment, Approver: "reviewer", CommitSHA: "sha1", SubmittedAt: time.Now()}}
 	res := Evaluate(rules, appr, pr, nil, pr.Author, time.Now())

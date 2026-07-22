@@ -58,8 +58,9 @@ func trigApplyInput(t *testing.T, engine *bgEngine, fv *bgVCS, mode, source stri
 func trigFixture() (*bgEngine, *bgVCS) {
 	engine := &bgEngine{enum: []discovery.Stack{{Project: "api", Path: "projects/api", Name: "prod", Env: "prod"}}}
 	fv := &bgVCS{
-		changed: []string{"projects/api/main.ts"},
-		headSHA: bgSHA,
+		changed:     []string{"projects/api/main.ts"},
+		headSHA:     bgSHA,
+		repoPrivate: true, // a single review approval only gates a private repo
 		approvalsList: []approvals.Approval{
 			{Source: "pr_review", Approver: "reviewer", CommitSHA: bgSHA},
 		},

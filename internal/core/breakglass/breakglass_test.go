@@ -279,3 +279,52 @@ func TestAuthorizingPathsTouched(t *testing.T) {
 		t.Fatal("unrelated changes must not flag")
 	}
 }
+
+func TestAuthorize_RejectSelfAuthorization(t *testing.T) {
+	// A source that would otherwise grant (internal_list) must be denied
+	// when reject_self_authorization is set and the PR touched an
+	// authorizing file.
+	cfg := Config{
+		Configured:              true,
+		InternalList:            []string{"alice"},
+		RejectSelfAuthorization: true,
+	}
+	touched := Inputs{
+		Actor:                   "alice",
+		AuthorizingPathsTouched: []string{".reeve/shared.yaml"},
+	}
+	d, err := Authorize(cfg, touched)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	if d.Authorized {
+		t.Fatalf("self-authorization must be denied when reject_self_authorization is set: %+v", d)
+	}
+	if len(d.Trace) == 0 || !strings.Contains(strings.Join(d.Trace, " "), "reject_self_authorization") {
+		t.Fatalf("denial trace should name reject_self_authorization: %v", d.Trace)
+	}
+
+	// Same actor, same config, but no authorizing file touched -> granted.
+	clean := Inputs{Actor: "alice"}
+	d, err = Authorize(cfg, clean)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	if !d.Authorized || d.Source != SourceInternalList {
+		t.Fatalf("clean PR should be authorized via internal_list: %+v", d)
+	}
+}
+
+func TestAuthorize_SelfAuthorizationAllowedByDefault(t *testing.T) {
+	// Default (RejectSelfAuthorization false): self-add is allowed by design
+	// and only audited by the caller.
+	cfg := Config{Configured: true, InternalList: []string{"alice"}}
+	in := Inputs{Actor: "alice", AuthorizingPathsTouched: []string{".reeve/shared.yaml"}}
+	d, err := Authorize(cfg, in)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	if !d.Authorized {
+		t.Fatalf("default behavior must still authorize self-add (flag-and-audit): %+v", d)
+	}
+}

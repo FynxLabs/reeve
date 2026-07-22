@@ -43,6 +43,14 @@ type Config struct {
 	// OverrideFreeze: break-glass also overrides freeze windows. Defaults
 	// to true when the block is configured but the key omitted.
 	OverrideFreeze bool
+
+	// RejectSelfAuthorization, when true, denies break-glass on any PR that
+	// modifies its own authorizing files (a .reeve config or CODEOWNERS).
+	// Authorization is otherwise head-resolved by design (an emergency
+	// responder may add themselves); this opt-in trades that availability
+	// for a hard fail-closed against same-PR self-authorization. Default
+	// false preserves the flag-and-audit behavior.
+	RejectSelfAuthorization bool
 }
 
 // HasSource reports whether at least one authorization source is configured.
@@ -61,6 +69,11 @@ type Inputs struct {
 	// TeamMembers maps "org/team" slugs to member logins, pre-expanded by
 	// the caller. Missing slugs fail closed (never match).
 	TeamMembers map[string][]string
+	// AuthorizingPathsTouched lists the authorizing files (.reeve config or
+	// CODEOWNERS) this PR modifies, as computed by AuthorizingPathsTouched.
+	// Consumed only when Config.RejectSelfAuthorization is set; otherwise
+	// the caller still records it in the audit trail.
+	AuthorizingPathsTouched []string
 }
 
 // Decision is the authorization outcome. Trace explains every source
@@ -112,6 +125,17 @@ func Authorize(cfg Config, in Inputs) (Decision, error) {
 	actor := strings.TrimPrefix(strings.TrimSpace(in.Actor), "@")
 	if actor == "" {
 		d.Trace = append(d.Trace, "denied: no actor identity supplied")
+		return d, nil
+	}
+
+	// Self-authorization lockdown (opt-in). A PR that changes its own
+	// authorizing files cannot authorize break-glass when this is set, no
+	// matter which source would otherwise grant - evaluated before any
+	// source so the denial is unambiguous.
+	if cfg.RejectSelfAuthorization && len(in.AuthorizingPathsTouched) > 0 {
+		d.Trace = append(d.Trace, fmt.Sprintf(
+			"denied: reject_self_authorization is set and this PR modifies authorizing files (%s); authorize from a PR that does not change break-glass config or CODEOWNERS",
+			strings.Join(in.AuthorizingPathsTouched, ", ")))
 		return d, nil
 	}
 

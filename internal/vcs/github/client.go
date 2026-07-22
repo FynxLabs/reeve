@@ -97,6 +97,12 @@ func (c *Client) GetPR(ctx context.Context, number int) (*vcs.PR, error) {
 	if pr.GetHead() != nil && pr.GetHead().GetRepo() != nil && pr.GetBase() != nil && pr.GetBase().GetRepo() != nil {
 		out.IsFork = pr.GetHead().GetRepo().GetFullName() != pr.GetBase().GetRepo().GetFullName()
 	}
+	// RepoPrivate: the base repo's visibility gates the approvals safety
+	// default. GetPrivate() is false for public (and unset) repos, which is
+	// the fail-closed (stricter) direction.
+	if pr.GetBase() != nil && pr.GetBase().GetRepo() != nil {
+		out.RepoPrivate = pr.GetBase().GetRepo().GetPrivate()
+	}
 	return out, nil
 }
 

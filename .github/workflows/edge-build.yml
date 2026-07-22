@@ -10,6 +10,11 @@ name: edge-build
 #
 # The <branch>-<sha> tags do NOT match the release workflow's v*.*.* trigger,
 # so publishing here never starts the goreleaser pipeline.
+#
+# Artifacts are signed: checksums.txt is cosign keyless-signed (Sigstore,
+# GH OIDC) and its bundle is published alongside, exactly like the release
+# workflow. The fast-path (fetch-binary.sh) verifies the bundle when cosign
+# is available, and REEVE_REQUIRE_SIGNATURE=1 makes verification mandatory.
 
 on:
   push:
@@ -18,12 +23,19 @@ on:
 
 permissions:
   contents: write
+  id-token: write # sigstore keyless signing
 
 jobs:
   edge:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Build and package (linux amd64 + arm64)
         run: |
@@ -41,11 +53,19 @@ jobs:
           (cd dist && sha256sum reeve_linux_*.tar.gz > checksums.txt)
           ls -l dist
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign checksums (keyless)
+        run: |
+          set -euo pipefail
+          # Keyless sign-blob over checksums.txt; the bundle carries the
+          # Sigstore certificate + transparency-log proof. Same scheme the
+          # release workflow uses for its checksums.
+          cosign sign-blob --yes \
+            --bundle dist/checksums.txt.bundle \
+            dist/checksums.txt
+          ls -l dist
 
       - name: Publish per-push prerelease
         env:
@@ -63,7 +83,7 @@ jobs:
               --title "reeve ${BRANCH} (${SHORTSHA})" \
               --target "$GITHUB_SHA" \
               --notes "$(cat <<EOF
-          Unsigned prebuilt binaries for commit \`${SHORTSHA}\` on \`${BRANCH}\`,
+          Prebuilt binaries for commit \`${SHORTSHA}\` on \`${BRANCH}\`,
           consumed by the reeve GitHub Action fast-path: a workflow pinned to
           this branch (\`@${BRANCH}\`) resolves the newest \`${BRANCH}-*\`
           prerelease, downloads the matching linux binary, verifies its
@@ -71,14 +91,19 @@ jobs:
           fails (edge build still running, unsupported arch), the action
           silently builds from source.
 
-          For signed, versioned distribution use the hand-cut \`vX.Y.Z\` releases.
+          \`checksums.txt\` is cosign keyless-signed; \`checksums.txt.bundle\`
+          carries the Sigstore certificate + transparency-log proof. The
+          fast-path verifies it when cosign is present, and
+          \`REEVE_REQUIRE_SIGNATURE=1\` makes verification mandatory. The
+          hand-cut \`vX.Y.Z\` releases remain the primary signed distribution.
           EOF
           )" || echo "release create failed (raced with a concurrent push?) - continuing"
           fi
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             dist/reeve_linux_amd64.tar.gz \
             dist/reeve_linux_arm64.tar.gz \
-            dist/checksums.txt
+            dist/checksums.txt \
+            dist/checksums.txt.bundle
 
       # Keep the newest N per-push prereleases for this branch and delete the
       # rest (release + its git tag). Keep-latest-N rather than keep-only-1

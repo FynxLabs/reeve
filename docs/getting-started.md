@@ -230,12 +230,14 @@ cache hit nothing is downloaded or built:
 
 - **`@vX.Y.Z`** - downloads that release's signed tarball and verifies it
   against the release's `checksums.txt`.
-- **`@master` / `@next`** - downloads a rolling *edge* binary from the
-  `edge-<branch>` prerelease. Edge assets are named with the sha256 hash of
-  the source they were built from; the action only uses one whose hash
-  matches the action source it just checked out, so the binary provably
-  corresponds to your pinned ref. Edge builds are unsigned (signed
-  distribution is the `vX.Y.Z` releases).
+- **`@master` / `@next`** - downloads the newest per-push `<branch>-<sha>`
+  prerelease (one is published per commit to that branch). The action verifies
+  the binary against the prerelease's `checksums.txt` and, when `cosign` is
+  available, its keyless signature (`checksums.txt.bundle`); set
+  `REEVE_REQUIRE_SIGNATURE=1` to make signature verification mandatory. Because
+  it resolves the *newest* prerelease, the binary may be built from a slightly
+  newer commit than the action source you pinned - the `vX.Y.Z` releases are
+  the reproducible, version-pinned distribution.
 - **Anything else** (a SHA pin, a feature branch, a fork) - builds from
   source on the runner, as does any download or checksum failure. Fallback
   is automatic and logged; a missing binary never fails your run.

@@ -63,7 +63,7 @@ new release, not as backports.
 | ------- | --------- |
 | 0.2.x (latest release) | Yes |
 | < 0.2 | No - upgrade |
-| `edge-*` prerelease builds | No - unsigned rolling builds; pin a release |
+| `<branch>-<sha>` edge prereleases | Not for production - signed but unversioned per-commit builds; pin a release |
 
 ## Supply-chain controls
 
@@ -72,7 +72,13 @@ new release, not as backports.
   `.github/workflows/release.yml`) signs the checksums file, publishing
   the signature as `checksums.txt.bundle`. Binaries are not individually
   signed - verify a tarball's sha256 against the signed `checksums.txt`.
-  Rolling `edge-<branch>` builds are unsigned.
+- **Edge signing.** The per-push `<branch>-<sha>` prereleases that back the
+  GitHub Action fast-path are cosign keyless-signed the same way
+  (`checksums.txt.bundle` alongside `checksums.txt`). The action verifies the
+  signature when `cosign` is available and rejects a signed-but-tampered
+  binary; `REEVE_REQUIRE_SIGNATURE=1` makes a valid signature mandatory. Edge
+  prereleases are unversioned and follow a branch - pin `@vX.Y.Z` for
+  reproducible, supported distribution.
 - **Vulnerability scanning on every PR:**
   - `govulncheck` - Go's reachability-aware vuln scanner against the
     official Go vulnerability database.

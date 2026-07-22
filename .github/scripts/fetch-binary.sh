@@ -63,6 +63,51 @@ verify_sha256() {
   fi
 }
 
+# verify_signature <checksums-file> <bundle-file>
+# Verifies the cosign keyless bundle over the checksums file. The checksum
+# already chains every artifact to this file, so signing it signs the set.
+# Default is best-effort: without cosign or a published bundle we proceed on
+# the checksum alone (so existing consumers are unaffected), but a bundle
+# that is PRESENT and fails to verify is always rejected. Set
+# REEVE_REQUIRE_SIGNATURE=1 to make a valid signature mandatory.
+verify_signature() {
+  local sums="$1" bundle="$2"
+  local require="${REEVE_REQUIRE_SIGNATURE:-}"
+  if ! command -v cosign > /dev/null 2>&1; then
+    if [[ "$require" == "1" ]]; then
+      echo "REEVE_REQUIRE_SIGNATURE=1 but cosign is not installed; cannot verify signature" >&2
+      return 1
+    fi
+    echo "cosign not installed; skipping signature check (checksum still enforced)" >&2
+    return 0
+  fi
+  if [[ ! -f "$bundle" ]]; then
+    if [[ "$require" == "1" ]]; then
+      echo "REEVE_REQUIRE_SIGNATURE=1 but this release published no signature bundle" >&2
+      return 1
+    fi
+    echo "no signature bundle for this release; skipping signature check" >&2
+    return 0
+  fi
+  # Keyless identity: any workflow in the source repo, GitHub's OIDC issuer.
+  local repo="${REEVE_REPO:-}" id_re
+  if [[ -n "$repo" ]]; then
+    id_re="^https://github.com/${repo}/\.github/workflows/.+@refs/(heads|tags)/.+$"
+  else
+    id_re="^https://github.com/.+/\.github/workflows/.+@refs/(heads|tags)/.+$"
+  fi
+  if cosign verify-blob \
+    --bundle "$bundle" \
+    --certificate-identity-regexp "$id_re" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+    "$sums" > /dev/null 2>&1; then
+    echo "signature verified (cosign keyless)"
+    return 0
+  fi
+  echo "signature verification FAILED for $(basename "$sums")" >&2
+  return 1
+}
+
 fetch_main() {
   local out="${GITHUB_OUTPUT:-/dev/stdout}"
   local ref="${REEVE_REF:-}" repo="${REEVE_REPO:-}"
@@ -110,7 +155,7 @@ fetch_main() {
       sums="checksums.txt"
       echo "Pinned release $ref: downloading $asset from $repo"
       if gh release download "$ref" --repo "$repo" \
-        --pattern "$asset" --pattern "$sums" --dir "$workdir"; then
+        --pattern "$asset" --pattern "$sums" --pattern "${sums}.bundle" --dir "$workdir"; then
         ok=true
       else
         echo "download failed (missing release/asset, or network error)" >&2
@@ -130,7 +175,7 @@ fetch_main() {
       else
         echo "Edge ref '$ref': newest prerelease is $tag; downloading $asset from $repo"
         if gh release download "$tag" --repo "$repo" \
-          --pattern "$asset" --pattern "$sums" --dir "$workdir"; then
+          --pattern "$asset" --pattern "$sums" --pattern "${sums}.bundle" --dir "$workdir"; then
           ok=true
         else
           echo "download failed for $tag (missing asset or network error)" >&2
@@ -141,6 +186,8 @@ fetch_main() {
 
   if [[ "$ok" == true ]]; then
     if ! verify_sha256 "$workdir/$asset" "$workdir/$sums"; then
+      ok=false
+    elif ! verify_signature "$workdir/$sums" "$workdir/${sums}.bundle"; then
       ok=false
     elif ! tar -xzf "$workdir/$asset" -C "$workdir" reeve; then
       echo "could not extract reeve from $asset" >&2
