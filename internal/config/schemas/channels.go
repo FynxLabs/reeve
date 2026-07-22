@@ -106,3 +106,26 @@ func IsValidChannelEvent(name string) bool {
 	}
 	return false
 }
+
+// ValidDriftChannelEvents is the subset a drift.yaml channel may subscribe to.
+// PR-flow events never fire in a drift run, so subscribing to them there is a
+// config error (notifications.yaml may still carry both PR-flow and drift
+// events; drift.yaml is drift-only).
+var ValidDriftChannelEvents = []string{
+	ChannelEventDriftDetected,
+	ChannelEventDriftOngoing,
+	ChannelEventDriftResolved,
+	ChannelEventCheckFailed,
+	ChannelEventCheckRecovered,
+}
+
+// IsValidDriftChannelEvent reports whether name is a valid drift.yaml `on:`
+// event.
+func IsValidDriftChannelEvent(name string) bool {
+	for _, e := range ValidDriftChannelEvents {
+		if e == name {
+			return true
+		}
+	}
+	return false
+}

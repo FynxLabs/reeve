@@ -52,7 +52,14 @@ func (c *Client) ListCommentApprovals(ctx context.Context, pr approvals.PR, cfg 
 // non-author rule, freshness, and dismissal are left to approvals.Evaluate.
 func commentApprovals(comments []*gh.IssueComment, commits []commitTime, prefixes []string, verb string, allowed map[string]struct{}, headSHA string) []approvals.Approval {
 	var out []approvals.Approval
-	seen := map[string]struct{}{} // one approval per commenter (first qualifying wins)
+	// One approval per commenter, keeping the LATEST qualifying comment.
+	// Comments arrive oldest-first; if we kept the first, a re-approval after
+	// a new push (a fresh `/reeve approve` stamped with the new HEAD) would be
+	// discarded in favor of the stale earlier one - which dismiss_on_new_commit
+	// then invalidates, making the gate impossible to re-satisfy by comment.
+	// Overwriting in place keeps output order stable at first appearance while
+	// carrying the latest comment's timestamp + HEAD SHA.
+	idx := map[string]int{} // login -> position in out
 	for _, cm := range comments {
 		login := cm.GetUser().GetLogin()
 		if login == "" {
@@ -71,17 +78,19 @@ func commentApprovals(comments []*gh.IssueComment, commits []commitTime, prefixe
 		if !associationAllowed(cm.GetAuthorAssociation(), allowed) {
 			continue
 		}
-		if _, dup := seen[login]; dup {
-			continue
-		}
-		seen[login] = struct{}{}
 		created := cm.GetCreatedAt().Time
-		out = append(out, approvals.Approval{
+		ap := approvals.Approval{
 			Source:      approvals.SourcePRComment,
 			Approver:    login,
 			SubmittedAt: created,
 			CommitSHA:   headSHAAt(commits, created, headSHA),
-		})
+		}
+		if i, ok := idx[login]; ok {
+			out[i] = ap // later comment supersedes the earlier one
+			continue
+		}
+		idx[login] = len(out)
+		out = append(out, ap)
 	}
 	return out
 }

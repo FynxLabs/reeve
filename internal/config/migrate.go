@@ -248,9 +248,14 @@ func (m *Migrator) migrateOne(path string, dryRun bool) error {
 	return os.WriteFile(path, out, 0o600)
 }
 
+// Header matchers tolerate what the strict loader accepts: optional quotes
+// around the value and a trailing line comment. Without this, a valid header
+// like `version: 1  # schema` or `config_type: "drift"` failed the migrator
+// (which then aborted the whole directory), so files the loader was happy to
+// read could not be migrated.
 var (
-	versionRE    = regexp.MustCompile(`(?m)^version:\s*(\d+)\s*$`)
-	configTypeRE = regexp.MustCompile(`(?m)^config_type:\s*([a-z_]+)\s*$`)
+	versionRE    = regexp.MustCompile(`(?m)^version:\s*["']?(\d+)["']?\s*(?:#.*)?$`)
+	configTypeRE = regexp.MustCompile(`(?m)^config_type:\s*["']?([a-z_]+)["']?\s*(?:#.*)?$`)
 )
 
 func setScalarField(root *yaml.Node, key, value string) error {

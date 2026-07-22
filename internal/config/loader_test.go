@@ -306,6 +306,26 @@ approvals:
 	if err := cfg2.Validate(); err == nil || !strings.Contains(err.Error(), "unknown source type") {
 		t.Fatalf("typo'd source type must be rejected, got %v", err)
 	}
+
+	// A listed source with `enabled` omitted must be rejected, not silently
+	// disabled (the C5 footgun).
+	missingEnabled := writeReeve(t, map[string]string{
+		"shared.yaml": `version: 1
+config_type: shared
+bucket: {type: filesystem, name: ./x}
+approvals:
+  sources:
+    - {type: pr_review}
+`,
+		"pulumi.yaml": minimalPulumi(),
+	})
+	cfg3, err := Load(missingEnabled)
+	if err != nil {
+		t.Fatalf("Load missing-enabled: %v", err)
+	}
+	if err := cfg3.Validate(); err == nil || !strings.Contains(err.Error(), "must set 'enabled") {
+		t.Fatalf("omitted enabled must be rejected, got %v", err)
+	}
 }
 
 func TestLogSettingsNilShared(t *testing.T) {

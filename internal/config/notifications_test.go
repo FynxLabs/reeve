@@ -172,6 +172,31 @@ channels:
 	}
 }
 
+// A drift.yaml channel may only subscribe to drift events; a PR-flow event
+// there is a config error (it would never fire in a drift run). This is what
+// keeps reeve lint and the runtime loader in agreement.
+func TestDriftChannelRejectsPRFlowEvent(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"shared.yaml": sharedYAMLMin,
+		"pulumi.yaml": engineYAMLMin,
+		"drift.yaml": `version: 1
+config_type: drift
+channels:
+  - type: slack
+    channel: "#drift"
+    on: [applied]
+`,
+	})
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "unknown drift event") {
+		t.Fatalf("PR-flow event in drift.yaml must be rejected, got %v", err)
+	}
+}
+
 func TestDriftChannelsLoad(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"shared.yaml": sharedYAMLMin,
