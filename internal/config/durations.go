@@ -79,6 +79,22 @@ func (c *Config) validateDurations() error {
 		}
 		return nil
 	}
+	// checkExtendedPos accepts day/week units AND rejects non-positive values,
+	// so a bound like timeout_per_stack or a flap-damping window can't silently
+	// become a no-op (0s) or a nonsensical negative. Omit the key for "no bound".
+	checkExtendedPos := func(file, field, value string) error {
+		if value == "" {
+			return nil
+		}
+		d, err := ParseDurationExtended(value)
+		if err != nil {
+			return fmt.Errorf("%s: %s: %w", file, field, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("%s: %s: duration must be positive (omit the key for no bound), got %q", file, field, value)
+		}
+		return nil
+	}
 
 	if s := c.Shared; s != nil {
 		if err := checkPos("shared.yaml", "locking.ttl", s.Locking.TTL); err != nil {
@@ -125,7 +141,10 @@ func (c *Config) validateDurations() error {
 		if err := checkExtended("drift.yaml", "behavior.state_bootstrap.baseline_max_age", d.Behavior.StateBootstrap.BaselineMaxAge); err != nil {
 			return err
 		}
-		if err := checkExtended("drift.yaml", "behavior.renotify_after", d.Behavior.RenotifyAfter); err != nil {
+		if err := checkExtendedPos("drift.yaml", "behavior.renotify_after", d.Behavior.RenotifyAfter); err != nil {
+			return err
+		}
+		if err := checkExtendedPos("drift.yaml", "behavior.timeout_per_stack", d.Behavior.TimeoutPerStack); err != nil {
 			return err
 		}
 	}

@@ -88,6 +88,27 @@ func TestValidateDurationsRejectsEachMalformedField(t *testing.T) {
 			wantSub: []string{"drift.yaml", "freshness.window", "4hours"},
 		},
 		{
+			name: "drift timeout_per_stack malformed",
+			mutate: func(c *Config) {
+				c.Drift = &schemas.Drift{Behavior: schemas.DriftBehavior{TimeoutPerStack: "15minutes"}}
+			},
+			wantSub: []string{"drift.yaml", "behavior.timeout_per_stack"},
+		},
+		{
+			name: "drift timeout_per_stack non-positive",
+			mutate: func(c *Config) {
+				c.Drift = &schemas.Drift{Behavior: schemas.DriftBehavior{TimeoutPerStack: "0s"}}
+			},
+			wantSub: []string{"drift.yaml", "behavior.timeout_per_stack", "must be positive"},
+		},
+		{
+			name: "drift renotify_after negative",
+			mutate: func(c *Config) {
+				c.Drift = &schemas.Drift{Behavior: schemas.DriftBehavior{RenotifyAfter: "-24h"}}
+			},
+			wantSub: []string{"drift.yaml", "behavior.renotify_after", "must be positive"},
+		},
+		{
 			name:    "locking.ttl zero rejected",
 			mutate:  func(c *Config) { c.Shared.Locking.TTL = "0s" },
 			wantSub: []string{"shared.yaml", "locking.ttl", "must be positive"},
@@ -161,8 +182,11 @@ func TestValidateDurationsAcceptsWellFormedFields(t *testing.T) {
 		Freshness: schemas.DriftFreshness{Window: "4h"},
 		Behavior: schemas.DriftBehavior{
 			// baseline_max_age is documented with day units ("7d"), so the
-			// extended parser applies to it.
-			StateBootstrap: schemas.StateBootstrap{BaselineMaxAge: "7d"},
+			// extended parser applies to it. timeout_per_stack and
+			// renotify_after also accept extended units and must be positive.
+			StateBootstrap:  schemas.StateBootstrap{BaselineMaxAge: "7d"},
+			TimeoutPerStack: "1d",
+			RenotifyAfter:   "24h",
 		},
 	}
 	cfg.Auth = &schemas.Auth{Providers: map[string]schemas.ProviderYAML{

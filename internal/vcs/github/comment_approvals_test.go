@@ -115,6 +115,29 @@ func TestCommentApprovals_DedupPerCommenter(t *testing.T) {
 	}
 }
 
+// The re-approval scenario: a commenter approves on sha1, a new commit sha2
+// lands, and they approve again. The LATEST comment must win so its approval
+// is stamped with sha2 - otherwise dismiss_on_new_commit dismisses the stale
+// sha1 approval and the gate can never be re-satisfied by comment.
+func TestCommentApprovals_LatestCommentWinsAfterNewCommit(t *testing.T) {
+	prefixes, verb, allowed := defaultTrigger(t)
+	commits := []commitTime{
+		{sha: "sha1", at: time.Unix(1000, 0)},
+		{sha: "sha2", at: time.Unix(2500, 0)},
+	}
+	comments := []*gh.IssueComment{
+		issueComment("reviewer", "MEMBER", "/reeve approve", "User", time.Unix(2000, 0)), // stamps sha1
+		issueComment("reviewer", "MEMBER", "/reeve approve", "User", time.Unix(3000, 0)), // stamps sha2
+	}
+	out := commentApprovals(comments, commits, prefixes, verb, allowed, "sha2")
+	if len(out) != 1 {
+		t.Fatalf("want one approval, got %+v", out)
+	}
+	if out[0].CommitSHA != "sha2" {
+		t.Fatalf("latest comment must win (stamped sha2), got %q", out[0].CommitSHA)
+	}
+}
+
 func TestCommentApprovals_HeadSHAAtCommentTime(t *testing.T) {
 	// A comment posted between commit sha1 and sha2 approves sha1, not the
 	// current HEAD sha2 - so dismiss_on_new_commit can invalidate it.

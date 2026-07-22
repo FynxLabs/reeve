@@ -79,6 +79,29 @@ slack:
 	}
 }
 
+// A header with a trailing comment and a quoted config_type is valid to the
+// strict loader, so the migrator must accept it too (it used to abort the
+// whole directory on this shape).
+func TestMigrateHeaderWithCommentAndQuotes(t *testing.T) {
+	root := writeReeve(t, map[string]string{
+		"notifications.yaml": `version: 1  # schema version
+config_type: "notifications"
+channels:
+  - type: webhook
+    url: https://example.test/hook
+    on: [applied]
+`,
+	})
+	dir := filepath.Join(root, ".reeve")
+	if err := NewMigrator().MigrateDirectory(dir, false); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	text, _ := os.ReadFile(filepath.Join(dir, "notifications.yaml"))
+	if !strings.Contains(string(text), "version: 2") {
+		t.Fatalf("version not bumped:\n%s", text)
+	}
+}
+
 func TestMigrateNotificationsWithoutSlackBumpsVersionOnly(t *testing.T) {
 	root := writeReeve(t, map[string]string{
 		"notifications.yaml": `version: 1

@@ -111,6 +111,9 @@ func Load(root string) (*Config, error) {
 			seenType["shared"] = f
 			var s schemas.Shared
 			if err := strictDecode(data, &s); err != nil {
+				if hint := removedKeyHint(err); hint != "" {
+					return nil, fmt.Errorf("%s: %s", f, hint)
+				}
 				return nil, fmt.Errorf("%s: %w", f, err)
 			}
 			cfg.Shared = &s
@@ -272,6 +275,13 @@ func (c *Config) validateApprovalSources() error {
 			return fmt.Errorf("shared.yaml: approvals.sources: unknown source type %q (valid: %s, %s)",
 				s.Type, approvals.SourcePRReview, approvals.SourcePRComment)
 		}
+		// `enabled` is required on every listed source. Omitting it used to
+		// read as false and silently disable the source (e.g. listing
+		// pr_review to "keep it on" turned it off); reject it instead so the
+		// intent is always explicit.
+		if s.Enabled == nil {
+			return fmt.Errorf("shared.yaml: approvals.sources: %q entry must set 'enabled: true' or 'enabled: false' explicitly", s.Type)
+		}
 	}
 	return nil
 }
@@ -295,13 +305,21 @@ func channelDefaultsSubscriptions(typ string) bool {
 // (Types with default subscriptions - see channelDefaultsSubscriptions - are
 // exempt.)
 func (c *Config) validateChannels() error {
-	check := func(file string, channels []schemas.ChannelYAML) error {
+	// driftOnly restricts drift.yaml channels to drift events; PR-flow events
+	// never fire in a drift run. notifications.yaml accepts the full set (it
+	// may carry PR-flow channels and drift channels alike).
+	check := func(file string, channels []schemas.ChannelYAML, driftOnly bool) error {
 		for _, s := range channels {
 			if s.Type == "" {
 				return fmt.Errorf("%s: channel %q: type is required", file, s.EffectiveName())
 			}
 			for _, ev := range s.On {
-				if !schemas.IsValidChannelEvent(ev) {
+				if driftOnly {
+					if !schemas.IsValidDriftChannelEvent(ev) {
+						return fmt.Errorf("%s: channel %q: unknown drift event %q in on: (valid: %s)",
+							file, s.EffectiveName(), ev, strings.Join(schemas.ValidDriftChannelEvents, ", "))
+					}
+				} else if !schemas.IsValidChannelEvent(ev) {
 					return fmt.Errorf("%s: channel %q: unknown event %q in on: (valid: %s)",
 						file, s.EffectiveName(), ev, strings.Join(schemas.ValidChannelEvents, ", "))
 				}
@@ -318,12 +336,12 @@ func (c *Config) validateChannels() error {
 		return nil
 	}
 	if c.Notifications != nil {
-		if err := check("notifications.yaml", c.Notifications.Channels); err != nil {
+		if err := check("notifications.yaml", c.Notifications.Channels, false); err != nil {
 			return err
 		}
 	}
 	if c.Drift != nil {
-		if err := check("drift.yaml", c.Drift.Channels); err != nil {
+		if err := check("drift.yaml", c.Drift.Channels, true); err != nil {
 			return err
 		}
 	}
@@ -339,6 +357,22 @@ func (c *Config) LogSettings() (level, format string) {
 		return "", ""
 	}
 	return c.Shared.LogLevel, c.Shared.LogFormat
+}
+
+// removedKeyHint turns the raw yaml.v3 "field X not found in type Y" error for
+// a deliberately-removed config key into an actionable message, or "" when the
+// error is something else. Other retired keys (slack:, sinks:) get their own
+// pointers at their decode site; this covers keys the strict decoder rejects
+// generically with an unhelpful Go type name.
+func removedKeyHint(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "field command not found in type schemas.ApplyConfig") {
+		return "apply.command was removed: apply now runs the engine's native apply, so there is no custom command. Delete the key. To control how apply is triggered use apply.trigger (comment|merge). See docs/configuration.md"
+	}
+	return ""
 }
 
 func strictDecode(data []byte, out any) error {

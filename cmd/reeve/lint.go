@@ -13,7 +13,6 @@ import (
 	authfac "github.com/FynxLabs/reeve/internal/auth/factory"
 	"github.com/FynxLabs/reeve/internal/config"
 	"github.com/FynxLabs/reeve/internal/core/discovery"
-	"github.com/FynxLabs/reeve/internal/drift"
 	"github.com/FynxLabs/reeve/internal/iac"
 	"github.com/FynxLabs/reeve/internal/vcs/codeowners"
 )
@@ -60,26 +59,10 @@ func newLintCmd() *cobra.Command {
 					}
 				}
 			}
-			// Drift channels: an unknown event name in `on:` would be silently
-			// dropped at runtime, and a channel with an empty subscription never
-			// fires. Fail the typo here; warn on the never-firing channel.
-			if cfg.Drift != nil {
-				for i, sk := range cfg.Drift.Channels {
-					name := sk.Name
-					if name == "" {
-						name = sk.Type
-					}
-					for _, evName := range sk.On {
-						if _, ok := drift.ParseEventName(evName); !ok {
-							return fmt.Errorf("drift channel %d (%s): unknown event %q in on: list (valid: %s)",
-								i, name, evName, strings.Join(drift.KnownEventNames(), ", "))
-						}
-					}
-					if len(sk.On) == 0 {
-						fmt.Fprintf(os.Stderr, "⚠️  drift channel %d (%s) has an empty on: list - it will never fire\n", i, name)
-					}
-				}
-			}
+			// Drift-channel event names and empty-on subscriptions are validated
+			// by cfg.Validate() above (validateChannels), which is drift-event
+			// strict for drift.yaml and exempts channels with default
+			// subscriptions - one source of truth, so lint and runtime agree.
 			// CODEOWNERS: email owners cannot be matched to VCS logins, so
 			// reeve's codeowners gate ignores them. Flag them here so a
 			// path owned only by emails isn't silently unenforced.
