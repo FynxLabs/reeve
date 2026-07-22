@@ -1,6 +1,37 @@
 package drift
 
-import "strings"
+import (
+	"context"
+	"strings"
+	"time"
+)
+
+// retryBackoffMax caps the per-retry wait so a large budget can't stall a run.
+const retryBackoffMax = 30 * time.Second
+
+// backoffSleep waits base*2^(attempt-1) (capped at retryBackoffMax) before a
+// retry, returning false if ctx is cancelled during the wait (caller should
+// stop retrying). base<=0 disables the wait entirely (returns true).
+func backoffSleep(ctx context.Context, base time.Duration, attempt int) bool {
+	if base <= 0 || attempt < 1 {
+		return ctx.Err() == nil
+	}
+	d := base
+	for i := 1; i < attempt && d < retryBackoffMax; i++ {
+		d *= 2
+	}
+	if d > retryBackoffMax {
+		d = retryBackoffMax
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
 
 // errKind classifies a drift-check failure for retry purposes. Only network
 // and auth-expiry failures are transient; everything else (engine crash,

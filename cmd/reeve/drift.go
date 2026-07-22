@@ -179,6 +179,7 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		opts.RefreshFirst = cfg.Drift.Behavior.RefreshBeforeCheck
 		opts.Parallel = cfg.Drift.Behavior.MaxParallelStacks
 		opts.RetryOnTransientError = cfg.Drift.Behavior.RetryOnTransientError
+		opts.RetryBackoff = 2 * time.Second // base; grows exponentially, ctx-aware
 		opts.Classification = buildClassification(cfg.Drift.Classification)
 		opts.PermanentSuppressions = buildPermanentSuppressions(cfg.Drift.PermanentSuppressions)
 		if cfg.Drift.Behavior.StateBootstrap.Mode != "" {
@@ -191,7 +192,9 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 			}
 		}
 		if to := cfg.Drift.Behavior.TimeoutPerStack; to != "" {
-			d, perr := time.ParseDuration(to)
+			// Validated at config load (validateDurations, extended units,
+			// must be positive); parse the same way here.
+			d, perr := config.ParseDurationExtended(to)
 			if perr != nil {
 				return fmt.Errorf("drift.yaml: behavior.timeout_per_stack %q: %w", to, perr)
 			}

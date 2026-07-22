@@ -449,10 +449,11 @@ batched. It applies to the drift alert lifecycle (`drift_detected`,
 `drift_ongoing`, `drift_resolved`). `check_failed` is **never** grouped - each
 is a distinct per-stack incident.
 
-Grouping is meaningful for `slack`, `webhook`, and `github_issue` (where it
-manages one issue per environment). It is a no-op for channels where a combined
-message makes no sense, such as `otel_annotation` (one metric/annotation per
-stack regardless). An unknown `grouping:` value is a hard config error.
+Grouping is meaningful for `slack` and `webhook`, where a combined message
+cuts noise. It is a **no-op** for channels where per-stack tracking is the
+point: `github_issue` (an issue is a per-stack incident to fix and close) and
+`otel_annotation` (one metric/annotation per stack regardless). An unknown
+`grouping:` value is a hard config error.
 
 ### Slack
 

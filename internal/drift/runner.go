@@ -75,6 +75,12 @@ type Options struct {
 	// on a transient failure (network error, expired credentials). Zero (the
 	// default) means no retries. Non-transient failures are never retried.
 	RetryOnTransientError int
+	// RetryBackoff is the base delay before a network retry; the Nth retry
+	// waits RetryBackoff*2^(N-1), capped at retryBackoffMax. Zero disables the
+	// wait (used by tests). An immediate retry against a throttling API almost
+	// always throttles again, so command wiring sets a real base. Credential
+	// rebinds are not delayed (a rebind is not a throttle).
+	RetryBackoff time.Duration
 	// Classification filters engine diffs (ignore_properties / ignore_resources
 	// / treat_as_drift) before a stack is classified as drift. nil / empty
 	// leaves the engine's raw verdict untouched.
@@ -395,9 +401,14 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 			if opts.PerStackTimeout > 0 {
 				checkCtx, cancel = context.WithTimeout(ctx, opts.PerStackTimeout)
 			}
+			// TimeoutSec mirrors the per-stack bound so the adapter's OWN
+			// internal timeout (default 10m) does not fire first and misreport
+			// a per-stack timeout as a generic engine error. 0 keeps the
+			// adapter default (no configured bound).
 			res, checkErr = opts.Engine.DriftCheck(checkCtx, s, iac.PreviewOpts{
-				Cwd: opts.RepoRoot + "/" + s.Path,
-				Env: env,
+				Cwd:        opts.RepoRoot + "/" + s.Path,
+				Env:        env,
+				TimeoutSec: int(opts.PerStackTimeout / time.Second),
 			}, opts.RefreshFirst)
 			// A per-stack timeout is the deadline firing while the parent ctx is
 			// still live (distinguished from a run-wide cancellation). Computed
@@ -425,6 +436,14 @@ func runOne(ctx context.Context, opts Options, s discovery.Stack, now time.Time)
 			slog.Warn("drift: retrying after transient network error",
 				"stack", ref, "attempt", retriesUsed, "max", opts.RetryOnTransientError,
 				"error", opts.Redactor.Redact(msg))
+			// Back off before retrying: the transient set includes throttling
+			// signatures, and an instant retry against a throttling API just
+			// re-throttles. Sleeps on the run ctx (checkCtx is already
+			// cancelled here) so SIGINT aborts the wait; a cancelled wait falls
+			// through to stop retrying.
+			if !backoffSleep(ctx, opts.RetryBackoff, retriesUsed) {
+				break
+			}
 			continue
 		case errAuthExpired:
 			if rebindUsed {

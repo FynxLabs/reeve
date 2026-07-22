@@ -338,8 +338,9 @@ func runPreviewOne(ctx context.Context, in PreviewInput, otelProvider *reeveotel
 	stackCtx, endStack := otelProvider.StartStackSpan(ctx, s.Project, s.Name, s.Env, "preview")
 	stackStart := time.Now()
 	res, err := in.Engine.Preview(stackCtx, s, iac.PreviewOpts{
-		Cwd: absJoin(in.RepoRoot, s.Path),
-		Env: authEnv,
+		Cwd:        absJoin(in.RepoRoot, s.Path),
+		Env:        authEnv,
+		TimeoutSec: PreviewTimeoutSec(in.Config),
 	})
 	ss := summary.StackSummary{
 		Project: s.Project,

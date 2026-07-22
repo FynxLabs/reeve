@@ -1,7 +1,6 @@
 package approvals
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -15,16 +14,27 @@ type OverlapScanError struct {
 	// Unchecked lists the PR numbers whose changed files could not be
 	// inspected.
 	Unchecked []int
+	// MoreBeyondCap is set when the scan stopped at its PR cap while more open
+	// PRs existed. Those PRs' numbers are unknown (never fetched), so they are
+	// reported as a count-less flag rather than silently dropped.
+	MoreBeyondCap bool
 	// Err is the first underlying fetch error, kept for diagnostics.
 	Err error
 }
 
 func (e *OverlapScanError) Error() string {
-	nums := make([]string, len(e.Unchecked))
-	for i, n := range e.Unchecked {
-		nums[i] = "#" + strconv.Itoa(n)
+	var parts []string
+	if len(e.Unchecked) > 0 {
+		nums := make([]string, len(e.Unchecked))
+		for i, n := range e.Unchecked {
+			nums[i] = "#" + strconv.Itoa(n)
+		}
+		parts = append(parts, "could not check open PR(s) "+strings.Join(nums, ", "))
 	}
-	msg := fmt.Sprintf("overlap scan incomplete: could not check open PR(s) %s", strings.Join(nums, ", "))
+	if e.MoreBeyondCap {
+		parts = append(parts, "additional open PRs beyond the scan cap were not checked")
+	}
+	msg := "overlap scan incomplete: " + strings.Join(parts, "; ")
 	if e.Err != nil {
 		msg += ": " + e.Err.Error()
 	}

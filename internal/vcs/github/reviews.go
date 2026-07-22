@@ -100,6 +100,7 @@ const maxOverlapScanPRs = 100
 // "no overlap".
 func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) ([]approvals.PR, error) {
 	var prs []*gh.PullRequest
+	var moreBeyondCap bool
 	opt := &gh.PullRequestListOptions{State: "open", ListOptions: gh.ListOptions{PerPage: 100}}
 	for {
 		page, resp, err := c.gh.PullRequests.List(ctx, c.owner, c.repo, opt)
@@ -107,7 +108,14 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 			return nil, err
 		}
 		prs = append(prs, page...)
-		if resp.NextPage == 0 || len(prs) >= maxOverlapScanPRs {
+		if len(prs) >= maxOverlapScanPRs {
+			// Stopped at the cap. If GitHub has another page, or this page
+			// overshot the cap, there are open PRs we will not scan - record
+			// that so the caller can warn instead of implying "no overlap".
+			moreBeyondCap = resp.NextPage != 0 || len(prs) > maxOverlapScanPRs
+			break
+		}
+		if resp.NextPage == 0 {
 			break
 		}
 		opt.Page = resp.NextPage
@@ -156,8 +164,8 @@ func (c *Client) ListOpenPRsTouchingPaths(ctx context.Context, paths []string) (
 			})
 		}
 	}
-	if len(unchecked) > 0 {
-		return out, &approvals.OverlapScanError{Unchecked: unchecked, Err: firstErr}
+	if len(unchecked) > 0 || moreBeyondCap {
+		return out, &approvals.OverlapScanError{Unchecked: unchecked, MoreBeyondCap: moreBeyondCap, Err: firstErr}
 	}
 	return out, nil
 }
