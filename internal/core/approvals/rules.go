@@ -31,13 +31,16 @@ type Source interface {
 
 // PR is the minimum we need to resolve approvals. Populated by run/apply.go.
 type PR struct {
-	Number   int
-	HeadSHA  string
-	Author   string
-	BaseRef  string
-	IsFork   bool
-	OpenedAt time.Time // when the PR was opened; zero if the adapter didn't supply it
-	Changed  []string  // changed file paths; feeds CODEOWNERS
+	Number  int
+	HeadSHA string
+	Author  string
+	BaseRef string
+	IsFork  bool
+	// RepoPrivate mirrors vcs.PR.RepoPrivate. False (public) is the
+	// fail-closed default and triggers the unlisted-approval gate below.
+	RepoPrivate bool
+	OpenedAt    time.Time // when the PR was opened; zero if the adapter didn't supply it
+	Changed     []string  // changed file paths; feeds CODEOWNERS
 }
 
 // Rules is the merged approvals.yaml-ish surface for a single stack.
@@ -48,6 +51,15 @@ type Rules struct {
 	RequireAllGroups   bool // approvers list treated as groups
 	DismissOnNewCommit bool
 	Freshness          time.Duration // 0 = no freshness requirement
+	// AllowUnlistedApprovalsOnPublic opts a public repository into counting
+	// approvals from reviewers who are not on an approvers list and not a
+	// CODEOWNER. It is a repo-wide policy (rides on the default rule) and is
+	// off by default: on a public repo, any GitHub user can submit an
+	// approving review, so the no-allow-list "count any distinct approver"
+	// path is not a real gate. With this false (default), such a repo must
+	// configure an approvers list or CODEOWNERS; with it true, the operator
+	// has explicitly accepted unlisted reviews.
+	AllowUnlistedApprovalsOnPublic bool
 	// TeamMembers is the optional pre-resolved team-slug → member-logins
 	// map. Populated by the caller before Evaluate so a rule like
 	// `approvers: [my-org/sre]` matches when an SRE team member approves.
@@ -215,23 +227,42 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 	// distinct non-author approver counts - GitHub's "require N approvals"
 	// semantics, and never an unsatisfiable gate.
 	if rules.RequiredApprovals > 0 {
+		// On a public repo, any GitHub user can submit an approving review,
+		// so the no-allow-list path ("count any distinct approver") is not a
+		// real gate. Refuse to count unlisted reviews there unless the
+		// operator explicitly opted in - and say exactly how to fix it.
+		publicUnlisted := len(rules.Approvers) == 0 &&
+			!pr.RepoPrivate && !rules.AllowUnlistedApprovalsOnPublic
+
 		var hits []string
-		if len(rules.Approvers) == 0 {
+		switch {
+		case publicUnlisted:
+			// hits stays empty; the gate cannot be met by unlisted reviews.
+		case len(rules.Approvers) == 0:
 			hits = distinct(approvers)
-		} else {
+		default:
 			hits = intersect(approvers, rules.Approvers, rules.TeamMembers)
 		}
-		res.Trace = append(res.Trace, fmt.Sprintf("required_approvals=%d, matched=%d (%s)",
-			rules.RequiredApprovals, len(hits), strings.Join(hits, ",")))
 		res.Got += len(hits)
 		res.TotalNeeded += rules.RequiredApprovals
-		if len(hits) < rules.RequiredApprovals {
-			need := rules.RequiredApprovals - len(hits)
-			if len(rules.Approvers) == 0 {
-				res.Missing = append(res.Missing, fmt.Sprintf("%d more approval(s)", need))
-			} else {
-				res.Missing = append(res.Missing,
-					fmt.Sprintf("%d more approval(s) from %s", need, strings.Join(rules.Approvers, "|")))
+
+		if publicUnlisted {
+			res.Trace = append(res.Trace,
+				"public repo: unlisted reviews not counted (anyone can approve); add approvals.default.approvers or codeowners, or set approvals.allow_unlisted_approvals_on_public: true")
+			res.Missing = append(res.Missing, fmt.Sprintf(
+				"%d approval(s) from a configured approvers list or CODEOWNERS — public repo: unlisted reviews are not counted; set approvals.allow_unlisted_approvals_on_public: true to override",
+				rules.RequiredApprovals))
+		} else {
+			res.Trace = append(res.Trace, fmt.Sprintf("required_approvals=%d, matched=%d (%s)",
+				rules.RequiredApprovals, len(hits), strings.Join(hits, ",")))
+			if len(hits) < rules.RequiredApprovals {
+				need := rules.RequiredApprovals - len(hits)
+				if len(rules.Approvers) == 0 {
+					res.Missing = append(res.Missing, fmt.Sprintf("%d more approval(s)", need))
+				} else {
+					res.Missing = append(res.Missing,
+						fmt.Sprintf("%d more approval(s) from %s", need, strings.Join(rules.Approvers, "|")))
+				}
 			}
 		}
 	}

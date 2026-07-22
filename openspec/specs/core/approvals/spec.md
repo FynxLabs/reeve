@@ -16,6 +16,22 @@ implementation - no core changes.
 
 Source ordering in `shared.yaml` matters only for tie-breaking attribution.
 
+### Public repositories and unlisted approvals
+
+On a **public** repository any GitHub user can submit an approving review, so
+the no-allow-list path (a bare `required_approvals` with no `approvers` list
+and no CODEOWNERS — including the injected safety default of 1) is not a real
+gate: an unlisted account's review would satisfy it. On a public repo that
+path therefore fails closed with an actionable message telling the operator to
+configure an `approvers` list or CODEOWNERS, or to opt in explicitly. The
+opt-in is `approvals.allow_unlisted_approvals_on_public: true` (default
+false); it does not block the ability, only makes the operator name the risk.
+Private repositories are unaffected — there the reviewer set is already the
+collaborator set — and a public repo that configures an `approvers` list or
+CODEOWNERS is a real gate and never hits this guard. Repo visibility comes
+from the VCS adapter (`PR.RepoPrivate`); an adapter that cannot determine it
+reports public, the fail-closed (stricter) direction.
+
 ### Union across sources
 
 Enabled sources are gathered independently and **unioned**. Deduplication is
@@ -64,7 +80,54 @@ Layered, not either/or:
 
 `reeve rules explain <stack>` shows full resolution trace.
 
+## Break-glass (emergency override)
+
+A `break_glass:` block in shared.yaml enables an emergency apply path that
+overrides the approvals gate in exchange for a mandatory non-empty
+justification and a loud immutable audit record. With no block configured,
+`/reeve breakglass` fails closed with a polite error explaining how to
+enable it, and no run starts. An empty or whitespace-only justification is
+rejected before any lock, credential, or engine call.
+
+### Authorization (fail-closed union)
+
+`break_glass.authorized` supports a union of sources - any source granting
+the actor is sufficient:
+
+- `internal_list` - explicit logins and `org/team` slugs.
+- `codeowners` - the actor is an owner (directly or via team) of at least
+  one changed path.
+- `anyone`.
+
+The matched source is recorded narrowest-first, so the audit names the most
+specific grant. A denial carries a trace explaining every source consulted.
+The `vcs_bypass` source and `groups:` (`group:<provider>:<name>`) are
+accepted by the config parser but rejected at authorization time with clear
+"not yet supported" errors - rejected even when another source would match,
+so operators immediately learn the source is inert.
+
+### Head-resolved; self-add flagged, not forbidden (with opt-in lockdown)
+
+Authorization resolves against the break-glass config and CODEOWNERS
+content as of the PR HEAD. Adding oneself to the authorization surface in
+the same PR is allowed BY DESIGN (the emergency responder may need to) — the
+default trades this availability for a loud audit trail: the audit record
+flags when any authorizing file - a `.reeve/*.yaml`/`.yml` config or a
+CODEOWNERS file (`CODEOWNERS`, `.github/CODEOWNERS`, `docs/CODEOWNERS`) - was
+modified in the same PR, listing the touched paths.
+
+Operators who prefer to fail closed rather than allow same-PR
+self-authorization set `break_glass.reject_self_authorization: true` (default
+false). When set, a PR that modifies its own authorizing files cannot
+authorize a break-glass apply no matter which source would grant — the denial
+is evaluated before any source and its trace names the touched paths. This is
+a per-repo choice: the default keeps late-night availability, the opt-in
+locks it down.
+
+Gate-override semantics live in `openspec/specs/core/preconditions`;
+comment/audit surfacing in `openspec/specs/notifications`.
+
 ## Out of scope (v1)
 
-- `break_glass` with `requires_incident_link` - dropped until a user asks.
-  No runtime validation of incident links is specified.
+- `requires_incident_link` on break-glass - dropped until a user asks. No
+  runtime validation of incident links is specified.

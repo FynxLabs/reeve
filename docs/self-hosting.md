@@ -321,19 +321,23 @@ The composite action resolves its binary in three tiers, cache first:
 | Pin                 | Binary source                                                                    |
 | ------------------- | -------------------------------------------------------------------------------- |
 | `@vX.Y.Z`           | Release tarball, verified against the release's cosign-signed `checksums.txt`    |
-| `@master` / `@next` | Rolling edge binary from the `edge-<branch>` prerelease, matched to the action's exact source hash (unsigned, auto-fallback to source build) |
+| `@master` / `@next` | Newest per-push `<branch>-<sha>` prerelease binary, verified against its checksum + cosign signature (auto-fallback to source build) |
 | anything else       | Built from source on the runner (SHA pins, branches, forks)                      |
 
 A per-runner cache keyed `reeve-<os>-<arch>-<source hash>` fronts all
 three paths; only a cache miss triggers a download or build. The edge
 assets are published by `.github/workflows/edge-build.yml` on every push
-to `master`/`next` and are named after the source hash they were built
-from, so the action can prove an edge binary corresponds to the source it
-checked out - no hash match means it silently builds from source instead.
-Prebuilt binaries save the ~30s+ Go toolchain + build cost on cache
-misses. Edge builds are unsigned; if your supply-chain policy requires
-signatures, pin `@vX.Y.Z` (or a commit SHA, which always builds from the
-pinned source).
+to `master`/`next` as a per-commit prerelease tagged `<branch>-<sha>`
+(the newest ten are kept). The action resolves the newest such prerelease,
+verifies its `checksums.txt` and — when `cosign` is present — the keyless
+`checksums.txt.bundle`, then installs the binary; any failure silently
+falls back to a source build. Because it takes the *newest* prerelease, an
+edge binary can come from a slightly newer commit than the pinned action
+source. Prebuilt binaries save the ~30s+ Go toolchain + build cost on cache
+misses. For reproducible, version-pinned, always-signed distribution pin
+`@vX.Y.Z` (or a commit SHA, which always builds from the pinned source); set
+`REEVE_REQUIRE_SIGNATURE=1` to make the fast-path refuse an unsigned edge
+binary.
 
 ---
 

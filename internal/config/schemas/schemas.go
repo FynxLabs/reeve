@@ -55,11 +55,22 @@ type ApprovalsYAML struct {
 	Sources []ApprovalSource            `yaml:"sources"`
 	Default ApprovalRuleYAML            `yaml:"default"`
 	Stacks  map[string]ApprovalRuleYAML `yaml:"stacks"`
+	// AllowUnlistedApprovalsOnPublic opts a PUBLIC repository into counting
+	// approvals from reviewers who are not on an approvers list and not a
+	// CODEOWNER. Off by default: on a public repo anyone can submit an
+	// approving review, so a bare numeric policy is not a real gate.
+	// Ignored on private repos (there the reviewer set is already the
+	// collaborator set).
+	AllowUnlistedApprovalsOnPublic bool `yaml:"allow_unlisted_approvals_on_public,omitempty"`
 }
 
 type ApprovalSource struct {
-	Type    string `yaml:"type"` // pr_review | pr_comment
-	Enabled bool   `yaml:"enabled"`
+	Type string `yaml:"type"` // pr_review | pr_comment
+	// Enabled is required when the entry is listed: a pointer distinguishes
+	// "omitted" (nil → rejected at load, so a listed source is never silently
+	// off) from an explicit true/false. There is no safe default — omitting it
+	// on pr_review used to disable reviews, the opposite of the usual intent.
+	Enabled *bool  `yaml:"enabled"`
 	Command string `yaml:"command"` // for pr_comment
 }
 
@@ -90,6 +101,14 @@ type BreakGlassYAML struct {
 	// defaults to TRUE - an emergency override that stops at a scheduled
 	// freeze is not much of an override. Set false to keep freeze binding.
 	OverrideFreeze *bool `yaml:"override_freeze,omitempty"`
+	// RejectSelfAuthorization locks down the head-resolved authorization:
+	// when true, a PR that modifies its own authorizing files (a .reeve
+	// config or CODEOWNERS) cannot authorize a break-glass apply, no matter
+	// which source would grant. Default false keeps the documented
+	// behavior — self-add is allowed but loudly audited — for operators who
+	// prioritize late-night availability; set true when you would rather
+	// fail closed than allow same-PR self-authorization.
+	RejectSelfAuthorization *bool `yaml:"reject_self_authorization,omitempty"`
 }
 
 // BreakGlassAuthorized is the union of authorization sources - any source

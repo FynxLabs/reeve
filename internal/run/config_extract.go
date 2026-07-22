@@ -14,6 +14,33 @@ import (
 	"github.com/FynxLabs/reeve/internal/core/render"
 )
 
+// PreviewTimeoutSec returns engine.execution.preview_timeout as whole seconds
+// for PreviewOpts.TimeoutSec, or 0 (adapter default) when unset. Validated
+// positive at config load, so a bad value never reaches here.
+func PreviewTimeoutSec(e *schemas.Engine) int { return execTimeoutSec(e, true) }
+
+// ApplyTimeoutSec returns engine.execution.apply_timeout as whole seconds for
+// ApplyOpts.TimeoutSec, or 0 (adapter default) when unset.
+func ApplyTimeoutSec(e *schemas.Engine) int { return execTimeoutSec(e, false) }
+
+func execTimeoutSec(e *schemas.Engine, preview bool) int {
+	if e == nil {
+		return 0
+	}
+	v := e.Engine.Execution.ApplyTimeout
+	if preview {
+		v = e.Engine.Execution.PreviewTimeout
+	}
+	if v == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0
+	}
+	return int(d / time.Second)
+}
+
 // mappingNoticeFor returns a PR-comment banner explaining a non-normal
 // change-mapping outcome, or "" for the normal matched case.
 func mappingNoticeFor(res discovery.AffectedResult) string {
@@ -89,9 +116,15 @@ func toApprovalsConfig(s *schemas.Shared) approvals.Config {
 	if s.Approvals.Default.DismissOnNewCommit == nil {
 		cfg.Default.DismissOnNewCommit = true
 	}
+	// Repo-wide policy: rides on the default rule and is not overridable
+	// per stack. Off by default (safe on public repos).
+	cfg.Default.AllowUnlistedApprovalsOnPublic = s.Approvals.AllowUnlistedApprovalsOnPublic
 	for _, src := range s.Approvals.Sources {
+		// Enabled is required by validateApprovalSources (never nil on a
+		// loaded config); default a defensive false if a caller bypassed load.
+		enabled := src.Enabled != nil && *src.Enabled
 		cfg.Sources = append(cfg.Sources, approvals.SourceConfig{
-			Type: src.Type, Enabled: src.Enabled, Command: src.Command,
+			Type: src.Type, Enabled: enabled, Command: src.Command,
 		})
 	}
 	for pattern, r := range s.Approvals.Stacks {
@@ -163,6 +196,9 @@ func toBreakGlassConfig(s *schemas.Shared) breakglass.Config {
 	}
 	if bg.OverrideFreeze != nil {
 		out.OverrideFreeze = *bg.OverrideFreeze
+	}
+	if bg.RejectSelfAuthorization != nil {
+		out.RejectSelfAuthorization = *bg.RejectSelfAuthorization
 	}
 	return out
 }

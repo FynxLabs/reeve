@@ -395,10 +395,12 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	var bgDecision *breakglass.Decision
 	var bgTouched []string
 	if in.BreakGlass != nil {
+		bgTouched = breakglass.AuthorizingPathsTouched(changed)
 		dec, bgErr := breakglass.Authorize(bgCfg, breakglass.Inputs{
-			Actor:       in.Actor,
-			OwnedPaths:  coResolved,
-			TeamMembers: teamMembers,
+			Actor:                   in.Actor,
+			OwnedPaths:              coResolved,
+			TeamMembers:             teamMembers,
+			AuthorizingPathsTouched: bgTouched,
 		})
 		if bgErr != nil {
 			timeline.add(ctx, "⛔", "break-glass refused", bgErr.Error())
@@ -412,7 +414,6 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 			return nil, fmt.Errorf("break-glass denied: %s", detail)
 		}
 		bgDecision = &dec
-		bgTouched = breakglass.AuthorizingPathsTouched(changed)
 		slog.Warn("BREAK-GLASS apply authorized",
 			"actor", in.Actor, "source", dec.Source,
 			"justification", in.BreakGlass.Justification,
@@ -548,6 +549,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		rules.TeamMembers = teamMembers
 		approvalsRes := approvals.Evaluate(rules, rawApprovals, approvals.PR{
 			Number: in.PRNumber, HeadSHA: approvalHeadSHA, Author: pr.Author,
+			RepoPrivate: pr.RepoPrivate,
 		}, coResolved, pr.Author, now)
 		slog.Debug("approvals evaluated",
 			"stack", s.Ref(),
@@ -682,7 +684,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		stopHeartbeat := in.Locks.StartHeartbeat(stackCtx, s.Project, s.Name, corelocks.Holder{
 			PR: in.PRNumber, CommitSHA: in.CommitSHA, RunID: runID, Actor: in.Actor,
 		}, ttl)
-		res, aerr := in.Engine.Apply(stackCtx, s, iac.ApplyOpts{Cwd: absJoin(in.RepoRoot, s.Path), Env: authEnv})
+		res, aerr := in.Engine.Apply(stackCtx, s, iac.ApplyOpts{Cwd: absJoin(in.RepoRoot, s.Path), Env: authEnv, TimeoutSec: ApplyTimeoutSec(in.Config)})
 		stopHeartbeat()
 		authCleanup()
 		stackOutcome := "success"

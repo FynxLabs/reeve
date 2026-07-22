@@ -79,6 +79,7 @@ approvals:
     - type: pr_comment             # opt-in: "/reeve approve" in PR comments
       enabled: false
       command: "/reeve approve"
+  allow_unlisted_approvals_on_public: false  # public repos: see note below
   default:
     required_approvals: 1
     approvers: ["@org/infra-reviewers"]
@@ -111,6 +112,7 @@ break_glass:                       # opt-in emergency apply; OFF when absent
     anyone: false
     vcs_bypass: false              # config surface only — not yet supported
   override_freeze: true            # default true
+  reject_self_authorization: false # default false — see "Break-glass" below
 
 apply:
   trigger: comment                 # comment (default) | merge — see "apply.trigger" below
@@ -234,7 +236,17 @@ Run artifacts under `runs/` (manifests, applied-state pointers) are pruned at ru
   non-author approval — it does not auto-pass.
 - `required_approvals: N` with **no `approvers` list** counts any `N`
   distinct non-author approvals (GitHub's "require N approvals" behavior),
-  rather than being unsatisfiable.
+  rather than being unsatisfiable — **on private repos**. On a **public**
+  repo this path is blocked (see below), because anyone can review.
+- **Public repositories.** On a public repo any GitHub user can submit an
+  approving review, so a bare `required_approvals` with no `approvers` list
+  and no CODEOWNERS is not a real gate. reeve fails such a stack closed with
+  a message telling you to add an `approvers` list or CODEOWNERS — or to set
+  `approvals.allow_unlisted_approvals_on_public: true` if you genuinely want
+  to count unlisted reviews. The default (`false`) does not remove the
+  ability, only forces you to name the risk. Private repos are unaffected,
+  and a public repo that already uses an `approvers` list or CODEOWNERS never
+  hits this.
 - `dismiss_on_new_commit` defaults to **`true`**: pushing a new commit
   invalidates prior approvals. Set it to `false` explicitly to opt out.
 - Only a reviewer's **most recent** review counts. A reviewer who approves
@@ -262,6 +274,10 @@ review and a comment counts **once**.
   source — identical to reeve's original behavior. No existing config changes.
 - `pr_review` stays on unless you list it explicitly with `enabled: false`.
 - `pr_comment` is off unless you list it with `enabled: true`.
+- **`enabled` is required on every listed source.** If you list a source you
+  must set `enabled: true` or `enabled: false` — an omitted `enabled` is a
+  load/lint error, not a silent "off". (Listing `pr_review` with no `enabled`
+  used to disable reviews, the opposite of the obvious intent.)
 
 ```yaml
 approvals:
@@ -345,6 +361,13 @@ command fails closed with a polite error.
 not-yet-supported/phase-2. Authorization is resolved against the PR HEAD
 (self-add is by design; the audit flags same-PR modification of
 `.reeve/*.yaml` or CODEOWNERS).
+
+`reject_self_authorization: true` (default `false`) locks that down: a PR
+that modifies its own authorizing files (`.reeve/*.yaml`/`.yml` or a
+CODEOWNERS file) cannot authorize a break-glass apply, no matter which
+source would grant. The default keeps the flag-and-audit behavior — useful
+when a late-night responder legitimately needs to add themselves; set this
+true when you would rather fail closed than allow same-PR self-authorization.
 
 Full reference: [break-glass.md](break-glass.md).
 
