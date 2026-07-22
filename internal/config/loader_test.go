@@ -365,6 +365,7 @@ break_glass:
 	bg := cfg.Shared.BreakGlass
 	if bg == nil {
 		t.Fatal("break_glass block not loaded")
+		return
 	}
 	if len(bg.Authorized.InternalList) != 2 || !bg.Authorized.Codeowners || bg.Authorized.Anyone {
 		t.Fatalf("authorized mismatch: %+v", bg.Authorized)
