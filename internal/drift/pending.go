@@ -132,17 +132,28 @@ func MergePending(pending, current []notify.Payload) []notify.Payload {
 // package comment above). pending may be nil, which degrades to plain
 // dispatch. Returned errors include channel delivery errors and marker
 // persistence errors; none are fatal to the run.
+//
+// The whole batch is handed to a SINGLE notify.Dispatch so channel grouping
+// (by_environment) can actually batch a run's stacks into one message -
+// dispatching one payload at a time would defeat it. Durability is preserved
+// at batch granularity: every marker is persisted before delivery, and
+// markers are cleared only when the entire batch delivered cleanly. A partial
+// failure leaves ALL markers so the next run redelivers to every channel -
+// exactly the documented at-least-once behavior (idempotent channels absorb
+// the duplicates; a duplicate beats a silently lost alert).
 func DispatchDurable(ctx context.Context, channels []notify.Channel, payloads []notify.Payload, pending *PendingStore) []error {
 	var errs []error
-	for _, p := range payloads {
-		if pending != nil {
+	if pending != nil {
+		for _, p := range payloads {
 			if err := pending.Save(ctx, p); err != nil {
 				errs = append(errs, fmt.Errorf("persist pending event %s %s: %w", p.Event, refOf(p), err))
 			}
 		}
-		derrs := notify.Dispatch(ctx, channels, []notify.Payload{p})
-		errs = append(errs, derrs...)
-		if len(derrs) == 0 && pending != nil {
+	}
+	derrs := notify.Dispatch(ctx, channels, payloads)
+	errs = append(errs, derrs...)
+	if len(derrs) == 0 && pending != nil {
+		for _, p := range payloads {
 			if err := pending.Clear(ctx, p); err != nil {
 				errs = append(errs, fmt.Errorf("clear pending event %s %s: %w", p.Event, refOf(p), err))
 			}

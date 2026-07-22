@@ -120,3 +120,53 @@ func TestMergePendingFreshPayloadSupersedes(t *testing.T) {
 		t.Fatalf("pending first, then current: %+v", merged)
 	}
 }
+
+// groupingChannel batches by_environment and records each Deliver call.
+type groupingChannel struct {
+	mu        sync.Mutex
+	delivered []notify.Payload
+}
+
+func (c *groupingChannel) Name() string               { return "grouping" }
+func (c *groupingChannel) Subscribes() []notify.Event { return notify.DriftEvents() }
+func (c *groupingChannel) GroupingMode() string       { return notify.GroupingByEnvironment }
+func (c *groupingChannel) Deliver(_ context.Context, p notify.Payload) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.delivered = append(c.delivered, p)
+	return nil
+}
+
+func stackPayload(project, stack, env string) notify.Payload {
+	return notify.Payload{Event: notify.EventDriftDetected, Drift: &notify.DriftPayload{
+		Project: project, Stack: stack, Env: env, Outcome: "drift_detected", Add: 1, RunID: "drift-1",
+	}}
+}
+
+// TestDispatchDurableGroupsBatch is the C1 regression: a run's drifted stacks
+// in one env must reach a grouping channel as ONE grouped delivery, not one
+// per stack. Before the fix DispatchDurable dispatched payloads singly, so
+// GroupPayloads never saw more than one and grouping silently no-opped.
+func TestDispatchDurableGroupsBatch(t *testing.T) {
+	ctx := context.Background()
+	ch := &groupingChannel{}
+	store := newPendingStore(t)
+	payloads := []notify.Payload{
+		stackPayload("api", "prod", "prod"),
+		stackPayload("web", "prod", "prod"),
+	}
+	if errs := DispatchDurable(ctx, []notify.Channel{ch}, payloads, store); len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	if len(ch.delivered) != 1 {
+		t.Fatalf("want 1 grouped delivery, got %d: %+v", len(ch.delivered), ch.delivered)
+	}
+	if got := len(ch.delivered[0].Group); got != 2 {
+		t.Fatalf("grouped delivery must carry both stacks, got Group of %d", got)
+	}
+	if ch.delivered[0].GroupKey != "prod" {
+		t.Fatalf("group key should be the env: %q", ch.delivered[0].GroupKey)
+	}
+}
