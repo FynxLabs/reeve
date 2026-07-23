@@ -14,7 +14,7 @@ at `drift` level; `suppress` is a command group.
 ```
 reeve drift run [--pattern ... | --schedule <name> | --if-stale]
 reeve drift status [--since 24h] [--stack prod/api]
-reeve drift report [--format markdown|slack|json]
+reeve drift report [--format markdown|json]
 reeve drift bootstrap [--pattern ...]
 reeve drift suppress add <stack> [--until 48h] [--reason ...]
 reeve drift suppress list
@@ -169,15 +169,17 @@ duplicate beats a silently lost alert.
 **Unset mode behaves like `alert_all`** - noisy on a large estate, but
 nothing is silently accepted as baseline. **Recommended for `prod/*` scopes
 is `require_manual`**, to close the "attacker deletes state file → baseline
-resets → alerts suppressed" gap. `baseline_max_age` applies only to
-explicit `baseline` mode.
+resets → alerts suppressed" gap. `baseline_max_age` is accepted in config but
+**not yet enforced** (reserved for the `baseline` mode).
 
 ## Freshness
 
 Before running a stack check:
 - No prior state file → run (first time).
 - `last_successful_check_at` older than window → run.
-- Previous run errored and `respect_failures: true` → run (retry).
+- No successful check recorded (previous run errored) → run (retry). Freshness
+  keys on the last *successful* check, so a failed stack is always re-checked;
+  `respect_failures` is accepted in config but not yet a separate toggle.
 - Stack has active drift → **always run** (to detect resolution).
 - Otherwise → skip, log `skipped_fresh`.
 
