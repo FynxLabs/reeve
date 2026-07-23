@@ -13,7 +13,7 @@ are per-file, and schemas are stable within a major version.
 ├── observability.yaml    # OTEL + annotations
 ├── drift.yaml            # drift scope, schedules, channels
 ├── pulumi.yaml           # engine: pulumi
-└── terraform.yaml        # engine: terraform (future)
+└── terraform.yaml        # engine: terraform / tofu
 ```
 
 Every file begins with:
@@ -29,8 +29,8 @@ config_type: <shared|engine|auth|notifications|observability|drift|user>
   more than one is a validation error.
 - Unknown top-level keys fail `reeve lint`.
 
-A single-file `reeve.yaml` at repo root is supported for simple cases.
-When `.reeve/` exists, root-level `reeve.yaml` is ignored (ambiguity error).
+Config always lives under `.reeve/`. reeve reads that directory and only that
+directory; there is no root-level single-file `reeve.yaml` form.
 
 ---
 

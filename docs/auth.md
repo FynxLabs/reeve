@@ -87,7 +87,7 @@ providers:
   aws-prod:
     type: aws_oidc
     role_arn: arn:aws:iam::111111111111:role/reeve-prod
-    session_name: reeve-${context:pr_number}   # default: "reeve"
+    session_name: reeve-prod                    # default: "reeve"; sent verbatim as the STS RoleSessionName
     duration: 1h                                # default 1h; lint warns >4h
     region: us-east-1
     audience: sts.amazonaws.com                 # default; override for custom audiences
