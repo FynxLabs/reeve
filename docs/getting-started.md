@@ -93,7 +93,7 @@ preconditions:
 apply:
   trigger: comment               # comment (default): apply on /reeve apply | merge: apply on PR merge
   allow_fork_prs: false          # deny-by-default; flip with care
-  # auto_ready: true             # optional: when PR converts from draft to ready and plan succeeded, notify for approval
+  # auto_ready: true             # reserved — not yet enforced (draft→ready already notifies for approval when a plan has succeeded)
 ```
 
 **`.reeve/pulumi.yaml`** - engine + stack declarations:
@@ -216,8 +216,8 @@ never re-trigger a run.
 
 > **Draft PRs:** apply is blocked. reeve returns an error if `/reeve apply`
 > is attempted on a draft PR.
-> Enable `apply.auto_ready: true` in `shared.yaml` to automatically notify for approval
-> when the PR is converted from draft to ready for review and a plan has succeeded.
+> When a draft PR is converted to ready for review, reeve automatically notifies for
+> approval if a plan has already succeeded for the head commit.
 
 Open a PR. reeve posts a comment within ~30 seconds showing the plan for
 every stack touched by the changed files.
