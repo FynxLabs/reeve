@@ -58,6 +58,31 @@ func BuildNotifyChannels(ctx context.Context, cfg *schemas.Notifications, store 
 	return channels
 }
 
+// prNotifyClient is the subset of the VCS client BuildPRNotifyChannels needs:
+// a PR's changed files (for the suppression check) and the comment client that
+// backs the timeline_github channel. *github.Client satisfies both.
+type prNotifyClient interface {
+	ListChangedFiles(ctx context.Context, number int) ([]string, error)
+	notify.CommentClient
+}
+
+// BuildPRNotifyChannels builds notification channels for a PR-flow event while
+// enforcing the SAME pre-approval suppression the preview path applies.
+//
+// approved/ready run on the untrusted PR HEAD checkout, so channel config
+// (webhook URLs, headers, and their expanded ${env:...} credentials) is
+// attacker-controlled when the PR modifies the channel-bearing files. In that
+// case - or when the changed-file list can't be fetched - no channels are
+// returned and reason explains why; the caller simply skips its notification.
+// A PR that does not touch notification config notifies normally.
+func BuildPRNotifyChannels(ctx context.Context, cfg *schemas.Notifications, channelSourceFiles []string, store blob.Store, client prNotifyClient, pr int) (channels []notify.Channel, reason string) {
+	changed, changedErr := client.ListChangedFiles(ctx, pr)
+	if suppress, why := SuppressPreApprovalChannels(false, true, changed, changedErr, channelSourceFiles); suppress {
+		return nil, why
+	}
+	return BuildNotifyChannels(ctx, cfg, store, client), ""
+}
+
 // defaultChannelSourceFiles is the fail-closed fallback when the caller did
 // not record which config files declared notification channels.
 var defaultChannelSourceFiles = []string{".reeve/notifications.yaml", ".reeve/drift.yaml"}
@@ -73,9 +98,9 @@ var defaultObservabilitySourceFiles = []string{".reeve/observability.yaml"}
 // and channel config (webhook URLs, headers) is loaded from that HEAD. If
 // the PR modifies the channel-bearing config files, a branch pusher could
 // point a channel at an attacker-controlled endpoint and exfiltrate
-// expanded credentials - so dispatch is suppressed entirely. Post-approval
-// paths (ready/approved/apply) re-check approvals that cover the config
-// change and dispatch normally.
+// expanded credentials - so dispatch is suppressed entirely. The
+// ready/approved paths run on the same untrusted HEAD and apply this gate
+// too, via BuildPRNotifyChannels.
 //
 // Fail closed: no VCS client or an unavailable changed-file list in a
 // non-local run also suppresses. --local runs never suppress (no VCS;
