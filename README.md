@@ -145,7 +145,7 @@ the run never breaks because a binary wasn't available.
 | Event / Comment              | What it does                                                    |
 | ---------------------------- | --------------------------------------------------------------- |
 | PR opened / reopened / push  | `reeve run preview` runs automatically, posts plan comment      |
-| PR converted from draft      | `reeve run ready` runs automatically (if `auto_ready: true`)    |
+| PR converted from draft to ready | `reeve run ready` runs, notifying for approval if a plan has succeeded |
 | `/reeve preview` or `/reeve plan` | Re-runs plan for this PR                               |
 | `/reeve ready`               | Marks PR ready for approval, posts comment, notifies Slack      |
 | `/reeve apply` or `/reeve up` | Applies all planned stacks (subject to approval gates)         |

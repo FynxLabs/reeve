@@ -113,7 +113,7 @@ behavior:
 
   state_bootstrap:
     mode: require_manual           # baseline | alert_all | require_manual
-    baseline_max_age: 7d           # unset mode = alert_all on first run
+    baseline_max_age: 7d           # reserved — parsed but not yet enforced
 
 classification:
   ignore_properties:
@@ -128,7 +128,7 @@ classification:
 freshness:
   enabled: true
   window: 4h                       # skip stacks checked within 4h
-  respect_failures: true           # retry failed stacks even if fresh
+  respect_failures: true           # reserved — not yet enforced; failed stacks are always re-checked
 
 schedules:
   critical:

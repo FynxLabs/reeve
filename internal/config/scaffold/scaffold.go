@@ -212,11 +212,13 @@ apply:
   allow_fork_prs: false       # fork PRs stay dry-run only
   # auto_ready: true          # notify for approval when a draft PR becomes ready
 
-# Break-glass emergency overrides (bypass gates with a recorded reason) are
-# coming in a future release and will be configured here once they land:
+# Break-glass: authorize an emergency apply that bypasses gates, with a
+# recorded reason and audit trail. Off unless configured. Example:
 # break_glass:
-#   allowed: ["@your-org/sre"]
-#   requires_reason: true
+#   authorized:
+#     internal_list: ["your-org/sre"]
+#     codeowners: true
+#   override_freeze: true
 `)
 	return []byte(b.String())
 }

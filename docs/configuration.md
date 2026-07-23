@@ -117,8 +117,8 @@ break_glass:                       # opt-in emergency apply; OFF when absent
 apply:
   trigger: comment                 # comment (default) | merge — see "apply.trigger" below
   allow_fork_prs: false            # deny-by-default - review risk before flipping
-  auto_ready: false                # if true: when PR converts from draft to ready-for-review
-                                   # and plan has succeeded, notify for approval via Slack + PR comment
+  auto_ready: false                # reserved — not yet enforced (draft→ready already notifies for
+                                   # approval whenever a plan has succeeded)
 ```
 
 ### `apply.trigger`
@@ -178,8 +178,8 @@ Controls how the apply comment relates to the preview comment.
 | `section` | Apply upserts with a separate marker (`<!-- reeve:apply:v1 -->`), so preview and apply each occupy their own comment slot. |
 
 > **Draft PRs:** apply is always blocked on draft PRs regardless of config.
-> Convert to ready for review first. If `auto_ready: true` and a plan has succeeded,
-> reeve fires `/reeve ready` automatically when the PR converts from draft to ready for review.
+> Convert to ready for review first. When a draft PR becomes ready, reeve runs `/reeve ready`
+> automatically, notifying for approval if a plan has already succeeded.
 
 ### `comments.stack_view`
 
@@ -647,7 +647,7 @@ The sidebar color and status field update at each stage:
 | Stage | Trigger | Color |
 | --- | --- | --- |
 | Plan ready | `trigger: plan` - plan finishes | 🟡 yellow |
-| Ready | `/reeve ready` or `auto_ready: true` on draft→ready with successful plan | 🟡 yellow |
+| Ready | `/reeve ready`, or draft→ready with a successful plan | 🟡 yellow |
 | Approved | Preconditions passed, apply imminent | 🔵 blue |
 | Applying | Apply loop started | 🟣 purple |
 | Applied | Apply completes successfully | 🟢 green |
@@ -739,7 +739,7 @@ behavior:
   max_parallel_stacks: 8
   state_bootstrap:
     mode: require_manual           # baseline | alert_all | require_manual
-    baseline_max_age: 7d
+    baseline_max_age: 7d           # reserved — parsed but not yet enforced
 
 schedules:
   critical:
