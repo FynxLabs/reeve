@@ -160,6 +160,7 @@ func TestRenderSlackGate(t *testing.T) {
 	n := cfg.Notifications
 	if n == nil {
 		t.Fatal("notifications.yaml missing")
+		return
 	}
 	if n.Version != 2 {
 		t.Errorf("notifications version = %d, want 2 (channels model)", n.Version)
