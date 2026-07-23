@@ -62,7 +62,7 @@ func trigFixture() (*bgEngine, *bgVCS) {
 		headSHA:     bgSHA,
 		repoPrivate: true, // a single review approval only gates a private repo
 		approvalsList: []approvals.Approval{
-			{Source: "pr_review", Approver: "reviewer", CommitSHA: bgSHA},
+			{Source: "pr_review", Approver: "reviewer", CommitSHA: bgSHA, Pinned: true},
 		},
 	}
 	return engine, fv

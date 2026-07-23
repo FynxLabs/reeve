@@ -68,6 +68,9 @@ func latestApprovals(revs []*gh.PullRequestReview) []approvals.Approval {
 				Approver:    login,
 				SubmittedAt: r.GetSubmittedAt().Time,
 				CommitSHA:   r.GetCommitID(),
+				// GitHub records the review's commit_id authoritatively, so a
+				// review is always pinned to the commit it approved.
+				Pinned: true,
 			},
 		}
 	}

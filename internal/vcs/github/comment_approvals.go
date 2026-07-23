@@ -2,9 +2,7 @@ package github
 
 import (
 	"context"
-	"sort"
 	"strings"
-	"time"
 
 	gh "github.com/google/go-github/v66/github"
 
@@ -20,45 +18,40 @@ import (
 // freshness, and dismiss_on_new_commit are applied downstream by
 // approvals.Evaluate, uniformly with pr_review approvals.
 //
-// Each approval is stamped with the SHA that was HEAD when the comment was
-// posted (mirroring how a pr_review carries its commit_id), so
-// dismiss_on_new_commit invalidates a comment approval once a newer commit
-// lands - exactly as it does for a stale review.
+// Commit binding: a pr_review carries an authoritative commit_id from GitHub,
+// so dismiss_on_new_commit can tell a stale review from a current one. A
+// comment carries no such record - and the SHA that was HEAD when a comment was
+// posted CANNOT be reconstructed from the API, because git committer timestamps
+// are attacker-settable (a pushed commit can be backdated to appear "older"
+// than the comment). So a comment approval is bound to a commit only when the
+// commenter names it explicitly: `/reeve approve <sha>`. A bare `/reeve approve`
+// is left unpinned, and approvals.Evaluate dismisses unpinned approvals whenever
+// dismiss_on_new_commit is enabled (its default).
 func (c *Client) ListCommentApprovals(ctx context.Context, pr approvals.PR, cfg vcs.CommentApprovalConfig) ([]approvals.Approval, error) {
 	prefixes, verb := parseCommentTrigger(cfg)
 	allowed := normalizeAssociations(cfg.AllowedAssociations)
-
-	// Commit timeline: needed to map a comment's post time to the SHA that was
-	// HEAD at the time, so dismiss_on_new_commit can be evaluated. Fail closed
-	// on error - a swallowed error would leave CommitSHA empty and let a stale
-	// comment approval slip past dismissal.
-	commits, err := c.listCommitTimes(ctx, pr.Number)
-	if err != nil {
-		return nil, err
-	}
 
 	comments, err := c.listIssueComments(ctx, pr.Number)
 	if err != nil {
 		return nil, err
 	}
 
-	return commentApprovals(comments, commits, prefixes, verb, allowed, pr.HeadSHA), nil
+	return commentApprovals(comments, prefixes, verb, allowed, pr.HeadSHA), nil
 }
 
 // commentApprovals is the pure core of the pr_comment source: it turns issue
-// comments into approvals, applying the prefix/verb parse, the bot guard, and
-// the author_association gate, and stamping each with the HEAD-at-comment-time
-// SHA. Kept side-effect-free so it can be tested without an HTTP mock. The
-// non-author rule, freshness, and dismissal are left to approvals.Evaluate.
-func commentApprovals(comments []*gh.IssueComment, commits []commitTime, prefixes []string, verb string, allowed map[string]struct{}, headSHA string) []approvals.Approval {
+// comments into approvals, applying the prefix/verb parse, the bot guard, the
+// author_association gate, and the explicit-SHA commit binding. Kept
+// side-effect-free so it can be tested without an HTTP mock. The non-author
+// rule, freshness, and dismissal are left to approvals.Evaluate.
+func commentApprovals(comments []*gh.IssueComment, prefixes []string, verb string, allowed map[string]struct{}, headSHA string) []approvals.Approval {
 	var out []approvals.Approval
 	// One approval per commenter, keeping the LATEST qualifying comment.
-	// Comments arrive oldest-first; if we kept the first, a re-approval after
-	// a new push (a fresh `/reeve approve` stamped with the new HEAD) would be
-	// discarded in favor of the stale earlier one - which dismiss_on_new_commit
-	// then invalidates, making the gate impossible to re-satisfy by comment.
-	// Overwriting in place keeps output order stable at first appearance while
-	// carrying the latest comment's timestamp + HEAD SHA.
+	// Comments arrive oldest-first; if we kept the first, a re-approval naming
+	// a newer SHA would be discarded in favor of an earlier one, which
+	// dismiss_on_new_commit would then invalidate. Overwriting in place keeps
+	// output order stable at first appearance while carrying the latest
+	// comment's timestamp + commit binding.
 	idx := map[string]int{} // login -> position in out
 	for _, cm := range comments {
 		login := cm.GetUser().GetLogin()
@@ -70,7 +63,8 @@ func commentApprovals(comments []*gh.IssueComment, commits []commitTime, prefixe
 		if cm.GetUser().GetType() == "Bot" || strings.HasSuffix(login, "[bot]") {
 			continue
 		}
-		if !isApproveComment(cm.GetBody(), prefixes, verb) {
+		ok, shaArg := parseApproveCommand(cm.GetBody(), prefixes, verb)
+		if !ok {
 			continue
 		}
 		// Authorization gate: identical to the action.yml command gate. An
@@ -78,12 +72,13 @@ func commentApprovals(comments []*gh.IssueComment, commits []commitTime, prefixe
 		if !associationAllowed(cm.GetAuthorAssociation(), allowed) {
 			continue
 		}
-		created := cm.GetCreatedAt().Time
+		sha, pinned := resolveApprovedCommit(shaArg, headSHA)
 		ap := approvals.Approval{
 			Source:      approvals.SourcePRComment,
 			Approver:    login,
-			SubmittedAt: created,
-			CommitSHA:   headSHAAt(commits, created, headSHA),
+			SubmittedAt: cm.GetCreatedAt().Time,
+			CommitSHA:   sha,
+			Pinned:      pinned,
 		}
 		if i, ok := idx[login]; ok {
 			out[i] = ap // later comment supersedes the earlier one
@@ -95,42 +90,29 @@ func commentApprovals(comments []*gh.IssueComment, commits []commitTime, prefixe
 	return out
 }
 
-// commitTime pairs a commit SHA with the time it landed on the PR.
-type commitTime struct {
-	sha string
-	at  time.Time
-}
+// minShortSHA is the shortest commit prefix accepted in `/reeve approve <sha>`.
+// Matches git's conventional abbreviated-SHA length and stops a 1-2 character
+// argument from matching HEAD by accident.
+const minShortSHA = 7
 
-// listCommitTimes returns the PR's commits ordered oldest-first with their
-// committer timestamps.
-func (c *Client) listCommitTimes(ctx context.Context, number int) ([]commitTime, error) {
-	var out []commitTime
-	opt := &gh.ListOptions{PerPage: 100}
-	for {
-		page, resp, err := c.gh.PullRequests.ListCommits(ctx, c.owner, c.repo, number, opt)
-		if err != nil {
-			return nil, err
-		}
-		for _, rc := range page {
-			ct := commitTime{sha: rc.GetSHA()}
-			// Prefer committer date (when the commit landed) over author date.
-			if commit := rc.GetCommit(); commit != nil {
-				if committer := commit.GetCommitter(); committer != nil {
-					ct.at = committer.GetDate().Time
-				}
-				if ct.at.IsZero() && commit.GetAuthor() != nil {
-					ct.at = commit.GetAuthor().GetDate().Time
-				}
-			}
-			out = append(out, ct)
-		}
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
+// resolveApprovedCommit binds a comment approval to the commit it names.
+//
+// A bare `/reeve approve` (arg == "") is UNPINNED: reeve cannot know, from the
+// comment alone, which commit was HEAD when it was posted, so it must not be
+// trusted to identify approved code. approvals.Evaluate dismisses an unpinned
+// approval whenever dismiss_on_new_commit is enabled.
+//
+// `/reeve approve <sha>` is PINNED: if <sha> is a prefix (>= minShortSHA chars)
+// of the current HEAD it binds to the full HEAD SHA and counts; otherwise it
+// binds to the literal <sha>, which never equals HEAD and is dismissed as stale.
+func resolveApprovedCommit(arg, headSHA string) (sha string, pinned bool) {
+	if arg == "" {
+		return "", false
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].at.Before(out[j].at) })
-	return out, nil
+	if len(arg) >= minShortSHA && strings.HasPrefix(strings.ToLower(headSHA), strings.ToLower(arg)) {
+		return headSHA, true
+	}
+	return arg, true
 }
 
 // listIssueComments returns all issue comments on the PR (paginated).
@@ -149,27 +131,6 @@ func (c *Client) listIssueComments(ctx context.Context, number int) ([]*gh.Issue
 		opt.Page = resp.NextPage
 	}
 	return out, nil
-}
-
-// headSHAAt returns the SHA that was HEAD when a comment was posted at t: the
-// newest commit with a timestamp <= t. This is the code the commenter was
-// approving. When no commit predates the comment (a comment older than every
-// commit - e.g. an approval edited into an ancient comment), it falls back to
-// the oldest commit so dismiss_on_new_commit still invalidates it once HEAD
-// moves on (fail closed). With no commits at all, it falls back to fallback
-// (the current PR HEAD).
-func headSHAAt(commits []commitTime, t time.Time, fallback string) string {
-	if len(commits) == 0 {
-		return fallback
-	}
-	sha := commits[0].sha
-	for _, ct := range commits {
-		if ct.at.After(t) {
-			break
-		}
-		sha = ct.sha
-	}
-	return sha
 }
 
 // parseCommentTrigger derives the accepted command prefixes and the verb from
@@ -206,18 +167,20 @@ func parseCommentTrigger(cfg vcs.CommentApprovalConfig) (prefixes []string, verb
 	return prefixes, verb
 }
 
-// isApproveComment reports whether the first line of a comment body is a
-// `<prefix> <verb>` command, parsed the same way action.yml parses commands:
-// the first whitespace-delimited token must exactly match an accepted prefix
-// and the second token must be the approve verb. Trailing tokens are ignored.
-func isApproveComment(body string, prefixes []string, verb string) bool {
+// parseApproveCommand reports whether the first line of a comment body is a
+// `<prefix> <verb> [sha]` approval command, and returns the optional third
+// token (the SHA the commenter is approving). Parsed the same way action.yml
+// parses commands: the first whitespace-delimited token must exactly match an
+// accepted prefix and the second token must be the approve verb. A third token,
+// if present, is taken as the approved commit SHA; further tokens are ignored.
+func parseApproveCommand(body string, prefixes []string, verb string) (ok bool, sha string) {
 	line := body
 	if i := strings.IndexByte(line, '\n'); i >= 0 {
 		line = line[:i]
 	}
 	fields := strings.Fields(line)
 	if len(fields) < 2 {
-		return false
+		return false, ""
 	}
 	prefixOK := false
 	for _, p := range prefixes {
@@ -226,10 +189,13 @@ func isApproveComment(body string, prefixes []string, verb string) bool {
 			break
 		}
 	}
-	if !prefixOK {
-		return false
+	if !prefixOK || !strings.EqualFold(fields[1], verb) {
+		return false, ""
 	}
-	return strings.EqualFold(fields[1], verb)
+	if len(fields) >= 3 {
+		return true, fields[2]
+	}
+	return true, ""
 }
 
 // normalizeAssociations upper-cases and trims the allowlist for comparison.

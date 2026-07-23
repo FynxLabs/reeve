@@ -51,7 +51,7 @@ func plainApplyInput(t *testing.T, engine applyEngine, fv *bgVCS, store blob.Sto
 	in.BreakGlass = nil
 	fv.repoPrivate = true // one unlisted review only gates a private repo
 	fv.approvalsList = []approvals.Approval{
-		{Source: "pr_review", Approver: "reviewer", CommitSHA: bgSHA},
+		{Source: "pr_review", Approver: "reviewer", CommitSHA: bgSHA, Pinned: true},
 	}
 	return in
 }
