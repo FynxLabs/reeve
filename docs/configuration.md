@@ -322,6 +322,25 @@ bound to a commit **only when the commenter names it**:
 reeve posts the current HEAD short-SHA in its PR comments, so approvers can copy
 `/reeve approve <sha>` directly.
 
+**Opting out — `allow_unpinned_comment_approvals`.** If your team trusts its
+allowed approvers and prefers the convenience of a bare `/reeve approve`, set
+`allow_unpinned_comment_approvals: true`. Unpinned comment approvals then count
+even under `dismiss_on_new_commit` (approve-and-stick: the approval survives new
+commits). It defaults to `false` (the secure behavior above), rides on any
+approval rule so it can be scoped per pattern (e.g. loosen it on `dev/*` while
+leaving `prod/*` strict), and has no effect on `pr_review` approvals — those are
+always pinned to GitHub's authoritative commit id, and a pinned-but-stale
+approval is still dismissed.
+
+```yaml
+approvals:
+  default:
+    allow_unpinned_comment_approvals: false   # secure default
+  stacks:
+    "dev/*":
+      allow_unpinned_comment_approvals: true  # bare /reeve approve is fine on dev
+```
+
 > Posting `/reeve approve` also refreshes the approved-state notification
 > (Slack "ready to apply"), mirroring the `pull_request_review` path. The
 > comment itself is the approval — the apply gate re-reads it (and re-checks

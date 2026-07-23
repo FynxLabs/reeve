@@ -125,4 +125,16 @@ func TestEvaluate_UnpinnedCommentApprovalDismissedOnNewCommit(t *testing.T) {
 	if res := Evaluate(keep, appr, pr, nil, pr.Author, time.Now()); !res.Satisfied {
 		t.Fatalf("unpinned comment approval should count when dismiss_on_new_commit is off; trace=%v", res.Trace)
 	}
+
+	// Opt-in: allow_unpinned_comment_approvals lets a bare approve count even
+	// under dismiss_on_new_commit.
+	optIn := Rules{RequiredApprovals: 1, DismissOnNewCommit: true, AllowUnpinnedComments: true}
+	if res := Evaluate(optIn, appr, pr, nil, pr.Author, time.Now()); !res.Satisfied {
+		t.Fatalf("allow_unpinned_comment_approvals must let a bare approve count under dismiss_on_new_commit; trace=%v", res.Trace)
+	}
+	// The opt-in must not resurrect a PINNED-but-stale approval.
+	stale := []Approval{{Source: SourcePRComment, Approver: "reviewer", CommitSHA: "old-sha", SubmittedAt: time.Now(), Pinned: true}}
+	if res := Evaluate(optIn, stale, pr, nil, pr.Author, time.Now()); res.Satisfied {
+		t.Fatalf("allow_unpinned must not count a pinned approval on a stale commit; trace=%v", res.Trace)
+	}
 }

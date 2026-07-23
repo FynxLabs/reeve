@@ -141,6 +141,9 @@ func toApprovalsConfig(s *schemas.Shared) approvals.Config {
 		if r.DismissOnNewCommit != nil {
 			present["dismiss_on_new_commit"] = true
 		}
+		if r.AllowUnpinnedCommentApprovals != nil {
+			present["allow_unpinned_comment_approvals"] = true
+		}
 		if r.Freshness != "" {
 			present["freshness"] = true
 		}
@@ -166,6 +169,9 @@ func toApprovalRule(r schemas.ApprovalRuleYAML, present map[string]bool) approva
 	}
 	if r.DismissOnNewCommit != nil {
 		out.DismissOnNewCommit = *r.DismissOnNewCommit
+	}
+	if r.AllowUnpinnedCommentApprovals != nil {
+		out.AllowUnpinnedComments = *r.AllowUnpinnedCommentApprovals
 	}
 	if r.Freshness != "" {
 		if d, err := time.ParseDuration(r.Freshness); err == nil {

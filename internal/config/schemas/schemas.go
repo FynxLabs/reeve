@@ -81,6 +81,14 @@ type ApprovalRuleYAML struct {
 	RequireAllGroups   *bool    `yaml:"require_all_groups,omitempty"`
 	DismissOnNewCommit *bool    `yaml:"dismiss_on_new_commit,omitempty"`
 	Freshness          string   `yaml:"freshness,omitempty"` // e.g. "24h"
+	// AllowUnpinnedCommentApprovals opts into counting a bare `/reeve approve`
+	// (a pr_comment approval that names no SHA) even when dismiss_on_new_commit
+	// is on. Off by default: an unnamed comment approval cannot be bound to the
+	// reviewed commit, so the secure default drops it and asks the reviewer to
+	// name the SHA (`/reeve approve <sha>`). Set true to accept bare approvals
+	// as approve-and-stick (they survive new commits) - a deliberate weaker
+	// policy for teams that trust their allowed approvers.
+	AllowUnpinnedCommentApprovals *bool `yaml:"allow_unpinned_comment_approvals,omitempty"`
 }
 
 type PreconditionsYAML struct {

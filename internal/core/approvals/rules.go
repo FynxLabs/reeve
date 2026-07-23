@@ -58,7 +58,13 @@ type Rules struct {
 	Codeowners         bool
 	RequireAllGroups   bool // approvers list treated as groups
 	DismissOnNewCommit bool
-	Freshness          time.Duration // 0 = no freshness requirement
+	// AllowUnpinnedComments, when true, counts an unpinned comment approval (a
+	// bare `/reeve approve` with no SHA) even under DismissOnNewCommit. Off by
+	// default: an unpinned approval is not bound to a reviewed commit, so the
+	// secure default dismisses it. Has no effect on pr_review approvals (always
+	// pinned) or when DismissOnNewCommit is off.
+	AllowUnpinnedComments bool
+	Freshness             time.Duration // 0 = no freshness requirement
 	// AllowUnlistedApprovalsOnPublic opts a public repository into counting
 	// approvals from reviewers who are not on an approvers list and not a
 	// CODEOWNER. It is a repo-wide policy (rides on the default rule) and is
@@ -125,6 +131,9 @@ func Resolve(cfg Config, ref string) Rules {
 		if r.Present["dismiss_on_new_commit"] {
 			out.DismissOnNewCommit = r.Rules.DismissOnNewCommit
 		}
+		if r.Present["allow_unpinned_comment_approvals"] {
+			out.AllowUnpinnedComments = r.Rules.AllowUnpinnedComments
+		}
 		if r.Present["freshness"] {
 			out.Freshness = r.Rules.Freshness
 		}
@@ -167,10 +176,14 @@ func Evaluate(rules Rules, approvals []Approval, pr PR, codeowners map[string][]
 	for _, a := range approvals {
 		if rules.DismissOnNewCommit {
 			if !a.Pinned {
-				res.Trace = append(res.Trace, fmt.Sprintf("dismissed %s (approval not pinned to a commit; re-approve naming the SHA, e.g. `approve %s`)", a.Approver, short(pr.HeadSHA)))
-				continue
-			}
-			if a.CommitSHA != "" && a.CommitSHA != pr.HeadSHA {
+				// An unpinned approval (a bare `/reeve approve`) is not bound to
+				// a reviewed commit. Dismiss it unless the operator opted into
+				// accepting bare approvals as approve-and-stick.
+				if !rules.AllowUnpinnedComments {
+					res.Trace = append(res.Trace, fmt.Sprintf("dismissed %s (approval not pinned to a commit; re-approve naming the SHA, e.g. `approve %s`, or set approvals.allow_unpinned_comment_approvals)", a.Approver, short(pr.HeadSHA)))
+					continue
+				}
+			} else if a.CommitSHA != "" && a.CommitSHA != pr.HeadSHA {
 				res.Trace = append(res.Trace, fmt.Sprintf("dismissed %s (approval on %s, HEAD is %s)", a.Approver, short(a.CommitSHA), short(pr.HeadSHA)))
 				continue
 			}
