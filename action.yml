@@ -210,12 +210,31 @@ runs:
               exit 0
             fi
             REVIEW_STATE=$(jq -r .review.state < "$GITHUB_EVENT_PATH")
-            if [[ "$REVIEW_STATE" == "approved" ]]; then
-              CMD="approved"
-            else
+            if [[ "$REVIEW_STATE" != "approved" ]]; then
               echo "Review state '$REVIEW_STATE' - skipping."
               exit 0
             fi
+            # Authorization gate (mirrors the issue_comment branch): on a
+            # public repo ANY user can submit an approving review, and the
+            # dispatched "approved" run loads channel config from the untrusted
+            # PR HEAD. Require the reviewer's author_association to be in the
+            # allowlist before dispatching, so an unassociated approval can't
+            # start a run.
+            ASSOC=$(jq -r '.review.author_association // "NONE"' < "$GITHUB_EVENT_PATH")
+            AUTHORIZED=false
+            IFS=',' read -ra ALLOWED <<< "${{ inputs.allowed-associations }}"
+            for A in "${ALLOWED[@]}"; do
+              A=$(printf '%s' "$A" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')
+              if [[ -n "$A" && "$A" == "$ASSOC" ]]; then
+                AUTHORIZED=true
+                break
+              fi
+            done
+            if [[ "$AUTHORIZED" != true ]]; then
+              echo "Reviewer not authorized (association: $ASSOC) - skipping."
+              exit 0
+            fi
+            CMD="approved"
           elif [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
             # Explicit trigger matrix: only code-changing actions run preview,
             # and ready_for_review runs ready. Everything else (labeled,
