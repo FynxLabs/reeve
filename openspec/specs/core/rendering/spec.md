@@ -52,7 +52,7 @@ Each apply run owns one comment, pinned by per-run marker
 comment in place:
 
 ```
-### 🚀 reeve · apply · run #N · [commit <sha>] · [View run](<url>)
+### 🚀 reeve · apply · [run #N](<url>) · [commit <sha>]
 - 🚀 **apply starting**
 - ✅ **applied**: 2 stack(s): api/prod, worker/prod
 ```

@@ -33,12 +33,8 @@ func ApplyTimeline(in TimelineInput) string {
 	var b []byte
 	b = append(b, ApplyTimelineMarker(in.RunID)...)
 	b = append(b, '\n')
-	runBit := ""
-	if in.CIRunURL != "" {
-		runBit = fmt.Sprintf(" · [View run](%s)", in.CIRunURL)
-	}
-	header := fmt.Sprintf("### 🚀 reeve · apply · run #%d · [commit %s]%s\n\n",
-		in.RunNumber, shortSHA(in.CommitSHA), runBit)
+	header := fmt.Sprintf("### 🚀 reeve · apply · %s · [commit %s]\n\n",
+		runRef(in.RunNumber, in.CIRunURL), shortSHA(in.CommitSHA))
 	b = append(b, header...)
 	for _, e := range in.Entries {
 		line := fmt.Sprintf("- %s **%s**", e.Icon, e.Label)

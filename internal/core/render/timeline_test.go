@@ -30,8 +30,8 @@ func TestApplyTimelineAccumulates(t *testing.T) {
 	if !strings.Contains(got, "2 stack(s): a/prod, b/prod") {
 		t.Errorf("missing detail:\n%s", got)
 	}
-	if !strings.Contains(got, "[View run](https://ci/run/118)") {
-		t.Errorf("missing run link:\n%s", got)
+	if !strings.Contains(got, "[run #118](https://ci/run/118)") {
+		t.Errorf("run number should hyperlink to the run:\n%s", got)
 	}
 }
 
