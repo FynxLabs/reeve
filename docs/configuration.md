@@ -192,7 +192,11 @@ Controls which stacks the comment table lists.
 
 ### Apply timeline
 
-Each apply run owns one PR comment, pinned by a per-run marker. Events append in order:
+Each commit owns one PR comment, pinned by a per-commit marker. Every run of
+that commit (first apply, retry, `--force` re-apply) appends to the same thread
+and edits the comment in place instead of posting a new one; entries persist per
+commit so concurrent runs never lose each other's history. Events append in
+order:
 
 - 🚀 `apply starting`
 - ✅ `applied` — with changed stack refs

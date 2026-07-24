@@ -196,7 +196,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		return nil, err
 	}
 
-	timeline := newApplyTimeline(in.VCS, in.PRNumber, runID, in.RunNumber, in.CommitSHA, in.CIRunURL)
+	timeline := newApplyTimeline(in.VCS, in.Blob, in.PRNumber, runID, in.RunNumber, in.CommitSHA, in.CIRunURL)
 	timeline.add(ctx, "🚀", "apply starting", "")
 
 	// Already-applied guard: if this exact commit was fully applied before and
