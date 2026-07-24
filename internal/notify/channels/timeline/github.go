@@ -19,7 +19,7 @@ func init() {
 
 // CommentMarker pins one timeline comment per commit SHA. This is a NEW
 // marker namespace: the dashboard comment markers (reeve:pr-comment:v1,
-// reeve:apply:v1, reeve:help, reeve:apply-timeline:{run}) are sacred - a
+// reeve:apply:v1, reeve:help, reeve:apply-timeline:{sha}) are sacred - a
 // changed marker orphans existing comments - so the timeline never touches
 // them.
 func CommentMarker(sha string) string {
