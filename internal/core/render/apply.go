@@ -85,7 +85,7 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	if in.BreakGlass != nil {
 		icon = "🚨"
 	}
-	fmt.Fprintf(&b, "## %s reeve · apply · run #%d · [commit %s]\n\n", icon, in.RunNumber, shortSHA(in.CommitSHA))
+	fmt.Fprintf(&b, "## %s reeve · apply · %s · [commit %s]\n\n", icon, runRef(in.RunNumber, in.CIRunURL), shortSHA(in.CommitSHA))
 
 	if in.BreakGlass != nil {
 		b.WriteString(renderBreakGlassNote(*in.BreakGlass))
@@ -100,11 +100,7 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	if in.DurationSec > 0 {
 		durBit = fmt.Sprintf(" · ⏱ %ds", in.DurationSec)
 	}
-	runBit := ""
-	if in.CIRunURL != "" {
-		runBit = fmt.Sprintf(" · [View run](%s)", in.CIRunURL)
-	}
-	fmt.Fprintf(&b, "**%d %s applied**%s%s\n\n", n, noun, durBit, runBit)
+	fmt.Fprintf(&b, "**%d %s applied**%s\n\n", n, noun, durBit)
 
 	if opts.truncationNote != "" {
 		fmt.Fprintf(&b, "> ⚠️ %s\n\n", opts.truncationNote)
