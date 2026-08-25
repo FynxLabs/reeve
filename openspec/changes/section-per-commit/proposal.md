@@ -27,9 +27,26 @@ guarantees each one is overwritten.
 4. Retire the operation-split marker `<!-- reeve:apply:v1 -->`. Comments already
    posted under it are left in place.
 
+## Also fixed
+
+The size-limit trim note said "see the full run output for the complete plan"
+while nothing wrote the plan there - `PlanDiff` and `FullPlan` only ever reached
+the comment. The note named an output that never held it.
+
+Worse, the last resort was a byte truncate. It sliced through tables, code
+fences, and `<details>` tags, so GitHub rendered the remainder as garbage, and
+it discarded whatever stacks fell past the cutoff with no account of them. Stack
+errors and plan summaries were not on the trim ladder at all, so a run with many
+failing stacks went straight from "drop the diffs" to that byte cut.
+
+The ladder now runs: engine output, diff, summaries, clamped errors, whole
+sections, table rows. Every rung removes whole units and reports what went, and
+the run pipeline logs whatever was reported.
+
 ## Scope
 
-- In: the `section` marker key, its spec, and its docs.
+- In: the `section` marker key, the size-limit trim ladder, the logging of
+  dropped content, their specs, and their docs.
 - Out: `replace`, `append`, the timeline comments, `comments.sort`,
   `comments.stack_view`, help and ready comments, refresh and explain markers.
 

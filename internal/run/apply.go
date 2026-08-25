@@ -801,7 +801,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	})
 	// The trim note sends the reviewer to the CI run for the apply output the
 	// comment dropped, so the output has to be in the CI log.
-	logTrimmedApplyOutput(summaries, trim)
+	logTrimmed("apply", summaries, trim)
 
 	// Terminal persistence: once the run context has been cancelled the
 	// remaining writes (manifest, timeline, comment, notify, audit) run on a
@@ -1083,24 +1083,4 @@ func scopeDelta(mapped, bound []discovery.Stack) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// logTrimmedApplyOutput writes the apply output the PR comment had to drop to
-// the run log. For an apply, FullPlan holds the engine's own apply output -
-// the record of what changed - so a size-trimmed comment plus a note pointing
-// at a CI run that never carried it leaves no account of the run anywhere.
-//
-// The summaries are already redacted where they are built, so this adds no new
-// path around internal/core/redact.
-func logTrimmedApplyOutput(summaries []summary.StackSummary, trim render.Trim) {
-	if !trim.DroppedFullPlan {
-		return
-	}
-	for _, s := range summaries {
-		if s.FullPlan == "" {
-			continue
-		}
-		slog.Info("apply output omitted from the PR comment (size limit); full text follows",
-			"stack", s.Ref(), "output", s.FullPlan)
-	}
 }

@@ -29,33 +29,26 @@ type RefreshInput struct {
 	StackView string
 }
 
-// Refresh renders the refresh comment markdown, with the same size-limit
-// fallbacks as Apply.
+// Refresh renders the refresh comment markdown, guaranteed to fit GitHub's
+// comment size limit. See trim.go for the ladder.
 func Refresh(in RefreshInput) string {
 	body, _ := RefreshTrimmed(in)
 	return body
 }
 
 // RefreshTrimmed renders the refresh comment and reports what it dropped. As
-// with apply, FullPlan here is the engine's refresh output, so the caller must
-// emit it where the trim note points.
+// with apply, FullPlan here is the engine's own refresh output, so dropping it
+// is named in the comment and must be logged by the caller.
 func RefreshTrimmed(in RefreshInput) (string, Trim) {
-	body := renderRefresh(in, renderOpts{includeFullPlan: true})
-	if len(body) <= githubCommentMaxLen {
-		return body, Trim{}
-	}
-	note := truncationNote(PreviewInput{CIRunURL: in.CIRunURL})
-	body = renderRefresh(in, renderOpts{truncationNote: note + " (omitted: full refresh output)"})
-	trim := Trim{DroppedFullPlan: true}
-	if len(body) <= githubCommentMaxLen {
-		return body, trim
-	}
-	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
-	cutoff := githubCommentMaxLen - len(tail)
-	if cutoff < 0 || cutoff > len(body) {
-		return body, trim
-	}
-	return body[:cutoff] + tail, trim
+	return descend(
+		func(o renderOpts) string { return renderRefresh(in, o) },
+		func(omitted string) string {
+			return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
+		},
+		in.Stacks, in.StackView, in.SortMode,
+		"full refresh output",
+		false, // this is the engine's output; never drop it silently
+	)
 }
 
 func renderRefresh(in RefreshInput, opts renderOpts) string {
@@ -97,7 +90,7 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 		return b.String()
 	}
 
-	rows := tableStacks(in.Stacks, in.StackView)
+	rows, hidden := tableRows(in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
 	b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status |\n")
 	b.WriteString("|---|---|---|---|---|---|---|---|\n")
 	ordered := sortApply(rows, in.SortMode)
@@ -111,10 +104,16 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 			dur, applyStatusCell(s))
 	}
+	writeHiddenRowNote(&b, hidden)
 	b.WriteString("\n")
 
-	for _, s := range ordered {
+	dropped := 0
+	for _, s := range sortApply(tableStacks(in.Stacks, StackViewAll), in.SortMode) {
 		if s.Status == summary.StatusNoOp {
+			continue
+		}
+		if !opts.sectionRendered(s.Ref()) {
+			dropped++
 			continue
 		}
 		b.WriteString("---\n\n")
@@ -127,8 +126,8 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 				}
 			}
 		}
-		writeError(&b, s.Error)
-		if s.PlanSummary != "" {
+		writeError(&b, opts.clampError(s.Error))
+		if s.PlanSummary != "" && opts.includeSummary {
 			fmt.Fprintf(&b, "<details><summary>Reconciled resources</summary>\n\n%s\n\n</details>\n\n", s.PlanSummary)
 		}
 		if s.FullPlan != "" && opts.includeFullPlan {
@@ -140,5 +139,6 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 			b.WriteString("```\n\n</details>\n\n")
 		}
 	}
+	writeDroppedSectionNote(&b, dropped)
 	return b.String()
 }

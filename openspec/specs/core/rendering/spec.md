@@ -81,13 +81,29 @@ Separate from the replace-style dashboard comment.
 
 ## Size-limit trimming
 
-A comment over GitHub's 65,536-char limit drops its heaviest per-stack content:
-full engine output first, then the per-stack diff. Dropping full preview output
-alone is silent, because the diff reviewers read is intact.
+GitHub rejects an oversize comment with a non-recoverable 422, so a rendered body
+must always fit. Renderers drop content in a fixed order, least-read first:
 
-Once content a reviewer reads is dropped, the comment carries a note pointing at
-the CI run, and the dropped content is written to the run log. The note must not
-name an output that does not hold it.
+1. full engine output (raw plan blob)
+2. per-stack diff
+3. plan summaries
+4. error text, clamped per stack rather than dropped
+5. whole per-stack sections, every stack keeping its table row
+6. table rows
+
+Rung 1 is silent on a preview: the blob is never read from a comment and the
+diff survives. On an apply or refresh it is the engine's own output, so it is
+named. From rung 2 on, the body carries a note naming what is missing.
+
+Trimming never cuts the document mid-structure. Each rung removes whole units,
+so tables, code fences, and `<details>` blocks stay closed. Dropped sections and
+dropped rows are stated in the comment with a count - silence would read as
+"nothing to report" for those stacks.
+
+Whatever a renderer reports dropping is written to the run log, so the note's
+pointer at the full run output is true. Errors are logged whenever they were
+clamped or their section went; a stack absent from the table is named nowhere in
+the comment, so the log is its only record.
 
 ## Safety rails
 

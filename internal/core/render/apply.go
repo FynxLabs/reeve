@@ -43,40 +43,27 @@ type ApplyInput struct {
 	BreakGlass *BreakGlassNote
 }
 
-// Apply renders the apply comment markdown. If the body would exceed
-// GitHub's hard comment-size limit, drops per-stack FullPlan output and
-// adds a notice pointing at the CI run. Hard-truncates as a last resort.
+// Apply renders the apply comment markdown, guaranteed to fit GitHub's comment
+// size limit. See trim.go for the ladder.
 func Apply(in ApplyInput) string {
 	body, _ := ApplyTrimmed(in)
 	return body
 }
 
-// ApplyTrimmed renders the apply comment and reports what it dropped. For
-// apply, FullPlan is the engine's apply output - what actually happened to the
-// infrastructure - so dropping it always loses content the reviewer needs, and
-// the caller must emit it where the trim note points.
+// ApplyTrimmed renders the apply comment and reports what it dropped. Unlike a
+// preview, FullPlan here is the engine's own apply output - the record of what
+// happened to the infrastructure - so dropping it is named in the comment and
+// must be logged by the caller.
 func ApplyTrimmed(in ApplyInput) (string, Trim) {
-	body := renderApply(in, renderOpts{includeFullPlan: true})
-	if len(body) <= githubCommentMaxLen {
-		return body, Trim{}
-	}
-
-	note := truncationNote(PreviewInput{CIRunURL: in.CIRunURL})
-
-	body = renderApply(in, renderOpts{
-		truncationNote: note + " (omitted: full apply output)",
-	})
-	trim := Trim{DroppedFullPlan: true}
-	if len(body) <= githubCommentMaxLen {
-		return body, trim
-	}
-
-	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
-	cutoff := githubCommentMaxLen - len(tail)
-	if cutoff < 0 || cutoff > len(body) {
-		return body, trim
-	}
-	return body[:cutoff] + tail, trim
+	return descend(
+		func(o renderOpts) string { return renderApply(in, o) },
+		func(omitted string) string {
+			return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
+		},
+		in.Stacks, in.StackView, in.SortMode,
+		"full apply output",
+		false, // this is the engine's output; never drop it silently
+	)
 }
 
 func renderApply(in ApplyInput, opts renderOpts) string {
@@ -98,15 +85,11 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	}
 
 	n := len(in.Stacks)
-	noun := "stacks"
-	if n == 1 {
-		noun = "stack"
-	}
 	durBit := ""
 	if in.DurationSec > 0 {
 		durBit = fmt.Sprintf(" · ⏱ %ds", in.DurationSec)
 	}
-	fmt.Fprintf(&b, "**%d %s applied**%s\n\n", n, noun, durBit)
+	fmt.Fprintf(&b, "**%s**%s\n\n", applyHeadline(in.Stacks), durBit)
 
 	if opts.truncationNote != "" {
 		fmt.Fprintf(&b, "> ⚠️ %s\n\n", opts.truncationNote)
@@ -118,7 +101,7 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	}
 
 	// Table: failures first.
-	rows := tableStacks(in.Stacks, in.StackView)
+	rows, hidden := tableRows(in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
 	b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |\n")
 	b.WriteString("|---|---|---|---|---|---|---|---|\n")
 	ordered := sortApply(rows, in.SortMode)
@@ -132,11 +115,17 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 			dur, applyStatusCell(s))
 	}
+	writeHiddenRowNote(&b, hidden)
 	b.WriteString("\n")
 
 	// Per-stack details, failures first.
-	for _, s := range ordered {
+	dropped := 0
+	for _, s := range sortApply(tableStacks(in.Stacks, StackViewAll), in.SortMode) {
 		if s.Status == summary.StatusNoOp {
+			continue
+		}
+		if !opts.sectionRendered(s.Ref()) {
+			dropped++
 			continue
 		}
 		b.WriteString("---\n\n")
@@ -149,8 +138,8 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 				}
 			}
 		}
-		writeError(&b, s.Error)
-		if s.PlanSummary != "" {
+		writeError(&b, opts.clampError(s.Error))
+		if s.PlanSummary != "" && opts.includeSummary {
 			fmt.Fprintf(&b, "<details><summary>Summary (%d add, %d change, %d delete, %d replace)</summary>\n\n%s\n\n</details>\n\n",
 				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 				s.PlanSummary)
@@ -164,6 +153,7 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 			b.WriteString("```\n\n</details>\n\n")
 		}
 	}
+	writeDroppedSectionNote(&b, dropped)
 
 	return b.String()
 }
@@ -198,6 +188,48 @@ func renderBreakGlassNote(n BreakGlassNote) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// applyHeadline states what actually happened, per outcome. Counting every
+// stack as "applied" - the previous behavior - read as "24 stacks applied" on a
+// run where all 24 were blocked by a gate and nothing was touched.
+func applyHeadline(stacks []summary.StackSummary) string {
+	var applied, failed, blocked, noop int
+	for _, s := range stacks {
+		switch s.Status {
+		case summary.StatusError:
+			failed++
+		case summary.StatusBlocked:
+			blocked++
+		case summary.StatusNoOp:
+			noop++
+		default:
+			applied++
+		}
+	}
+	if len(stacks) == 0 {
+		return "No stacks"
+	}
+	// Lead with the outcome that most needs the reader's attention, and name
+	// every non-zero group so no stack is silently folded into another's count.
+	parts := make([]string, 0, 4)
+	add := func(n int, label string) {
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s %s", n, pluralStacks(n), label))
+		}
+	}
+	add(failed, "failed")
+	add(blocked, "blocked")
+	add(applied, "applied")
+	add(noop, "unchanged")
+	return strings.Join(parts, " · ")
+}
+
+func pluralStacks(n int) string {
+	if n == 1 {
+		return "stack"
+	}
+	return "stacks"
 }
 
 func applyStatusCell(s summary.StackSummary) string {

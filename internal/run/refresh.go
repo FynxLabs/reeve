@@ -304,7 +304,7 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 	})
 	// Same contract as apply: the trim note points at the CI run, so the
 	// dropped refresh output has to be there.
-	logTrimmedRefreshOutput(summaries, trim)
+	logTrimmed("refresh", summaries, trim)
 
 	pctx, endTerminal := terminalContext(ctx)
 	defer endTerminal()
@@ -359,20 +359,4 @@ func sortModeFor(s *schemas.Shared) string {
 		return s.Comments.Sort
 	}
 	return "status_grouped"
-}
-
-// logTrimmedRefreshOutput writes the refresh output the PR comment had to drop
-// to the run log, so the comment's "see the full run output" note is true.
-// Summaries are already redacted where they are built.
-func logTrimmedRefreshOutput(summaries []summary.StackSummary, trim render.Trim) {
-	if !trim.DroppedFullPlan {
-		return
-	}
-	for _, s := range summaries {
-		if s.FullPlan == "" {
-			continue
-		}
-		slog.Info("refresh output omitted from the PR comment (size limit); full text follows",
-			"stack", s.Ref(), "output", s.FullPlan)
-	}
 }

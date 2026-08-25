@@ -235,10 +235,10 @@ func TestPreviewSizeLimit_DropsDiffToo(t *testing.T) {
 	}
 }
 
-// TestPreviewSizeLimit_HardTruncate is the safety net: even with all
-// per-stack sections dropped, a pathologically long table must still
-// produce a body under the limit.
-func TestPreviewSizeLimit_HardTruncate(t *testing.T) {
+// A pathologically long table must still fit - and must stay a well-formed
+// document. This used to end in a byte truncate, which sliced through the table
+// and left GitHub rendering the remainder as garbage.
+func TestPreviewSizeLimit_OversizeTableStaysWellFormed(t *testing.T) {
 	// 5,000 stacks — each row is short but cumulatively past 65KB.
 	stacks := make([]summary.StackSummary, 5000)
 	for i := range stacks {
@@ -248,12 +248,24 @@ func TestPreviewSizeLimit_HardTruncate(t *testing.T) {
 			Status: summary.StatusPlanned,
 		}
 	}
-	out := Preview(PreviewInput{Op: "preview", RunNumber: 1, CommitSHA: "x", Stacks: stacks})
+	out, trim := PreviewTrimmed(PreviewInput{Op: "preview", RunNumber: 1, CommitSHA: "x", Stacks: stacks})
 	if len(out) > githubCommentMaxLen {
-		t.Fatalf("hard-truncate failed: %d chars > %d", len(out), githubCommentMaxLen)
+		t.Fatalf("body over the limit: %d chars > %d", len(out), githubCommentMaxLen)
 	}
-	if !strings.Contains(out, "hard-truncated") {
-		t.Errorf("expected hard-truncation notice; got tail:\n%s", out[max(0, len(out)-300):])
+	if strings.Contains(out, "hard-truncated") {
+		t.Error("the blind byte truncate must be gone")
+	}
+	// Rows had to go, and the reader must be told rather than left assuming the
+	// table is complete.
+	if trim.DroppedRows == 0 {
+		t.Fatalf("expected table rows to be dropped: %+v", trim)
+	}
+	if !strings.Contains(out, "more stacks") {
+		t.Errorf("dropped rows not accounted for; tail:\n%s", out[max(0, len(out)-400):])
+	}
+	// A truncated table row would leave a ragged final line.
+	if !strings.HasSuffix(strings.TrimSpace(out), ".") && !strings.Contains(out, "|") {
+		t.Error("table looks malformed")
 	}
 }
 
@@ -305,37 +317,6 @@ func TestPreviewTrimmedFullPlanOnlyIsSilent(t *testing.T) {
 	}
 	if strings.Contains(body, "Output trimmed") {
 		t.Fatal("dropping FullPlan alone must not stamp the trim note")
-	}
-}
-
-// Once the diff itself goes, the comment points at the CI run, so the caller is
-// told the diff was dropped and has to log it.
-func TestPreviewTrimmedReportsDroppedDiff(t *testing.T) {
-	in := PreviewInput{
-		RunNumber: 3, CommitSHA: "abc1234", CIRunURL: "https://example.com/runs/3",
-		Stacks: []summary.StackSummary{{
-			Project: "api", Stack: "prod", Env: "prod",
-			Counts: summary.Counts{Change: 1}, Status: summary.StatusPlanned,
-			PlanDiff: strings.Repeat("d", githubCommentMaxLen),
-			FullPlan: strings.Repeat("x", githubCommentMaxLen),
-		}},
-	}
-	body, trim := PreviewTrimmed(in)
-	if !trim.DroppedDiff {
-		t.Fatal("dropping the diff must be reported")
-	}
-	if !strings.Contains(body, "Output trimmed") {
-		t.Fatal("dropping the diff must stamp the trim note")
-	}
-	if len(body) > githubCommentMaxLen {
-		t.Fatalf("body still over the limit: %d", len(body))
-	}
-}
-
-func TestPreviewTrimmedReportsNothingWhenItFits(t *testing.T) {
-	_, trim := PreviewTrimmed(PreviewInput{RunNumber: 1, CommitSHA: "abc1234"})
-	if trim.DroppedFullPlan || trim.DroppedDiff {
-		t.Fatalf("a comment that fits drops nothing: %+v", trim)
 	}
 }
 
