@@ -96,7 +96,8 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	}
 
 	if n == 0 {
-		b.WriteString("_No stacks applied._\n")
+		// The headline already said it; a second line saying the same thing is
+		// noise.
 		return b.String()
 	}
 
@@ -208,7 +209,7 @@ func applyHeadline(stacks []summary.StackSummary) string {
 		}
 	}
 	if len(stacks) == 0 {
-		return "No stacks"
+		return "No stacks applied"
 	}
 	// Lead with the outcome that most needs the reader's attention, and name
 	// every non-zero group so no stack is silently folded into another's count.

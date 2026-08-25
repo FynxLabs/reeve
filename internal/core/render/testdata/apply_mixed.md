@@ -1,7 +1,7 @@
 <!-- reeve:pr-comment:v1 -->
 ## 🔴 reeve · apply · [run #99](https://example.com/runs/99) · [commit deadbee]
 
-**3 stacks applied** · ⏱ 120s
+**1 stack failed · 1 stack blocked · 1 stack applied** · ⏱ 120s
 
 | Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |
 |---|---|---|---|---|---|---|---|

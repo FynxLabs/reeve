@@ -230,8 +230,13 @@ func TestPreviewSizeLimit_DropsDiffToo(t *testing.T) {
 	if strings.Contains(out, "<details><summary>Diff</summary>") {
 		t.Errorf("expected per-stack Diff section to be dropped at second tier")
 	}
-	if !strings.Contains(out, "omitted: full plan output, per-stack diff") {
-		t.Errorf("expected truncation notice to call out both dropped sections")
+	// The raw plan blob is dropped silently on a preview - the diff a reviewer
+	// reads survived that rung - so the note names only what was actually lost.
+	if !strings.Contains(out, "omitted: per-stack diff") {
+		t.Errorf("expected the notice to name the dropped diff; got:\n%s", out[:min(400, len(out))])
+	}
+	if strings.Contains(out, "full plan output") {
+		t.Errorf("the silently-dropped plan blob must not be named:\n%s", out[:min(400, len(out))])
 	}
 }
 
