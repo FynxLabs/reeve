@@ -15,6 +15,34 @@ import (
 // The VCS adapter uses it to find-or-create on UpsertComment.
 const Marker = "<!-- reeve:pr-comment:v1 -->"
 
+// Style values for comments.style.
+const (
+	StyleReplace = "replace" // default: one board per PR, edited in place
+	StyleSection = "section" // one board per commit SHA
+	StyleAppend  = "append"  // a new comment every run
+)
+
+// DashboardMarker is the marker the dashboard comment is upserted under.
+//
+// Under `section` the board is keyed to the commit, so preview, a re-preview,
+// and the apply of one SHA all edit one comment while a new SHA mints a new
+// one. That is what keeps a plan readable: the previous commit's board is never
+// written again. Keying on the operation instead - the original `section` - made
+// exactly two boards for the life of the PR and overwrote both on every run.
+//
+// Under `replace` the marker stays byte-identical to Marker. A PR already
+// running under it must keep having its board edited, not orphaned.
+//
+// Preview and apply MUST derive their marker from here rather than each
+// building one, or the two operations drift onto different comments for the
+// same commit.
+func DashboardMarker(style, commitSHA string) string {
+	if style != StyleSection {
+		return Marker
+	}
+	return fmt.Sprintf("<!-- reeve:pr-comment:v1:%s -->", shortSHA(commitSHA))
+}
+
 // githubCommentMaxLen is GitHub's hard limit on issue/PR comment body
 // length. The 422 error returned past this is non-recoverable, so the
 // renderer must guarantee the body never exceeds it. We target a small
@@ -34,6 +62,9 @@ type PreviewInput struct {
 	SortMode    string // "status_grouped" (default), "alphabetical"
 	StackView   string // "all" (default) lists every stack; "changed" hides no-ops
 	Notice      string // optional info banner (e.g. "already applied"); rendered above the table
+	// Style is comments.style. It selects the marker the body opens with, so
+	// the rendered comment and the upsert target cannot disagree.
+	Style string
 }
 
 // StackView values for the comment table.
@@ -82,16 +113,33 @@ type renderOpts struct {
 // has to be dropped, or the body still doesn't fit after both drops,
 // do we stamp the trim warning.
 func Preview(in PreviewInput) string {
+	body, _ := PreviewTrimmed(in)
+	return body
+}
+
+// Trim names what Preview had to drop to fit the comment limit. DroppedDiff
+// is the one a caller must act on: the per-stack diff is what reviewers read,
+// and once it is gone the comment's note points at the CI run, so the caller
+// has to actually put it there.
+type Trim struct {
+	DroppedFullPlan bool
+	DroppedDiff     bool
+}
+
+// PreviewTrimmed renders the comment and reports what it dropped, so the
+// caller can emit the dropped content where the trim note points. Preview
+// wraps it for callers that do not care.
+func PreviewTrimmed(in PreviewInput) (string, Trim) {
 	body := renderPreview(in, renderOpts{includeFullPlan: true, includeDiff: true})
 	if len(body) <= githubCommentMaxLen {
-		return body
+		return body, Trim{}
 	}
 
 	// Silent drop: FullPlan was over budget but diff is still intact, so
 	// the reviewer sees everything they would have read anyway.
 	body = renderPreview(in, renderOpts{includeDiff: true})
 	if len(body) <= githubCommentMaxLen {
-		return body
+		return body, Trim{DroppedFullPlan: true}
 	}
 
 	// Now we're dropping content reviewers actually look at; stamp the note.
@@ -99,8 +147,9 @@ func Preview(in PreviewInput) string {
 	body = renderPreview(in, renderOpts{
 		truncationNote: note + " (omitted: full plan output, per-stack diff)",
 	})
+	trim := Trim{DroppedFullPlan: true, DroppedDiff: true}
 	if len(body) <= githubCommentMaxLen {
-		return body
+		return body, trim
 	}
 
 	// Even with both heavy sections dropped we're over budget. The table
@@ -109,16 +158,16 @@ func Preview(in PreviewInput) string {
 	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
 	cutoff := githubCommentMaxLen - len(tail)
 	if cutoff < 0 || cutoff > len(body) {
-		return body
+		return body, trim
 	}
-	return body[:cutoff] + tail
+	return body[:cutoff] + tail, trim
 }
 
 // renderPreview builds the body honoring per-section opts. Pure
 // string-builder; called multiple times by Preview when shrinking.
 func renderPreview(in PreviewInput, opts renderOpts) string {
 	var b strings.Builder
-	b.WriteString(Marker)
+	b.WriteString(DashboardMarker(in.Style, in.CommitSHA))
 	b.WriteString("\n")
 	writeHeader(&b, in)
 	if opts.truncationNote != "" {

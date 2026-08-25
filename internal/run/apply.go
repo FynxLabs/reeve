@@ -776,10 +776,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	if in.Shared != nil && in.Shared.Comments.Sort != "" {
 		sortMode = in.Shared.Comments.Sort
 	}
-	commentStyle := "replace"
-	if in.Shared != nil && in.Shared.Comments.Style != "" {
-		commentStyle = in.Shared.Comments.Style
-	}
+	commentStyle := commentStyleFor(in.Shared)
 	dur := int(time.Since(start).Seconds())
 	var bgNote *render.BreakGlassNote
 	if bgDecision != nil {
@@ -791,7 +788,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 			ConfigModifiedInPR: len(bgTouched) > 0,
 		}
 	}
-	body := render.Apply(render.ApplyInput{
+	body, trim := render.ApplyTrimmed(render.ApplyInput{
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
 		DurationSec: dur,
@@ -802,6 +799,9 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		StackView:   stackView(in.Shared),
 		BreakGlass:  bgNote,
 	})
+	// The trim note sends the reviewer to the CI run for the apply output the
+	// comment dropped, so the output has to be in the CI log.
+	logTrimmedApplyOutput(summaries, trim)
 
 	// Terminal persistence: once the run context has been cancelled the
 	// remaining writes (manifest, timeline, comment, notify, audit) run on a
@@ -864,12 +864,14 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 	if in.VCS != nil && in.PRNumber > 0 {
 		var cerr error
 		switch commentStyle {
-		case "append":
+		case render.StyleAppend:
 			cerr = in.VCS.PostComment(pctx, in.PRNumber, body)
-		case "section":
-			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body, render.ApplyMarker)
 		default:
-			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body, render.Marker)
+			// One marker helper for preview and apply: under `section` this is
+			// the commit's board, so the apply lands on the same comment the
+			// preview of this SHA wrote.
+			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body,
+				render.DashboardMarker(commentStyle, in.CommitSHA))
 		}
 		if cerr != nil {
 			commentErr = fmt.Errorf("post pr comment: %w", cerr)
@@ -1081,4 +1083,24 @@ func scopeDelta(mapped, bound []discovery.Stack) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// logTrimmedApplyOutput writes the apply output the PR comment had to drop to
+// the run log. For an apply, FullPlan holds the engine's own apply output -
+// the record of what changed - so a size-trimmed comment plus a note pointing
+// at a CI run that never carried it leaves no account of the run anywhere.
+//
+// The summaries are already redacted where they are built, so this adds no new
+// path around internal/core/redact.
+func logTrimmedApplyOutput(summaries []summary.StackSummary, trim render.Trim) {
+	if !trim.DroppedFullPlan {
+		return
+	}
+	for _, s := range summaries {
+		if s.FullPlan == "" {
+			continue
+		}
+		slog.Info("apply output omitted from the PR comment (size limit); full text follows",
+			"stack", s.Ref(), "output", s.FullPlan)
+	}
 }

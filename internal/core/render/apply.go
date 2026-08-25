@@ -8,9 +8,6 @@ import (
 	"github.com/reeveops/reeve/internal/core/summary"
 )
 
-// ApplyMarker identifies reeve's apply-specific PR comment slot.
-const ApplyMarker = "<!-- reeve:apply:v1 -->"
-
 // BreakGlassMarker tags the break-glass section inside an apply comment so
 // tooling (and humans grepping the PR) can find emergency overrides.
 const BreakGlassMarker = "<!-- reeve:break-glass:v1 -->"
@@ -50,9 +47,18 @@ type ApplyInput struct {
 // GitHub's hard comment-size limit, drops per-stack FullPlan output and
 // adds a notice pointing at the CI run. Hard-truncates as a last resort.
 func Apply(in ApplyInput) string {
+	body, _ := ApplyTrimmed(in)
+	return body
+}
+
+// ApplyTrimmed renders the apply comment and reports what it dropped. For
+// apply, FullPlan is the engine's apply output - what actually happened to the
+// infrastructure - so dropping it always loses content the reviewer needs, and
+// the caller must emit it where the trim note points.
+func ApplyTrimmed(in ApplyInput) (string, Trim) {
 	body := renderApply(in, renderOpts{includeFullPlan: true})
 	if len(body) <= githubCommentMaxLen {
-		return body
+		return body, Trim{}
 	}
 
 	note := truncationNote(PreviewInput{CIRunURL: in.CIRunURL})
@@ -60,25 +66,25 @@ func Apply(in ApplyInput) string {
 	body = renderApply(in, renderOpts{
 		truncationNote: note + " (omitted: full apply output)",
 	})
+	trim := Trim{DroppedFullPlan: true}
 	if len(body) <= githubCommentMaxLen {
-		return body
+		return body, trim
 	}
 
 	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
 	cutoff := githubCommentMaxLen - len(tail)
 	if cutoff < 0 || cutoff > len(body) {
-		return body
+		return body, trim
 	}
-	return body[:cutoff] + tail
+	return body[:cutoff] + tail, trim
 }
 
 func renderApply(in ApplyInput, opts renderOpts) string {
 	var b strings.Builder
-	if in.Style == "section" {
-		b.WriteString(ApplyMarker)
-	} else {
-		b.WriteString(Marker)
-	}
+	// Same marker preview used for this commit: under `section` the board is
+	// the commit's current state, so the apply edits it rather than opening a
+	// second one the reader has to find.
+	b.WriteString(DashboardMarker(in.Style, in.CommitSHA))
 	b.WriteString("\n")
 
 	icon := overallIcon(in.Stacks)

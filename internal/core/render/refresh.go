@@ -32,21 +32,30 @@ type RefreshInput struct {
 // Refresh renders the refresh comment markdown, with the same size-limit
 // fallbacks as Apply.
 func Refresh(in RefreshInput) string {
+	body, _ := RefreshTrimmed(in)
+	return body
+}
+
+// RefreshTrimmed renders the refresh comment and reports what it dropped. As
+// with apply, FullPlan here is the engine's refresh output, so the caller must
+// emit it where the trim note points.
+func RefreshTrimmed(in RefreshInput) (string, Trim) {
 	body := renderRefresh(in, renderOpts{includeFullPlan: true})
 	if len(body) <= githubCommentMaxLen {
-		return body
+		return body, Trim{}
 	}
 	note := truncationNote(PreviewInput{CIRunURL: in.CIRunURL})
 	body = renderRefresh(in, renderOpts{truncationNote: note + " (omitted: full refresh output)"})
+	trim := Trim{DroppedFullPlan: true}
 	if len(body) <= githubCommentMaxLen {
-		return body
+		return body, trim
 	}
 	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
 	cutoff := githubCommentMaxLen - len(tail)
 	if cutoff < 0 || cutoff > len(body) {
-		return body
+		return body, trim
 	}
-	return body[:cutoff] + tail
+	return body[:cutoff] + tail, trim
 }
 
 func renderRefresh(in RefreshInput, opts renderOpts) string {

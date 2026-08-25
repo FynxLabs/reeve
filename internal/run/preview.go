@@ -319,7 +319,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		}
 	}
 
-	body := render.Preview(render.PreviewInput{
+	body, trim := render.PreviewTrimmed(render.PreviewInput{
 		Op:          "preview",
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
@@ -329,7 +329,13 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		SortMode:    sort,
 		StackView:   stackView(in.Shared),
 		Notice:      notice,
+		Style:       commentStyleFor(in.Shared),
 	})
+	// The trim note tells the reviewer to read the CI run for the plan the
+	// comment dropped, so the plan has to be in the CI log. Nothing else
+	// writes it there - PlanDiff and FullPlan otherwise only ever reach the
+	// PR comment - so emit it here, once, only when it was actually dropped.
+	logTrimmedPlans(summaries, trim)
 
 	if err := writeManifest(ctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA); err != nil {
 		outcome = "failed"
@@ -338,7 +344,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 
 	commentPosted := false
 	if in.Comments != nil && in.PRNumber > 0 {
-		if err := in.Comments.UpsertComment(ctx, in.PRNumber, body, render.Marker); err != nil {
+		marker := render.DashboardMarker(commentStyleFor(in.Shared), in.CommitSHA)
+		if err := in.Comments.UpsertComment(ctx, in.PRNumber, body, marker); err != nil {
 			outcome = "failed"
 			return nil, fmt.Errorf("upsert pr comment: %w", err)
 		}
@@ -597,4 +604,40 @@ func absJoin(root, rel string) string {
 		return root
 	}
 	return root + "/" + rel
+}
+
+// logTrimmedPlans writes the plan content the PR comment had to drop to the
+// run log. The comment's trim note points the reviewer at the CI run for "the
+// complete plan", and nothing else in the pipeline emits PlanDiff or FullPlan
+// there, so without this the note names an output that does not hold what it
+// promises.
+//
+// Only the dropped tier is emitted: a dropped FullPlan alone is the raw engine
+// blob nobody reads from a comment, and the reviewer still has the diff, so
+// there is nothing to make up for. Once the diff itself is dropped, the diff is
+// what the reviewer lost and what the log must carry.
+//
+// The summaries are already redacted at the point they are built, so this adds
+// no new path around internal/core/redact.
+func logTrimmedPlans(summaries []summary.StackSummary, trim render.Trim) {
+	if !trim.DroppedDiff {
+		return
+	}
+	for _, s := range summaries {
+		if s.PlanDiff == "" {
+			continue
+		}
+		slog.Info("plan diff omitted from the PR comment (size limit); full text follows",
+			"stack", s.Ref(), "diff", s.PlanDiff)
+	}
+}
+
+// commentStyleFor resolves comments.style, defaulting to replace. Preview and
+// apply both go through it so they cannot land on different markers for the
+// same commit.
+func commentStyleFor(shared *schemas.Shared) string {
+	if shared == nil || shared.Comments.Style == "" {
+		return render.StyleReplace
+	}
+	return shared.Comments.Style
 }

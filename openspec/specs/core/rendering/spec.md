@@ -25,16 +25,23 @@ listing available commands. A ready comment is upserted under
 `<!-- reeve:ready -->` when `/reeve ready` is triggered (manually or via `auto_ready`).
 
 Apply comment mirrors preview structure, adds durations, floats failures
-to top.
+to top. Apply writes the same marker preview wrote for that commit, so a
+commit has one board.
 
 ## `comments.style`
 
-Controls how reeve posts PR comments. Three modes: `replace` (default) upserts
-a single comment in place using the same marker (`<!-- reeve:pr-comment:v1 -->`);
-`append` posts a new comment on every run without editing the previous one;
-`section` uses a separate marker for apply results (`<!-- reeve:apply:v1 -->`)
-while preview keeps `<!-- reeve:pr-comment:v1 -->`, so preview and apply history
-remain distinct threads.
+Controls how reeve posts dashboard comments. Three modes:
+
+- `replace` (default) upserts one comment per PR under
+  `<!-- reeve:pr-comment:v1 -->`. Every operation edits it.
+- `section` upserts one comment per commit SHA, under
+  `<!-- reeve:pr-comment:v1:<short-sha> -->`. Preview and apply of one SHA share
+  that comment; a new SHA mints a new one, and a previous SHA's comment is never
+  edited again, so the plan it recorded stays readable.
+- `append` posts a new comment every run without editing the previous one.
+
+`section` does not split by operation. The marker `<!-- reeve:apply:v1 -->` is
+retired; comments already posted under it are left in place.
 
 ## `comments.stack_view`
 
@@ -71,6 +78,16 @@ guard-skipped) workflow run for every progress update.
 - 📡 `scope broadened` - unmapped files; applying all stacks.
 
 Separate from the replace-style dashboard comment.
+
+## Size-limit trimming
+
+A comment over GitHub's 65,536-char limit drops its heaviest per-stack content:
+full engine output first, then the per-stack diff. Dropping full preview output
+alone is silent, because the diff reviewers read is intact.
+
+Once content a reviewer reads is dropped, the comment carries a note pointing at
+the CI run, and the dropped content is written to the run log. The note must not
+name an output that does not hold it.
 
 ## Safety rails
 

@@ -130,3 +130,70 @@ func TestApplyWithoutBreakGlassHasNoMarker(t *testing.T) {
 		t.Fatal("non-break-glass apply must not carry the break-glass marker")
 	}
 }
+
+// A trim that drops the engine's apply output must say so, because the comment
+// then tells the reviewer to read the CI run and the caller has to put it there.
+func TestApplyTrimmedReportsDroppedOutput(t *testing.T) {
+	huge := strings.Repeat("x", githubCommentMaxLen)
+	in := ApplyInput{
+		RunNumber: 7, CommitSHA: "abc1234", CIRunURL: "https://example.com/runs/7",
+		Stacks: []summary.StackSummary{{
+			Project: "api", Stack: "prod", Env: "prod",
+			Counts: summary.Counts{Change: 1}, Status: summary.StatusPlanned,
+			FullPlan: huge,
+		}},
+	}
+	body, trim := ApplyTrimmed(in)
+	if !trim.DroppedFullPlan {
+		t.Fatal("dropping the apply output must be reported")
+	}
+	if strings.Contains(body, huge) {
+		t.Fatal("oversize output should have been dropped from the body")
+	}
+	if len(body) > githubCommentMaxLen {
+		t.Fatalf("body still over the limit: %d", len(body))
+	}
+}
+
+func TestApplyTrimmedReportsNothingWhenItFits(t *testing.T) {
+	_, trim := ApplyTrimmed(ApplyInput{RunNumber: 1, CommitSHA: "abc1234"})
+	if trim.DroppedFullPlan || trim.DroppedDiff {
+		t.Fatalf("a comment that fits drops nothing: %+v", trim)
+	}
+}
+
+// Apply must land on the commit's board, not a second operation-keyed one, so
+// the reader has one place to look per commit.
+func TestApplySharesTheCommitBoardWithPreview(t *testing.T) {
+	const sha = "abc1234def5678"
+	previewBody := Preview(PreviewInput{RunNumber: 4, CommitSHA: sha, Style: StyleSection})
+	applyBody := Apply(ApplyInput{RunNumber: 5, CommitSHA: sha, Style: StyleSection})
+
+	want := DashboardMarker(StyleSection, sha)
+	if !strings.HasPrefix(previewBody, want) || !strings.HasPrefix(applyBody, want) {
+		t.Fatalf("preview and apply must open with the same commit board marker %q", want)
+	}
+	// The retired operation-split marker must never be written again.
+	for _, body := range []string{previewBody, applyBody} {
+		if strings.Contains(body, "reeve:apply:v1") {
+			t.Fatalf("retired apply marker written:\n%s", body)
+		}
+	}
+}
+
+// A different commit is a different board, so the earlier commit's plan stays
+// readable on the PR instead of being overwritten.
+func TestApplyOnNewCommitDoesNotTouchTheOldBoard(t *testing.T) {
+	old := DashboardMarker(StyleSection, "aaaaaaa1111")
+	body := Apply(ApplyInput{RunNumber: 6, CommitSHA: "bbbbbbb2222", Style: StyleSection})
+	if strings.Contains(body, old) {
+		t.Fatalf("a new commit's apply must not target the previous commit's board:\n%s", body)
+	}
+}
+
+func TestApplyReplaceStyleUsesPRWideMarker(t *testing.T) {
+	body := Apply(ApplyInput{RunNumber: 7, CommitSHA: "abc1234def5678"})
+	if !strings.HasPrefix(body, Marker) {
+		t.Fatalf("replace must upsert the PR-wide board:\n%s", body[:min(120, len(body))])
+	}
+}

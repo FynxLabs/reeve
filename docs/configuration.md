@@ -175,13 +175,18 @@ flow; leave it off under `merge` mode.
 
 ### `comments.style`
 
-Controls how the apply comment relates to the preview comment.
+Controls how dashboard comments are keyed.
 
 | Value | Behavior |
 | --- | --- |
-| `replace` (default) | Apply upserts using the same marker as preview, replacing it in-place. |
-| `append` | Apply always posts a new comment; the preview comment is left untouched. |
-| `section` | Apply upserts with a separate marker (`<!-- reeve:apply:v1 -->`), so preview and apply each occupy their own comment slot. |
+| `replace` (default) | One board per PR, under `<!-- reeve:pr-comment:v1 -->`. Every run edits it. |
+| `section` | One board per commit, under `<!-- reeve:pr-comment:v1:<short-sha> -->`. Preview and apply of a commit share it; a new commit gets a new board and the old one is never rewritten, so each commit's plan stays on the PR. |
+| `append` | A new comment every run; nothing is edited. |
+
+`section` used to split by operation - one preview comment and one apply comment
+for the whole PR - which left two boards to jump between and overwrote both on
+every run. It now splits by commit. `<!-- reeve:apply:v1 -->` is retired;
+comments already posted under it are left in place.
 
 > **Draft PRs:** apply is always blocked on draft PRs regardless of config.
 > Convert to ready for review first. When a draft PR becomes ready, reeve runs `/reeve ready`

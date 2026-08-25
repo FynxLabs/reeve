@@ -280,3 +280,104 @@ func TestPreviewSizeLimit_UnderBudgetUnchanged(t *testing.T) {
 		t.Errorf("under-budget body should contain the full plan verbatim")
 	}
 }
+
+// Dropping FullPlan while the diff survives loses nothing a reviewer reads, so
+// it stays silent - and the caller must not be told to log it.
+func TestPreviewTrimmedFullPlanOnlyIsSilent(t *testing.T) {
+	in := PreviewInput{
+		RunNumber: 3, CommitSHA: "abc1234", CIRunURL: "https://example.com/runs/3",
+		Stacks: []summary.StackSummary{{
+			Project: "api", Stack: "prod", Env: "prod",
+			Counts: summary.Counts{Change: 1}, Status: summary.StatusPlanned,
+			PlanDiff: "~ iam role",
+			FullPlan: strings.Repeat("x", githubCommentMaxLen),
+		}},
+	}
+	body, trim := PreviewTrimmed(in)
+	if !trim.DroppedFullPlan {
+		t.Fatal("FullPlan was dropped and must be reported as dropped")
+	}
+	if trim.DroppedDiff {
+		t.Fatal("the diff survived; it must not be reported as dropped")
+	}
+	if !strings.Contains(body, "~ iam role") {
+		t.Fatal("the diff reviewers read must survive the trim")
+	}
+	if strings.Contains(body, "Output trimmed") {
+		t.Fatal("dropping FullPlan alone must not stamp the trim note")
+	}
+}
+
+// Once the diff itself goes, the comment points at the CI run, so the caller is
+// told the diff was dropped and has to log it.
+func TestPreviewTrimmedReportsDroppedDiff(t *testing.T) {
+	in := PreviewInput{
+		RunNumber: 3, CommitSHA: "abc1234", CIRunURL: "https://example.com/runs/3",
+		Stacks: []summary.StackSummary{{
+			Project: "api", Stack: "prod", Env: "prod",
+			Counts: summary.Counts{Change: 1}, Status: summary.StatusPlanned,
+			PlanDiff: strings.Repeat("d", githubCommentMaxLen),
+			FullPlan: strings.Repeat("x", githubCommentMaxLen),
+		}},
+	}
+	body, trim := PreviewTrimmed(in)
+	if !trim.DroppedDiff {
+		t.Fatal("dropping the diff must be reported")
+	}
+	if !strings.Contains(body, "Output trimmed") {
+		t.Fatal("dropping the diff must stamp the trim note")
+	}
+	if len(body) > githubCommentMaxLen {
+		t.Fatalf("body still over the limit: %d", len(body))
+	}
+}
+
+func TestPreviewTrimmedReportsNothingWhenItFits(t *testing.T) {
+	_, trim := PreviewTrimmed(PreviewInput{RunNumber: 1, CommitSHA: "abc1234"})
+	if trim.DroppedFullPlan || trim.DroppedDiff {
+		t.Fatalf("a comment that fits drops nothing: %+v", trim)
+	}
+}
+
+// `section` keys the board to the commit: preview and apply of one SHA share
+// it, a new SHA mints a new one. Keying on the operation (the original
+// `section`) made two permanent boards and overwrote both every run.
+func TestDashboardMarkerSectionIsPerCommit(t *testing.T) {
+	a := DashboardMarker(StyleSection, "abc1234def5678")
+	b := DashboardMarker(StyleSection, "999888777666")
+	if a == b {
+		t.Fatalf("two commits must not share a board: %q", a)
+	}
+	if a != "<!-- reeve:pr-comment:v1:abc1234 -->" {
+		t.Fatalf("unexpected section marker: %q", a)
+	}
+	// Preview and apply of one commit must land on one comment.
+	if got := DashboardMarker(StyleSection, "abc1234def5678"); got != a {
+		t.Fatalf("marker not stable for one commit: %q vs %q", got, a)
+	}
+}
+
+// A PR already running under replace must keep having its board edited. A
+// changed marker orphans the comment instead.
+func TestDashboardMarkerReplaceUnchanged(t *testing.T) {
+	for _, style := range []string{StyleReplace, StyleAppend, ""} {
+		if got := DashboardMarker(style, "abc1234def5678"); got != Marker {
+			t.Fatalf("style %q must use the PR-wide marker, got %q", style, got)
+		}
+	}
+	if Marker != "<!-- reeve:pr-comment:v1 -->" {
+		t.Fatalf("existing dashboard comments would be orphaned: %q", Marker)
+	}
+}
+
+// The rendered body and the upsert target have to agree, so the body must open
+// with the same marker the run path upserts against.
+func TestPreviewBodyOpensWithSectionMarker(t *testing.T) {
+	body := Preview(PreviewInput{
+		RunNumber: 5, CommitSHA: "abc1234def5678", Style: StyleSection,
+	})
+	want := DashboardMarker(StyleSection, "abc1234def5678")
+	if !strings.HasPrefix(body, want) {
+		t.Fatalf("body must open with %q:\n%s", want, body[:min(120, len(body))])
+	}
+}
