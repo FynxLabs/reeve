@@ -54,6 +54,35 @@ func Apply(in ApplyInput) string {
 // preview, FullPlan here is the engine's own apply output - the record of what
 // happened to the infrastructure - so dropping it is named in the comment and
 // must be logged by the caller.
+// ApplyParts renders the apply board, paginating when overflow is enabled and
+// the body does not fit. Returns nil when one comment suffices.
+func ApplyParts(in ApplyInput, cfg OverflowConfig, boardMarker string) []Part {
+	if !cfg.enabled() {
+		return nil
+	}
+	note := func(omitted string) string {
+		return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
+	}
+	return paginate(boardRenderer{
+		render: func(stacks []summary.StackSummary, o renderOpts) string {
+			sub := in
+			sub.Stacks = stacks
+			return renderApply(sub, o)
+		},
+		descend: func(stacks []summary.StackSummary, o renderOpts) (string, Trim) {
+			sub := in
+			sub.Stacks = stacks
+			return descendWithBase(
+				func(oo renderOpts) string { return renderApply(sub, oo) },
+				note, sub.Stacks, sub.StackView, sub.SortMode, "full apply output", false, o,
+			)
+		},
+		keepFullPlan: true,
+		sortMode:     in.SortMode,
+		view:         in.StackView,
+	}, in.Stacks, cfg, boardMarker)
+}
+
 func ApplyTrimmed(in ApplyInput) (string, Trim) {
 	return descend(
 		func(o renderOpts) string { return renderApply(in, o) },
@@ -91,6 +120,8 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	}
 	fmt.Fprintf(&b, "**%s**%s\n\n", applyHeadline(in.Stacks), durBit)
 
+	writePartHeader(&b, opts)
+
 	if opts.truncationNote != "" {
 		fmt.Fprintf(&b, "> ⚠️ %s\n\n", opts.truncationNote)
 	}
@@ -101,23 +132,25 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 		return b.String()
 	}
 
-	// Table: failures first.
-	rows, hidden := tableRows(in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
-	b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|\n")
-	ordered := sortApply(rows, in.SortMode)
-	for _, s := range ordered {
-		dur := ""
-		if s.DurationMS > 0 {
-			dur = fmt.Sprintf("%ds", s.DurationMS/1000)
+	if !opts.suppressTable {
+		// Table: failures first.
+		rows, hidden := tableRows(opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
+		b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |\n")
+		b.WriteString("|---|---|---|---|---|---|---|---|\n")
+		ordered := sortApply(rows, in.SortMode)
+		for _, s := range ordered {
+			dur := ""
+			if s.DurationMS > 0 {
+				dur = fmt.Sprintf("%ds", s.DurationMS/1000)
+			}
+			fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
+				s.Ref(), envOrDash(s.Env),
+				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
+				dur, applyStatusCell(s))
 		}
-		fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
-			s.Ref(), envOrDash(s.Env),
-			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
-			dur, applyStatusCell(s))
+		writeHiddenRowNote(&b, hidden)
+		b.WriteString("\n")
 	}
-	writeHiddenRowNote(&b, hidden)
-	b.WriteString("\n")
 
 	// Per-stack details, failures first.
 	dropped := 0

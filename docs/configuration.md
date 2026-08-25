@@ -192,6 +192,63 @@ comments already posted under it are left in place.
 > Convert to ready for review first. When a draft PR becomes ready, reeve runs `/reeve ready`
 > automatically, notifying for approval if a plan has already succeeded.
 
+### `comments.overflow`
+
+What happens when a board exceeds GitHub's 65,536-char comment limit.
+
+```yaml
+comments:
+  overflow:
+    mode: continue      # drop (default) | continue
+    split: divided      # divided (default) | stack | group
+    max_parts: 10       # cap on comments per board
+```
+
+| `mode` | Behavior |
+| --- | --- |
+| `drop` (default) | One comment. Content is trimmed: engine output, then diffs, then summaries, then error text is shortened, then whole stack sections, then table rows. Whatever is dropped goes to the run log. |
+| `continue` | The board continues into further comments. No stack detail is dropped. |
+
+Under `continue` the stack table stays whole on the first comment - it is the
+index of the run - and per-stack detail fills the parts after it. Each part says
+which it is. A stack's detail is never split across two comments.
+
+| `split` | Behavior |
+| --- | --- |
+| `divided` (default) | Fewest parts that fit, stacks spread evenly. Two parts of 20 rather than 39 and 1. |
+| `stack` | Fill each part to capacity in render order. Fewer parts, ragged last one. |
+| `group` | One part per status group: failures, blocked, applied, no-op. A group too big for one part splits again. |
+
+`max_parts` bounds how many comments one board may occupy (default 10). Stacks
+past the cap are named in the last part with a count and written to the run log.
+
+A board that fits in one comment renders identically whether overflow is on or
+off, so enabling it changes nothing until a board actually overflows.
+
+Raw engine output is still dropped before paginating on a preview: it is the
+`pulumi preview --json` blob, hundreds of KB per stack, and the diff carries what
+a reviewer reads. On an apply or refresh it is the engine's own record of what
+changed, so it paginates with everything else.
+
+### Comment flags
+
+Every `comments` setting has a CLI flag that overrides the config for one run:
+
+| Flag | Overrides |
+| --- | --- |
+| `--comment-sort` | `comments.sort` |
+| `--comment-stack-view` | `comments.stack_view` |
+| `--comment-style` | `comments.style` |
+| `--comment-show-gates` | `comments.show_gates` |
+| `--comment-collapse-threshold` | `comments.collapse_threshold` |
+| `--comment-overflow` | `comments.overflow.mode` |
+| `--comment-overflow-split` | `comments.overflow.split` |
+| `--comment-overflow-max-parts` | `comments.overflow.max_parts` |
+
+A flag only takes effect when given, so leaving one off never overwrites your
+config. An unrecognized value is rejected by name rather than falling back to
+the default.
+
 ### `comments.stack_view`
 
 Controls which stacks the comment table lists.

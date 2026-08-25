@@ -105,6 +105,33 @@ pointer at the full run output is true. Errors are logged whenever they were
 clamped or their section went; a stack absent from the table is named nowhere in
 the comment, so the log is its only record.
 
+## Comment overflow
+
+`comments.overflow.mode: continue` makes an oversize board continue into further
+comments instead of dropping per-stack detail. Default is `drop`, the trim
+ladder above.
+
+Part 1 carries the board's own marker, byte-identical, so an existing board keeps
+being edited. Later parts carry `:partN` inside that marker. A board that fits one
+comment is byte-identical to an unpaginated render.
+
+The stack table is whole on part 1 and absent from the rest: it indexes the run,
+so every stack is listed there even when its detail is on a later part. A stack's
+detail is never split across two parts. Every part states its ordinal and total.
+
+`split` selects the distribution: `divided` (default) balances stacks across the
+fewest parts that fit, `stack` fills each part in render order, `group` gives each
+status group its own part.
+
+`max_parts` bounds the count. Stacks past the cap are named with a count in the
+last part and written to the run log.
+
+A single stack too large for a whole comment falls back to the trim ladder for
+that stack alone, leaving other parts untouched.
+
+A run needing fewer parts than the last deletes the surplus comments. Failing to
+delete is logged, never fatal.
+
 ## Safety rails
 
 - Secrets marked by Pulumi `[secret]` are redacted before render.

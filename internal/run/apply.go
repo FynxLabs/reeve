@@ -788,7 +788,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 			ConfigModifiedInPR: len(bgTouched) > 0,
 		}
 	}
-	body, trim := render.ApplyTrimmed(render.ApplyInput{
+	applyIn := render.ApplyInput{
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
 		DurationSec: dur,
@@ -798,7 +798,8 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		Style:       commentStyle,
 		StackView:   stackView(in.Shared),
 		BreakGlass:  bgNote,
-	})
+	}
+	body, trim := render.ApplyTrimmed(applyIn)
 	// The trim note sends the reviewer to the CI run for the apply output the
 	// comment dropped, so the output has to be in the CI log.
 	logTrimmed("apply", summaries, trim)
@@ -870,8 +871,12 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 			// One marker helper for preview and apply: under `section` this is
 			// the commit's board, so the apply lands on the same comment the
 			// preview of this SHA wrote.
-			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body,
-				render.DashboardMarker(commentStyle, in.CommitSHA))
+			marker := render.DashboardMarker(commentStyle, in.CommitSHA)
+			if parts := render.ApplyParts(applyIn, overflowFor(in.Shared), marker); len(parts) > 0 {
+				cerr = postBoard(pctx, in.VCS, in.PRNumber, "apply", parts, marker, summaries)
+			} else {
+				cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body, marker)
+			}
 		}
 		if cerr != nil {
 			commentErr = fmt.Errorf("post pr comment: %w", cerr)

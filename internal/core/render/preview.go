@@ -116,6 +116,44 @@ func Preview(in PreviewInput) string {
 // hundreds of KB per stack, and the diff that reviewers actually read survives
 // that rung. Apply and refresh name it, because for them it is the engine's own
 // output.
+// PreviewParts renders the preview board, paginating when overflow is enabled
+// and the body does not fit.
+//
+// Returns nil when the board fits one comment or overflow is off, and the caller
+// falls back to PreviewTrimmed. That keeps the single-comment path - which is
+// almost every run - byte-identical to what it has always produced.
+func PreviewParts(in PreviewInput, cfg OverflowConfig, boardMarker string) []Part {
+	if !cfg.enabled() {
+		return nil
+	}
+	return paginate(boardRenderer{
+		render: func(stacks []summary.StackSummary, o renderOpts) string {
+			sub := in
+			sub.Stacks = stacks
+			return renderPreview(sub, o)
+		},
+		descend: func(stacks []summary.StackSummary, o renderOpts) (string, Trim) {
+			sub := in
+			sub.Stacks = stacks
+			return descendPart(sub, o)
+		},
+		keepFullPlan: false,
+		sortMode:     in.SortMode,
+		view:         in.StackView,
+	}, in.Stacks, cfg, boardMarker)
+}
+
+// descendPart runs the ladder over one part, preserving its pagination options
+// so the part header and suppressed table stay put while content is trimmed.
+func descendPart(in PreviewInput, o renderOpts) (string, Trim) {
+	base := o
+	return descendWithBase(
+		func(oo renderOpts) string { return renderPreview(in, oo) },
+		func(omitted string) string { return truncationNote(in) + " (omitted: " + omitted + ")" },
+		in.Stacks, in.StackView, in.SortMode, "full plan output", true, base,
+	)
+}
+
 func PreviewTrimmed(in PreviewInput) (string, Trim) {
 	return descend(
 		func(o renderOpts) string { return renderPreview(in, o) },
@@ -139,7 +177,10 @@ func renderPreview(in PreviewInput, opts renderOpts) string {
 	if in.Notice != "" {
 		fmt.Fprintf(&b, "> ℹ️ %s\n\n", in.Notice)
 	}
-	writeTable(&b, in, opts)
+	writePartHeader(&b, opts)
+	if !opts.suppressTable {
+		writeTable(&b, in, opts)
+	}
 	writeSections(&b, in, opts)
 	return b.String()
 }
@@ -186,7 +227,7 @@ func writeTable(b *strings.Builder, in PreviewInput, opts renderOpts) {
 		b.WriteString("_No stacks affected by this change._\n\n")
 		return
 	}
-	rows, hidden := tableRows(in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
+	rows, hidden := tableRows(opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
 	if len(rows) == 0 && hidden == 0 {
 		b.WriteString("_No stacks with changes._\n\n")
 		return

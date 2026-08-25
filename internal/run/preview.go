@@ -319,7 +319,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		}
 	}
 
-	body, trim := render.PreviewTrimmed(render.PreviewInput{
+	previewIn := render.PreviewInput{
 		Op:          "preview",
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
@@ -330,7 +330,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		StackView:   stackView(in.Shared),
 		Notice:      notice,
 		Style:       commentStyleFor(in.Shared),
-	})
+	}
+	body, trim := render.PreviewTrimmed(previewIn)
 	// The trim note tells the reviewer to read the CI run for the plan the
 	// comment dropped, so the plan has to be in the CI log. Nothing else
 	// writes it there - PlanDiff and FullPlan otherwise only ever reach the
@@ -345,7 +346,15 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 	commentPosted := false
 	if in.Comments != nil && in.PRNumber > 0 {
 		marker := render.DashboardMarker(commentStyleFor(in.Shared), in.CommitSHA)
-		if err := in.Comments.UpsertComment(ctx, in.PRNumber, body, marker); err != nil {
+		// Paginate when the board does not fit and overflow is on. Parts is nil
+		// for the ordinary case - one comment, byte-identical to before - so the
+		// single-comment path stays exactly what it was.
+		if parts := render.PreviewParts(previewIn, overflowFor(in.Shared), marker); len(parts) > 0 {
+			if err := postBoard(ctx, in.Comments, in.PRNumber, "preview", parts, marker, summaries); err != nil {
+				outcome = "failed"
+				return nil, fmt.Errorf("upsert pr comment: %w", err)
+			}
+		} else if err := in.Comments.UpsertComment(ctx, in.PRNumber, body, marker); err != nil {
 			outcome = "failed"
 			return nil, fmt.Errorf("upsert pr comment: %w", err)
 		}

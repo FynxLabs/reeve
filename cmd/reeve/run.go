@@ -59,6 +59,9 @@ func newRenderCmd() *cobra.Command {
 }
 
 func addPreviewFlags(cmd *cobra.Command) {
+	// Every command that renders a PR board takes the comment flags, so the
+	// rendering settings are overridable wherever they take effect.
+	addCommentFlags(cmd)
 	cmd.Flags().Bool("local", false, "Run against real cloud with local artifacts; skip VCS interactions")
 	cmd.Flags().StringSlice("local-auth", nil,
 		"Declared auth provider names that replace same-scope bound providers in --local runs (e.g. --local-auth gcp-local)")
