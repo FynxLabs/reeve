@@ -478,29 +478,106 @@ The flag requires `--local` (`plan-run` and `render` imply it).
 
 ## `env_passthrough` - the flagged escape hatch
 
-When federation genuinely isn't an option (airgapped CI, legacy provider
-without OIDC, etc.), reeve supports mapping arbitrary host env vars into
-the engine:
+Use `env_passthrough` only when federation or a supported secret-manager
+provider is not available, such as airgapped CI or a legacy provider. It
+maps selected variables from the Reeve host process into the IaC engine
+process:
 
 ```yaml
 providers:
   legacy-snowflake:
+    # Explicitly opt out of short-lived federation or secret-manager retrieval.
     type: env_passthrough
-    i_understand_this_is_dangerous: true   # REQUIRED. Lint rejects without.
+
+    # Required acknowledgement: these may be long-lived credentials and will
+    # be made available to repository-controlled IaC code.
+    i_understand_this_is_dangerous: true
+
+    # engine environment variable: host environment variable
     env_vars:
       SNOWFLAKE_USER: SNOWFLAKE_USER
       SNOWFLAKE_PASSWORD: SNOWFLAKE_PASSWORD
 ```
 
-Every run emits a loud stderr warning. `reeve lint` errors out without
-the `i_understand_this_is_dangerous` field.
+The `env_vars` mapping is deliberately explicit. Its direction is
+**engine variable → host variable**: the example reads
+`SNOWFLAKE_PASSWORD` from Reeve's host environment and exports it to the
+engine under the same name. Reeve does not copy its complete host
+environment. The provider is acquired only when a binding selects it for
+the current stack and run mode.
 
-**If you're reaching for this, first ask:**
+### Why the acknowledgement is required
 
-- Does the provider support OIDC / federated creds? (Most do now.)
-- Can you put the secret in AWS Secrets Manager / GCP SM / Azure KV and
-  use the corresponding secret-manager provider? That at least keeps
-  the secret rotation on the cloud side.
+Setting `i_understand_this_is_dangerous: true` acknowledges two separate
+risks:
+
+1. **Credential lifecycle and authority.** The supplied value may be a
+   long-lived credential. Reeve does not create it, reduce its permissions,
+   rotate it, attach an expiry, or revoke it after the run. Passing it
+   directly to the engine bypasses Reeve's preferred short-lived,
+   per-stack federation model.
+2. **Exposure to executed code and output.** The mapped value becomes
+   available to the IaC engine and the repository-controlled code,
+   providers, and plugins it executes. Any of them could include the value
+   in stdout, stderr, an error, or a generated artifact.
+
+Reeve mitigates the second risk by registering every mapped credential
+value with its central redactor. If an engine prints the exact value,
+Reeve replaces it with `[redacted]` before the output reaches PR comments,
+audit logs, run artifacts, or telemetry. This is why credentials should
+cross the auth-provider boundary instead of being inherited ambiently:
+Reeve can contain the environment and knows which literal values must be
+treated as secrets.
+
+Redaction is defense in depth, not a security boundary:
+
+- Only explicitly mapped values are known to the redactor.
+- Literal matching cannot guarantee masking after a value is encoded,
+  hashed, truncated, interpolated, or otherwise transformed.
+- Values shorter than eight characters are not registered for literal
+  masking because they would over-redact ordinary output.
+- The setting does not make a credential short-lived, least-privileged, or
+  otherwise safer.
+- `env_passthrough` is not a local-only provider and is not refused when
+  `CI=true`.
+
+### Terraform and OpenTofu variables
+
+Terraform and OpenTofu commonly consume input variables through
+`TF_VAR_<name>`. Those values can use this provider too:
+
+```yaml
+providers:
+  terraform-legacy:
+    type: env_passthrough
+    i_understand_this_is_dangerous: true
+    env_vars:
+      # Terraform consumes TF_VAR_database_password; the host workflow
+      # supplies it as DATABASE_PASSWORD.
+      TF_VAR_database_password: DATABASE_PASSWORD
+```
+
+Because `DATABASE_PASSWORD` crosses the auth-provider boundary, its
+literal value is registered with Reeve's redactor. Terraform's own
+`sensitive = true` metadata remains important, but it is separate from
+Reeve's masking: a value Terraform obtains or derives through another path
+may never become known to Reeve.
+
+Every acquisition emits a warning, and `reeve lint` rejects the provider
+when `i_understand_this_is_dangerous` is absent or false. The provider
+also checks the acknowledgement at acquisition time, so skipping lint
+does not bypass it. If a mapped host variable is missing, Reeve warns and
+does not export that engine variable; the downstream engine may then fail
+because its credential is incomplete.
+
+**Before using this provider, ask:**
+
+- Does the service support OIDC or another federated credential exchange?
+- Can the value live in AWS Secrets Manager, GCP Secret Manager, Azure Key
+  Vault, or another supported provider so rotation stays outside the
+  repository workflow?
+- Is the credential scoped to the minimum permissions and lifetime
+  available?
 
 ---
 
