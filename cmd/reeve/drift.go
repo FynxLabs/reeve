@@ -116,6 +116,9 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		mergedStateEnv[key] = value
 	}
 	stateEnv = mergedStateEnv
+	if err := run.PulumiLogin(ctx, engineCfg, stateEnv); err != nil {
+		return err
+	}
 	resolver := func(ctx context.Context, ref string) (map[string]string, func(), error) {
 		env, cleanup, err := run.ResolveAuthEnv(ctx, cfg.Auth, authReg, ref, auth.ModeDrift, run.LocalAuth{})
 		if err != nil {
