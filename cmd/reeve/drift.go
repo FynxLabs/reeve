@@ -116,6 +116,12 @@ func runDrift(cmd *cobra.Command, bootstrap bool) error {
 		mergedStateEnv[key] = value
 	}
 	stateEnv = mergedStateEnv
+	// Pulumi keeps its selected backend outside the project configuration.
+	// Preview/apply/refresh all log in explicitly before touching stacks; drift
+	// must do the same or a fresh runner silently falls back to Pulumi Cloud.
+	if err := run.PulumiLogin(ctx, engineCfg, stateEnv); err != nil {
+		return err
+	}
 	resolver := func(ctx context.Context, ref string) (map[string]string, func(), error) {
 		env, cleanup, err := run.ResolveAuthEnv(ctx, cfg.Auth, authReg, ref, auth.ModeDrift, run.LocalAuth{})
 		if err != nil {

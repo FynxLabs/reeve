@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,37 @@ func driftRepo(t *testing.T) string {
 func writeDriftConfig(t *testing.T, root, body string) {
 	t.Helper()
 	mustWrite(t, filepath.Join(root, ".reeve", "drift.yaml"), body)
+}
+
+func TestDriftRunLogsIntoConfiguredPulumiBackend(t *testing.T) {
+	root := driftRepo(t)
+	marker := filepath.Join(t.TempDir(), "login-args")
+	binary := filepath.Join(t.TempDir(), "pulumi")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\nprintf 'fake backend login failure' >&2\nexit 19\n", marker)
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	enginePath := filepath.Join(root, ".reeve", "pulumi.yaml")
+	engineBytes, err := os.ReadFile(enginePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engineYAML := strings.Replace(string(engineBytes), "path: pulumi", "path: "+binary, 1)
+	engineYAML = strings.Replace(engineYAML, "\n  filters:", "\n  state:\n    backend: gcs\n    url: gs://reeve-state\n\n  filters:", 1)
+	mustWrite(t, enginePath, engineYAML)
+
+	_, err = runReeve(t, "drift", "run")
+	if err == nil || !strings.Contains(err.Error(), "fake backend login failure") {
+		t.Fatalf("drift did not run configured backend login: %v", err)
+	}
+	args, readErr := os.ReadFile(marker)
+	if readErr != nil {
+		t.Fatalf("backend login was not invoked: %v", readErr)
+	}
+	if got := string(args); got != "login\ngs://reeve-state\n" {
+		t.Fatalf("pulumi args = %q, want configured backend login", got)
+	}
 }
 
 func TestDriftRunUnknownScheduleNoSchedulesConfigured(t *testing.T) {
