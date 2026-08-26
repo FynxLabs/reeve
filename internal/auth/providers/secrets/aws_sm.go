@@ -109,9 +109,6 @@ func (p *GitHubSecret) Acquire(ctx context.Context) (*auth.Credential, error) {
 	}
 	envMap := p.EnvMap
 	if len(envMap) == 0 {
-		// GitHub Actions has already mapped the repository secret into EnvVar.
-		// With no rename requested, preserve that name by default. An explicit
-		// env_map remains supported for renaming or other existing configs.
 		envMap = map[string]string{p.EnvVar: ""}
 	}
 	env, err := applyEnvMap(envMap, val)
@@ -133,9 +130,6 @@ func (p *GitHubSecret) Acquire(ctx context.Context) (*auth.Credential, error) {
 // Error messages never include the secret value itself.
 func applyEnvMap(m map[string]string, value string) (map[string]string, error) {
 	if len(m) == 0 {
-		// Lint rejects remote secret providers without env_map. Keep the
-		// mapper itself empty-by-default for direct callers; github_secret
-		// supplies its same-name passthrough before reaching this function.
 		return map[string]string{}, nil
 	}
 	out := make(map[string]string, len(m))
