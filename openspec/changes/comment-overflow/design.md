@@ -19,8 +19,9 @@ The table always lives on part 1, whole. It is the index: a reader must be able
 to see every stack in one place and know which part holds its detail. Per-stack
 sections are what paginates.
 
-Each part carries `part N of M` in its header, and part 1 links forward. A part
-is never split mid-section: a stack's detail is contiguous.
+Each part carries `part N of M` in its header, and part 1 maps every stack to
+the part carrying its detail. A part is never split mid-section: a stack's
+detail is contiguous.
 
 ### divided (default)
 

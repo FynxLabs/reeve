@@ -68,6 +68,15 @@ func loadRunEnv(cmd *cobra.Command) (*runEnv, error) {
 		return nil, err
 	}
 
+	// Comment rendering flags override the loaded config here, the one seam
+	// every repo-context command passes through, so a flag cannot take effect
+	// on one command and be silently ignored on another. Applied after Validate
+	// so a flag is checked against its own allowed set rather than the
+	// schema's.
+	if err := applyCommentFlags(cmd, cfg.Shared); err != nil {
+		return nil, err
+	}
+
 	emitters, err := run.BuildAnnotationEmitters(cfg.Observability)
 	if err != nil {
 		return nil, err

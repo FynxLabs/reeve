@@ -29,9 +29,10 @@ retained within `max_parts`, and which part holds its detail, from the first
 comment. Stacks dropped by the cap MUST be named there with a count.
 
 When a board spans more than one part, every part MUST state its ordinal and the
-total, and the first part MUST link to the others. A single-part board MUST NOT
-carry this metadata, so it stays byte-identical to the same board rendered with
-overflow disabled.
+total. The first part MUST map each retained stack to the part carrying its
+detail, and later parts MUST point readers back to the table. A single-part
+board MUST NOT carry this metadata, so it stays byte-identical to the same board
+rendered with overflow disabled.
 
 A single stack's detail MUST NOT be split across two parts.
 

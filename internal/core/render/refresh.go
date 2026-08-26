@@ -39,13 +39,42 @@ func Refresh(in RefreshInput) string {
 // RefreshTrimmed renders the refresh comment and reports what it dropped. As
 // with apply, FullPlan here is the engine's own refresh output, so dropping it
 // is named in the comment and must be logged by the caller.
+// RefreshParts renders the refresh board, paginating when overflow is enabled
+// and the body does not fit. Returns nil when one comment suffices.
+func RefreshParts(in RefreshInput, cfg OverflowConfig, boardMarker string) []Part {
+	if !cfg.enabled() {
+		return nil
+	}
+	note := func(omitted string) string {
+		return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
+	}
+	return paginate(boardRenderer{
+		render: func(stacks []summary.StackSummary, o renderOpts) string {
+			sub := in
+			sub.Stacks = stacks
+			return renderRefresh(sub, o)
+		},
+		descend: func(stacks []summary.StackSummary, o renderOpts) (string, Trim) {
+			sub := in
+			sub.Stacks = stacks
+			return descendWithBase(
+				func(oo renderOpts) string { return renderRefresh(sub, oo) },
+				note, sortApply, sub.Stacks, sub.StackView, sub.SortMode, "full refresh output", false, o,
+			)
+		},
+		keepFullPlan: true,
+		sortMode:     in.SortMode,
+		view:         in.StackView,
+	}, in.Stacks, cfg, boardMarker)
+}
+
 func RefreshTrimmed(in RefreshInput) (string, Trim) {
 	return descend(
 		func(o renderOpts) string { return renderRefresh(in, o) },
 		func(omitted string) string {
 			return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
 		},
-		sortApply, // sections render failures-first, same as the table
+		sortApply,
 		in.Stacks, in.StackView, in.SortMode,
 		"full refresh output",
 		false, // this is the engine's output; never drop it silently
@@ -83,6 +112,8 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 	}
 	fmt.Fprintf(&b, "**%d %s refreshed**%s\n\n", n, noun, durBit)
 
+	writePartHeader(&b, opts)
+
 	if opts.truncationNote != "" {
 		fmt.Fprintf(&b, "> ⚠️ %s\n\n", opts.truncationNote)
 	}
@@ -91,21 +122,37 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 		return b.String()
 	}
 
-	rows, hidden := tableRows(sortApply, in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
-	b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|\n")
-	for _, s := range rows {
-		dur := ""
-		if s.DurationMS > 0 {
-			dur = fmt.Sprintf("%ds", s.DurationMS/1000)
+	if !opts.suppressTable {
+		rows, hidden := tableRows(sortApply, opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
+		if opts.paginated() {
+			b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status | Detail |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+		} else {
+			b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|\n")
 		}
-		fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
-			s.Ref(), envOrDash(s.Env),
-			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
-			dur, applyStatusCell(s))
+		for _, s := range rows {
+			dur := ""
+			if s.DurationMS > 0 {
+				dur = fmt.Sprintf("%ds", s.DurationMS/1000)
+			}
+			if opts.paginated() {
+				fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s | %s |\n",
+					s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+					s.Counts.Replace, dur, applyStatusCell(s), partCell(opts, s.Ref()))
+			} else {
+				fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
+					s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+					s.Counts.Replace, dur, applyStatusCell(s))
+			}
+		}
+		columns := 8
+		if opts.paginated() {
+			columns++
+		}
+		writeHiddenRowNote(&b, hidden, columns)
+		b.WriteString("\n")
 	}
-	writeHiddenRowNote(&b, hidden, 8)
-	b.WriteString("\n")
 
 	dropped := 0
 	for _, s := range sortApply(tableStacks(in.Stacks, StackViewAll), in.SortMode) {

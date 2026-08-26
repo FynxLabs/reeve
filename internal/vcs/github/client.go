@@ -160,3 +160,92 @@ func (c *Client) UpsertComment(ctx context.Context, number int, body, marker str
 	_, _, err := c.gh.Issues.CreateComment(ctx, c.owner, c.repo, number, &gh.IssueComment{Body: gh.String(body)})
 	return err
 }
+
+// DeleteCommentsByMarkerPrefix deletes the PR comments whose body carries a
+// marker starting with prefix and whose part ordinal is above keepThrough.
+//
+// A board that shrinks - fewer stacks, so fewer comments - must remove the parts
+// it no longer writes. A stale part left behind keeps claiming stacks the
+// current run does not have, and nothing else would ever touch it: markers are
+// found by match, and a marker nobody writes is a marker nobody edits.
+func (c *Client) DeleteCommentsByMarkerPrefix(ctx context.Context, number int, prefix string, keepThrough int) (int, error) {
+	if prefix == "" {
+		return 0, errors.New("marker prefix is required")
+	}
+	author, err := c.authenticatedCommentAuthor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var stale []int64
+	opt := &gh.IssueListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}
+	for {
+		comments, resp, err := c.gh.Issues.ListComments(ctx, c.owner, c.repo, number, opt)
+		if err != nil {
+			return 0, fmt.Errorf("list comments: %w", err)
+		}
+		for _, cm := range comments {
+			if !strings.EqualFold(cm.GetUser().GetLogin(), author) {
+				continue
+			}
+			part, ok := partOrdinal(cm.GetBody(), prefix)
+			if ok && part > keepThrough {
+				stale = append(stale, cm.GetID())
+			}
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+	deleted := 0
+	for _, id := range stale {
+		if _, err := c.gh.Issues.DeleteComment(ctx, c.owner, c.repo, id); err != nil {
+			// Report what did get removed alongside the failure: a partial
+			// sweep still narrows the stale set, and the caller logs rather
+			// than failing the run over it.
+			return deleted, fmt.Errorf("delete comment %d: %w", id, err)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
+// authenticatedCommentAuthor identifies the account whose token writes reeve
+// comments. User tokens expose it through /user; GitHub Actions installation
+// tokens write as the platform's fixed github-actions[bot] identity.
+func (c *Client) authenticatedCommentAuthor(ctx context.Context) (string, error) {
+	user, _, err := c.gh.Users.Get(ctx, "")
+	if err == nil && user.GetLogin() != "" {
+		return user.GetLogin(), nil
+	}
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		return "github-actions[bot]", nil
+	}
+	if err == nil {
+		err = errors.New("authenticated user response had no login")
+	}
+	return "", fmt.Errorf("identify authenticated comment author: %w", err)
+}
+
+// partOrdinal extracts a board part's ordinal from a comment body, given the
+// board's marker prefix. Part 1 carries the bare marker and reports 1.
+func partOrdinal(body, prefix string) (int, bool) {
+	i := strings.Index(body, prefix)
+	if i < 0 {
+		return 0, false
+	}
+	rest := body[i+len(prefix):]
+	end := strings.Index(rest, "-->")
+	if end < 0 {
+		return 0, false
+	}
+	suffix := strings.TrimSpace(rest[:end])
+	if suffix == "" {
+		return 1, true // the bare board marker: part 1
+	}
+	var n int
+	if _, err := fmt.Sscanf(suffix, ":part%d", &n); err != nil || n < 2 {
+		return 0, false
+	}
+	return n, true
+}

@@ -295,7 +295,7 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 	}
 
 	dur := int(time.Since(start).Seconds())
-	body, trim := render.RefreshTrimmed(render.RefreshInput{
+	refreshIn := render.RefreshInput{
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
 		DurationSec: dur,
@@ -304,17 +304,21 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 		Stacks:      summaries,
 		SortMode:    sortModeFor(in.Shared),
 		StackView:   stackView(in.Shared),
-	})
-	// Same contract as apply: the trim note points at the CI run, so the
-	// dropped refresh output has to be there.
-	logTrimmed("refresh", summaries, trim)
-
+	}
+	body, trim := render.RefreshTrimmed(refreshIn)
 	pctx, endTerminal := terminalContext(ctx)
 	defer endTerminal()
 
 	if in.VCS != nil && in.PRNumber > 0 {
-		if err := in.VCS.UpsertComment(pctx, in.PRNumber, body, render.RefreshMarker); err != nil {
-			slog.Warn("refresh comment failed", "err", err, "pr", in.PRNumber)
+		var cerr error
+		if parts := render.RefreshParts(refreshIn, overflowFor(in.Shared), render.RefreshMarker); len(parts) > 0 {
+			cerr = postBoard(pctx, in.VCS, in.PRNumber, "refresh", parts, render.RefreshMarker, summaries)
+		} else {
+			logTrimmed("refresh", summaries, trim)
+			cerr = postSingleBoard(pctx, in.VCS, in.PRNumber, "refresh", body, render.RefreshMarker)
+		}
+		if cerr != nil {
+			slog.Warn("refresh comment failed", "err", cerr, "pr", in.PRNumber)
 		}
 	}
 

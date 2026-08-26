@@ -319,7 +319,7 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		}
 	}
 
-	body, trim := render.PreviewTrimmed(render.PreviewInput{
+	previewIn := render.PreviewInput{
 		Op:          "preview",
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
@@ -330,13 +330,8 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 		StackView:   stackView(in.Shared),
 		Notice:      notice,
 		Style:       commentStyleFor(in.Shared),
-	})
-	// The trim note tells the reviewer to read the CI run for the plan the
-	// comment dropped, so the plan has to be in the CI log. Nothing else
-	// writes it there - PlanDiff and FullPlan otherwise only ever reach the
-	// PR comment - so emit it here, once, only when it was actually dropped.
-	logTrimmed("preview", summaries, trim)
-
+	}
+	body, trim := render.PreviewTrimmed(previewIn)
 	if err := writeManifest(ctx, in.Blob, in.PRNumber, runID, summaries, in.CommitSHA); err != nil {
 		outcome = "failed"
 		return nil, fmt.Errorf("write manifest: %w", err)
@@ -344,22 +339,28 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 
 	commentPosted := false
 	if in.Comments != nil && in.PRNumber > 0 {
-		// Honor comments.style the same way apply does: append posts a new
-		// comment per run, everything else upserts the commit/PR board. Using
-		// UpsertComment under append would edit one comment in place and defeat
-		// the style the operator chose.
 		style := commentStyleFor(in.Shared)
+		marker := render.DashboardMarker(style, in.CommitSHA)
 		var cerr error
-		switch style {
-		case render.StyleAppend:
+		// Paginate when the board does not fit and overflow is on. Parts is nil
+		// for the ordinary case - one comment, byte-identical to before - so the
+		// single-comment path stays exactly what it was.
+		if parts := render.PreviewParts(previewIn, overflowFor(in.Shared), marker); len(parts) > 0 {
+			if style == render.StyleAppend {
+				cerr = postAppendBoard(ctx, in.Comments, in.PRNumber, "preview", parts, summaries)
+			} else {
+				cerr = postBoard(ctx, in.Comments, in.PRNumber, "preview", parts, marker, summaries)
+			}
+		} else if style == render.StyleAppend {
+			logTrimmed("preview", summaries, trim)
 			cerr = in.Comments.PostComment(ctx, in.PRNumber, body)
-		default:
-			cerr = in.Comments.UpsertComment(ctx, in.PRNumber, body,
-				render.DashboardMarker(style, in.CommitSHA))
+		} else {
+			logTrimmed("preview", summaries, trim)
+			cerr = postSingleBoard(ctx, in.Comments, in.PRNumber, "preview", body, marker)
 		}
 		if cerr != nil {
 			outcome = "failed"
-			return nil, fmt.Errorf("upsert pr comment: %w", cerr)
+			return nil, fmt.Errorf("post pr comment: %w", cerr)
 		}
 		commentPosted = true
 		autoReady := in.Shared != nil && in.Shared.Apply.AutoReady

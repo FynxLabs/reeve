@@ -78,8 +78,60 @@ type renderOpts struct {
 	// section is rendered. Stacks outside it appear in the table only.
 	keepStacks map[string]bool
 	// tableLimit caps how many rows the table renders, 0 meaning no cap.
-	tableLimit     int
+	tableLimit int
+	// part and partsTotal locate this body within a paginated board. Zero
+	// means an unpaginated board, which renders exactly as it always has.
+	part, partsTotal int
+	// suppressTable drops the stack table. The table is the board's index and
+	// belongs on part 1 only; repeating it on every part would duplicate the
+	// largest fixed cost and force more parts.
+	suppressTable bool
+	// tableStacksOverride is the full board's stacks, used for the table on a
+	// paginated part 1. Without it part 1 would tabulate only the stacks whose
+	// detail it happens to carry, and the index would be missing every stack on
+	// a later part - the one thing the table exists to prevent.
+	tableStacksOverride []summary.StackSummary
+	// stackParts maps each stack to the continuation part carrying its detail.
+	// Zero means max_parts omitted it and the full detail is in the run log.
+	stackParts map[string]int
+	// commentLimit reserves bytes added outside the concrete renderer, such as
+	// a continuation marker. Zero uses githubCommentMaxLen.
+	commentLimit   int
 	truncationNote string
+}
+
+// tableSource returns the stacks the table should list: the whole board when
+// paginating, otherwise the body's own stacks.
+func (o renderOpts) tableSource(own []summary.StackSummary) []summary.StackSummary {
+	if o.tableStacksOverride != nil {
+		return o.tableStacksOverride
+	}
+	return own
+}
+
+// paginated reports whether this body is one part of a multi-part board.
+func (o renderOpts) paginated() bool { return o.partsTotal > 1 }
+
+// writePartHeader states where a part sits in the board, so a reader landing on
+// part 3 knows there are others and that part 1 holds the table.
+func writePartHeader(b *strings.Builder, o renderOpts) {
+	if !o.paginated() {
+		return
+	}
+	fmt.Fprintf(b, "**Part %d of %d.**", o.part, o.partsTotal)
+	if o.part > 1 {
+		b.WriteString(" The stack table is on part 1.")
+	} else {
+		b.WriteString(" Per-stack detail continues in the comments below.")
+	}
+	b.WriteString("\n\n")
+}
+
+func partCell(o renderOpts, ref string) string {
+	if part := o.stackParts[ref]; part > 0 {
+		return fmt.Sprintf("part %d", part)
+	}
+	return "run log"
 }
 
 // sectionRendered reports whether ref gets a per-stack section under opts.
@@ -210,9 +262,44 @@ func descend(
 	fullPlanLabel string,
 	silentFullPlan bool,
 ) (string, Trim) {
+	return descendWithBase(render, note, order, stacks, view, sortMode, fullPlanLabel, silentFullPlan, renderOpts{})
+}
+
+// descendWithBase is descend with caller-supplied options every rung inherits.
+// A paginated part passes its part header and suppressed table through, so
+// trimming a part's content cannot strip its place in the board.
+func descendWithBase(
+	render func(renderOpts) string,
+	note func(omitted string) string,
+	order stackOrder,
+	stacks []summary.StackSummary,
+	view, sortMode string,
+	fullPlanLabel string,
+	silentFullPlan bool,
+	base renderOpts,
+) (string, Trim) {
+	limit := base.commentLimit
+	if limit <= 0 {
+		limit = githubCommentMaxLen
+	}
+	// with layers a rung's gates onto the caller's base, so pagination fields
+	// survive every rung.
+	with := func(o renderOpts) renderOpts {
+		merged := base
+		merged.includeFullPlan = o.includeFullPlan
+		merged.includeDiff = o.includeDiff
+		merged.includeSummary = o.includeSummary
+		merged.errorBudget = o.errorBudget
+		merged.keepStacks = o.keepStacks
+		merged.tableLimit = o.tableLimit
+		merged.truncationNote = o.truncationNote
+		return merged
+	}
+	render0 := render
+	render = func(o renderOpts) string { return render0(with(o)) }
 	fits := func(o renderOpts) (string, bool) {
 		body := render(o)
-		return body, len(body) <= githubCommentMaxLen
+		return body, len(body) <= limit
 	}
 	// noteFor derives the banner from what trim says is gone, so the text and
 	// the reported fields cannot disagree.
@@ -271,17 +358,17 @@ func descend(
 	refs := sectionRefs(order, stacks, sortMode)
 	probe := trim
 	probe.DroppedSections = len(refs)
-	base := renderOpts{errorBudget: perStackErrorBudget, truncationNote: noteFor(probe)}
-	keep, droppedSections := fitSections(render, base, refs)
+	rung := renderOpts{errorBudget: perStackErrorBudget, truncationNote: noteFor(probe)}
+	keep, droppedSections := fitSections(render, rung, refs, limit)
 	trim.DroppedSections = droppedSections
-	base.keepStacks = keep
+	rung.keepStacks = keep
 	if droppedSections > 0 {
 		// Re-derive: fewer sections dropped than the probe assumed does not
 		// change the wording, but a zero count would, and must not claim a drop
 		// that did not happen.
-		base.truncationNote = noteFor(trim)
+		rung.truncationNote = noteFor(trim)
 	}
-	if body, ok := fits(base); ok {
+	if body, ok := fits(rung); ok {
 		return body, trim
 	}
 
@@ -291,12 +378,12 @@ func descend(
 	total := len(tableStacks(stacks, view))
 	probe = trim
 	probe.DroppedRows = total
-	base.truncationNote = noteFor(probe)
-	rows, droppedRows := fitTable(render, base, total)
+	rung.truncationNote = noteFor(probe)
+	rows, droppedRows := fitTable(render, rung, total, limit)
 	trim.DroppedRows = droppedRows
-	base.tableLimit = rows
-	base.truncationNote = noteFor(trim)
-	return render(base), trim
+	rung.tableLimit = rows
+	rung.truncationNote = noteFor(trim)
+	return render(rung), trim
 }
 
 // fitSections picks the per-stack sections that fit, keeping a prefix of render
@@ -309,7 +396,7 @@ func descend(
 //
 // Because a longer prefix is never smaller than a shorter one, the fitting
 // length is monotonic and found by binary search - the same shape as fitTable.
-func fitSections(render func(renderOpts) string, base renderOpts, refs []string) (map[string]bool, int) {
+func fitSections(render func(renderOpts) string, base renderOpts, refs []string, limit int) (map[string]bool, int) {
 	build := func(n int) map[string]bool {
 		keep := make(map[string]bool, n)
 		for _, ref := range refs[:n] {
@@ -320,7 +407,7 @@ func fitSections(render func(renderOpts) string, base renderOpts, refs []string)
 	fits := func(n int) bool {
 		probe := base
 		probe.keepStacks = build(n)
-		return len(render(probe)) <= githubCommentMaxLen
+		return len(render(probe)) <= limit
 	}
 
 	// lo is the largest known-good prefix length. 0 sections is always
@@ -340,7 +427,7 @@ func fitSections(render func(renderOpts) string, base renderOpts, refs []string)
 // fitTable returns the row count that fits and how many rows that drops, found
 // by binary search. base must already carry the note the caller will render
 // with, or the measurement is against a different document than the one posted.
-func fitTable(render func(renderOpts) string, base renderOpts, total int) (rows, dropped int) {
+func fitTable(render func(renderOpts) string, base renderOpts, total, limit int) (rows, dropped int) {
 	// tableLimit of 0 means "no cap", so the search never probes 0. lo starts
 	// at 1 and a table that cannot fit even one row falls out below.
 	lo, hi := 1, total
@@ -348,7 +435,7 @@ func fitTable(render func(renderOpts) string, base renderOpts, total int) (rows,
 		mid := (lo + hi + 1) / 2
 		probe := base
 		probe.tableLimit = mid
-		if len(render(probe)) <= githubCommentMaxLen {
+		if len(render(probe)) <= limit {
 			lo = mid
 		} else {
 			hi = mid - 1
@@ -356,7 +443,7 @@ func fitTable(render func(renderOpts) string, base renderOpts, total int) (rows,
 	}
 	probe := base
 	probe.tableLimit = lo
-	if len(render(probe)) > githubCommentMaxLen {
+	if len(render(probe)) > limit {
 		// Not even one row fits: the fixed parts - header, banner, note - are
 		// themselves oversize. Nothing here can fix that; report every stack as
 		// dropped so the caller logs all of them.

@@ -791,7 +791,7 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 			ConfigModifiedInPR: len(bgTouched) > 0,
 		}
 	}
-	body, trim := render.ApplyTrimmed(render.ApplyInput{
+	applyIn := render.ApplyInput{
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
 		DurationSec: dur,
@@ -801,11 +801,8 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		Style:       commentStyle,
 		StackView:   stackView(in.Shared),
 		BreakGlass:  bgNote,
-	})
-	// The trim note sends the reviewer to the CI run for the apply output the
-	// comment dropped, so the output has to be in the CI log.
-	logTrimmed("apply", summaries, trim)
-
+	}
+	body, trim := render.ApplyTrimmed(applyIn)
 	// Terminal persistence: once the run context has been cancelled the
 	// remaining writes (manifest, timeline, comment, notify, audit) run on a
 	// short detached deadline so the run's outcome is still recorded before
@@ -868,13 +865,24 @@ func Apply(ctx context.Context, in ApplyInput) (out *ApplyOutput, retErr error) 
 		var cerr error
 		switch commentStyle {
 		case render.StyleAppend:
-			cerr = in.VCS.PostComment(pctx, in.PRNumber, body)
+			marker := render.DashboardMarker(commentStyle, in.CommitSHA)
+			if parts := render.ApplyParts(applyIn, overflowFor(in.Shared), marker); len(parts) > 0 {
+				cerr = postAppendBoard(pctx, in.VCS, in.PRNumber, "apply", parts, summaries)
+			} else {
+				logTrimmed("apply", summaries, trim)
+				cerr = in.VCS.PostComment(pctx, in.PRNumber, body)
+			}
 		default:
 			// One marker helper for preview and apply: under `section` this is
 			// the commit's board, so the apply lands on the same comment the
 			// preview of this SHA wrote.
-			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body,
-				render.DashboardMarker(commentStyle, in.CommitSHA))
+			marker := render.DashboardMarker(commentStyle, in.CommitSHA)
+			if parts := render.ApplyParts(applyIn, overflowFor(in.Shared), marker); len(parts) > 0 {
+				cerr = postBoard(pctx, in.VCS, in.PRNumber, "apply", parts, marker, summaries)
+			} else {
+				logTrimmed("apply", summaries, trim)
+				cerr = postSingleBoard(pctx, in.VCS, in.PRNumber, "apply", body, marker)
+			}
 		}
 		if cerr != nil {
 			commentErr = fmt.Errorf("post pr comment: %w", cerr)

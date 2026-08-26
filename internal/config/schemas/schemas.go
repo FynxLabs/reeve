@@ -226,11 +226,21 @@ type BucketConfig struct {
 }
 
 type CommentsConfig struct {
-	Sort              string `yaml:"sort"`               // status_grouped | alphabetical | env_priority
-	CollapseThreshold int    `yaml:"collapse_threshold"` // collapse no-op stacks above N
-	ShowGates         bool   `yaml:"show_gates"`
-	Style             string `yaml:"style"`      // replace (default) | append | section
-	StackView         string `yaml:"stack_view"` // all (default) | changed — whether to list no-op stacks in the table
+	Sort              string         `yaml:"sort"`               // status_grouped | alphabetical | env_priority
+	CollapseThreshold int            `yaml:"collapse_threshold"` // collapse no-op stacks above N
+	ShowGates         bool           `yaml:"show_gates"`
+	Style             string         `yaml:"style"`      // replace (default) | append | section
+	StackView         string         `yaml:"stack_view"` // all (default) | changed — whether to list no-op stacks in the table
+	Overflow          OverflowConfig `yaml:"overflow"`
+}
+
+// OverflowConfig controls what happens when a board exceeds GitHub's comment
+// size limit. Under the default the board is trimmed; under continue it spills
+// into further comments so no stack detail is lost.
+type OverflowConfig struct {
+	Mode     string `yaml:"mode"`      // drop (default) | continue
+	Split    string `yaml:"split"`     // divided (default) | stack | group
+	MaxParts int    `yaml:"max_parts"` // cap on comments per board; 0 uses the default
 }
 
 // Engine is .reeve/<engine>.yaml. Phase 1 supports Pulumi stack declarations
