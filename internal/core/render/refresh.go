@@ -91,11 +91,10 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 		return b.String()
 	}
 
-	rows, hidden := tableRows(in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
+	rows, hidden := tableRows(sortApply, in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
 	b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status |\n")
 	b.WriteString("|---|---|---|---|---|---|---|---|\n")
-	ordered := sortApply(rows, in.SortMode)
-	for _, s := range ordered {
+	for _, s := range rows {
 		dur := ""
 		if s.DurationMS > 0 {
 			dur = fmt.Sprintf("%ds", s.DurationMS/1000)

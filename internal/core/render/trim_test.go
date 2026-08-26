@@ -125,3 +125,29 @@ func TestTrimLadderFloorKeepsCommentWellFormed(t *testing.T) {
 		t.Logf("%s len=%d %+v", c.name, len(c.body), c.trim)
 	}
 }
+
+func TestApplyFloorKeepsFailureRowsFirst(t *testing.T) {
+	stacks := make([]summary.StackSummary, 0, 3001)
+	for i := 0; i < 3000; i++ {
+		stacks = append(stacks, summary.StackSummary{
+			Project: strings.Repeat("planned-", 8) + fmt.Sprint(i), Stack: "prod",
+			Status: summary.StatusPlanned,
+		})
+	}
+	stacks = append(stacks, summary.StackSummary{
+		Project: "critical", Stack: "prod", Status: summary.StatusError, Error: "boom",
+	})
+
+	body, trim := ApplyTrimmed(ApplyInput{RunNumber: 1, CommitSHA: "abc1234", Stacks: stacks})
+	if trim.DroppedRows == 0 {
+		t.Fatal("fixture did not reach the table-row floor")
+	}
+	tableStart := strings.Index(body, "| Stack |")
+	if tableStart < 0 {
+		t.Fatal("apply comment has no stack table")
+	}
+	tableEnd := strings.Index(body[tableStart:], "\n\n")
+	if tableEnd < 0 || !strings.Contains(body[tableStart:tableStart+tableEnd], "critical/prod") {
+		t.Fatalf("failure row was dropped behind successful rows; trim=%+v", trim)
+	}
+}

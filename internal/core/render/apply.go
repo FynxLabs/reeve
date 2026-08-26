@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/reeveops/reeve/internal/core/summary"
 )
@@ -103,11 +104,10 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 	}
 
 	// Table: failures first.
-	rows, hidden := tableRows(in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
+	rows, hidden := tableRows(sortApply, in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
 	b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |\n")
 	b.WriteString("|---|---|---|---|---|---|---|---|\n")
-	ordered := sortApply(rows, in.SortMode)
-	for _, s := range ordered {
+	for _, s := range rows {
 		dur := ""
 		if s.DurationMS > 0 {
 			dur = fmt.Sprintf("%ds", s.DurationMS/1000)
@@ -210,6 +210,9 @@ func clampJustification(msg string) string {
 	cut := breakGlassJustificationBudget - len(note)
 	if cut < 0 {
 		cut = 0
+	}
+	for cut > 0 && !utf8.RuneStart(msg[cut]) {
+		cut--
 	}
 	return msg[:cut] + note
 }

@@ -118,8 +118,8 @@ func writeDroppedSectionNote(b *strings.Builder, dropped int) {
 
 // tableRows applies the view mode, sort, and row cap, returning the rows to
 // render and how many were held back.
-func tableRows(stacks []summary.StackSummary, view, sortMode string, limit int) (rows []summary.StackSummary, hidden int) {
-	rows = sorted(tableStacks(stacks, view), sortMode)
+func tableRows(order stackOrder, stacks []summary.StackSummary, view, sortMode string, limit int) (rows []summary.StackSummary, hidden int) {
+	rows = order(tableStacks(stacks, view), sortMode)
 	if limit > 0 && len(rows) > limit {
 		hidden = len(rows) - limit
 		rows = rows[:limit]

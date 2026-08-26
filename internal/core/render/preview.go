@@ -187,7 +187,7 @@ func writeTable(b *strings.Builder, in PreviewInput, opts renderOpts) {
 		b.WriteString("_No stacks affected by this change._\n\n")
 		return
 	}
-	rows, hidden := tableRows(in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
+	rows, hidden := tableRows(sorted, in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
 	if len(rows) == 0 && hidden == 0 {
 		b.WriteString("_No stacks with changes._\n\n")
 		return
