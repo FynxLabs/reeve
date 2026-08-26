@@ -128,18 +128,27 @@ func tableRows(stacks []summary.StackSummary, view, sortMode string, limit int) 
 }
 
 // writeHiddenRowNote names the rows the floor rung removed. Those stacks appear
-// nowhere else in the comment.
-func writeHiddenRowNote(b *strings.Builder, hidden int) {
+// nowhere else in the comment. columns is the table's column count, so the note
+// spans exactly one row: the preview table has 7, the apply and refresh tables 8
+// (they add Duration), and a short row renders ragged.
+func writeHiddenRowNote(b *strings.Builder, hidden, columns int) {
 	if hidden == 0 {
 		return
 	}
-	fmt.Fprintf(b, "| _+%d more stacks - see the run log_ | | | | | | |\n", hidden)
+	fmt.Fprintf(b, "| _+%d more stacks - see the run log_ |%s\n",
+		hidden, strings.Repeat(" |", columns-1))
 }
 
-// sectionRefs lists the stack refs that get a per-stack section, in render
-// order. No-ops have no section.
-func sectionRefs(stacks []summary.StackSummary, sortMode string) []string {
-	ordered := sorted(stacks, sortMode)
+// stackOrder returns stacks in the order a renderer emits its per-stack
+// sections. descend keeps the retained-section prefix in this same order, so the
+// sections rung drops the ones the reader sees last rather than a prefix of a
+// different sort.
+type stackOrder func(stacks []summary.StackSummary, sortMode string) []summary.StackSummary
+
+// sectionRefs lists the stack refs that get a per-stack section, in the render
+// order the caller supplies. No-ops have no section.
+func sectionRefs(order stackOrder, stacks []summary.StackSummary, sortMode string) []string {
+	ordered := order(stacks, sortMode)
 	refs := make([]string, 0, len(ordered))
 	for _, s := range ordered {
 		if s.Status == summary.StatusNoOp {
@@ -195,6 +204,7 @@ func omittedPhrase(t Trim, fullPlanLabel string, silentFullPlan bool) string {
 func descend(
 	render func(renderOpts) string,
 	note func(omitted string) string,
+	order stackOrder,
 	stacks []summary.StackSummary,
 	view, sortMode string,
 	fullPlanLabel string,
@@ -258,7 +268,7 @@ func descend(
 	// that already claims them before the search measures. Searching against a
 	// shorter note than the one rendered would put the body back over the limit
 	// by exactly that difference.
-	refs := sectionRefs(stacks, sortMode)
+	refs := sectionRefs(order, stacks, sortMode)
 	probe := trim
 	probe.DroppedSections = len(refs)
 	base := renderOpts{errorBudget: perStackErrorBudget, truncationNote: noteFor(probe)}

@@ -120,6 +120,7 @@ func PreviewTrimmed(in PreviewInput) (string, Trim) {
 	return descend(
 		func(o renderOpts) string { return renderPreview(in, o) },
 		func(omitted string) string { return truncationNote(in) + " (omitted: " + omitted + ")" },
+		sorted, // sections render in preview order
 		in.Stacks, in.StackView, in.SortMode,
 		"full plan output",
 		true, // silent: the diff survives this rung
@@ -203,7 +204,7 @@ func writeTable(b *strings.Builder, in PreviewInput, opts renderOpts) {
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 			statusCell(s))
 	}
-	writeHiddenRowNote(b, hidden)
+	writeHiddenRowNote(b, hidden, 7)
 	b.WriteString("\n")
 	b.WriteString("<sub>Legend: `+` create · `~` update in place · `-` delete · `±` replace (delete & recreate)</sub>\n\n")
 	if anyReplace {

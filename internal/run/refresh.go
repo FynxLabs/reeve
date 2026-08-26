@@ -197,7 +197,10 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 			}, ttl)
 			if lerr != nil {
 				ss.Status = summary.StatusError
-				ss.Error = fmt.Sprintf("lock acquire: %v", lerr)
+				// The backend error can quote configuration (endpoints, bucket
+				// paths, credentials); it reaches the PR comment and the CI log,
+				// so redact it here where the summary is built.
+				ss.Error = BuildRedactor(in.Shared).Redact(fmt.Sprintf("lock acquire: %v", lerr))
 				anyFailed = true
 				summaries = append(summaries, ss)
 				continue

@@ -22,10 +22,13 @@ import (
 // Every summary is redacted where it is built, so this adds no path around
 // internal/core/redact.
 func logTrimmed(op string, stacks []summary.StackSummary, trim render.Trim) {
-	if !trim.Lost() {
-		// Nothing a reviewer reads was removed. A dropped raw plan blob alone
-		// is not worth hundreds of KB in the log of every trimmed run: the diff
-		// survived that rung and the reviewer lost nothing.
+	// For apply and refresh the engine output IS the record of what changed, so
+	// it must reach the log whenever it was dropped - even when it is the only
+	// omission (Trim.Lost stays false for a raw-plan-only drop). For a preview
+	// the raw plan blob alone is not worth hundreds of KB in every trimmed run's
+	// log: the diff survived that rung and the reviewer lost nothing.
+	fullPlanLogged := trim.DroppedFullPlan && op != "preview"
+	if !trim.Lost() && !fullPlanLogged {
 		return
 	}
 
@@ -57,7 +60,7 @@ func logTrimmed(op string, stacks []summary.StackSummary, trim render.Trim) {
 		// the record of what changed, so it is logged whenever the comment lost
 		// reviewer-visible content; for a preview it is the raw blob and the
 		// diff above already carries what is readable.
-		if s.FullPlan != "" && op != "preview" {
+		if s.FullPlan != "" && op != "preview" && trim.DroppedFullPlan {
 			slog.Info("stack engine output omitted from the PR comment",
 				"op", op, "stack", s.Ref(), "output", s.FullPlan)
 		}

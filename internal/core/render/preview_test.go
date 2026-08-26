@@ -268,9 +268,12 @@ func TestPreviewSizeLimit_OversizeTableStaysWellFormed(t *testing.T) {
 	if !strings.Contains(out, "more stacks") {
 		t.Errorf("dropped rows not accounted for; tail:\n%s", out[max(0, len(out)-400):])
 	}
-	// A truncated table row would leave a ragged final line.
-	if !strings.HasSuffix(strings.TrimSpace(out), ".") && !strings.Contains(out, "|") {
-		t.Error("table looks malformed")
+	// A truncated table row would leave a ragged final line: every rendered
+	// table row must open and close with a pipe.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "|") && !strings.HasSuffix(line, "|") {
+			t.Errorf("ragged table row: %q", line)
+		}
 	}
 }
 

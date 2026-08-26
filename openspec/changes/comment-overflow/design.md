@@ -51,14 +51,20 @@ stack. Its part falls back to the trim ladder for that stack alone - diff, then
 summary, then clamped error - so the rest of the run still paginates cleanly and
 only the pathological stack loses content.
 
+The other case where content is lost is the `max_parts` cap. It bounds the
+comment count, so stacks past it are dropped from the comments, named with a
+count in the last part, and written to the run log.
+
 ## Stale parts
 
 The run records how many parts it wrote. A later run needing fewer must delete
 the surplus, or a stale part keeps claiming stacks the run no longer has.
 
-`DeleteCommentsByMarkerPrefix` on the VCS client: list, match the board's part
-prefix, delete those with an ordinal above the current count. Deleting reeve's
-own comment by its own marker is the narrowest capability that does the job.
+`DeleteCommentsByMarkerPrefix` on the VCS client: list, keep only comments
+authored by reeve's own account, match the board's part prefix among those, and
+delete those with an ordinal above the current count. The author check comes
+first: a marker in the body is not enough, because any participant can copy it,
+so deletion is gated on reeve's authenticated identity as well.
 
 Failing to delete is logged, not fatal: the run's real work has already shipped,
 and a stale part is a reporting defect, not a reason to fail the run.

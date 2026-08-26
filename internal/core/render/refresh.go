@@ -45,6 +45,7 @@ func RefreshTrimmed(in RefreshInput) (string, Trim) {
 		func(omitted string) string {
 			return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
 		},
+		sortApply, // sections render failures-first, same as the table
 		in.Stacks, in.StackView, in.SortMode,
 		"full refresh output",
 		false, // this is the engine's output; never drop it silently
@@ -104,7 +105,7 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 			dur, applyStatusCell(s))
 	}
-	writeHiddenRowNote(&b, hidden)
+	writeHiddenRowNote(&b, hidden, 8)
 	b.WriteString("\n")
 
 	dropped := 0

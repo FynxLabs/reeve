@@ -60,6 +60,7 @@ func ApplyTrimmed(in ApplyInput) (string, Trim) {
 		func(omitted string) string {
 			return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
 		},
+		sortApply, // sections render failures-first, same as the table
 		in.Stacks, in.StackView, in.SortMode,
 		"full apply output",
 		false, // this is the engine's output; never drop it silently
@@ -116,7 +117,7 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 			dur, applyStatusCell(s))
 	}
-	writeHiddenRowNote(&b, hidden)
+	writeHiddenRowNote(&b, hidden, 8)
 	b.WriteString("\n")
 
 	// Per-stack details, failures first.
@@ -184,11 +185,33 @@ func renderBreakGlassNote(n BreakGlassNote) string {
 		b.WriteString(">\n> ⚠️ **The break-glass config or CODEOWNERS was modified in this same PR.** Authorization is head-resolved by design — verify the change was legitimate.\n")
 	}
 	b.WriteString(">\n> **Justification:**\n")
-	for _, line := range strings.Split(strings.TrimSpace(n.Justification), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(clampJustification(n.Justification)), "\n") {
 		fmt.Fprintf(&b, "> > %s\n", line)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// breakGlassJustificationBudget caps the justification rendered into the apply
+// comment. The break-glass note is fixed content on every trim rung, so an
+// unbounded justification could push even the floor rung past
+// githubCommentMaxLen and trigger GitHub's non-recoverable 422. The full text is
+// preserved in the run log (the "BREAK-GLASS apply authorized" record), so only
+// the comment copy is capped.
+const breakGlassJustificationBudget = 4_000
+
+// clampJustification shortens a break-glass justification to the budget, marking
+// the cut and pointing at the run log that holds the whole text.
+func clampJustification(msg string) string {
+	if len(msg) <= breakGlassJustificationBudget {
+		return msg
+	}
+	const note = "\n… justification truncated; see the run log."
+	cut := breakGlassJustificationBudget - len(note)
+	if cut < 0 {
+		cut = 0
+	}
+	return msg[:cut] + note
 }
 
 // applyHeadline states what actually happened, per outcome. Counting every

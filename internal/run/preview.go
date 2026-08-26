@@ -344,10 +344,22 @@ func Preview(ctx context.Context, in PreviewInput) (*PreviewOutput, error) {
 
 	commentPosted := false
 	if in.Comments != nil && in.PRNumber > 0 {
-		marker := render.DashboardMarker(commentStyleFor(in.Shared), in.CommitSHA)
-		if err := in.Comments.UpsertComment(ctx, in.PRNumber, body, marker); err != nil {
+		// Honor comments.style the same way apply does: append posts a new
+		// comment per run, everything else upserts the commit/PR board. Using
+		// UpsertComment under append would edit one comment in place and defeat
+		// the style the operator chose.
+		style := commentStyleFor(in.Shared)
+		var cerr error
+		switch style {
+		case render.StyleAppend:
+			cerr = in.Comments.PostComment(ctx, in.PRNumber, body)
+		default:
+			cerr = in.Comments.UpsertComment(ctx, in.PRNumber, body,
+				render.DashboardMarker(style, in.CommitSHA))
+		}
+		if cerr != nil {
 			outcome = "failed"
-			return nil, fmt.Errorf("upsert pr comment: %w", err)
+			return nil, fmt.Errorf("upsert pr comment: %w", cerr)
 		}
 		commentPosted = true
 		autoReady := in.Shared != nil && in.Shared.Apply.AutoReady
