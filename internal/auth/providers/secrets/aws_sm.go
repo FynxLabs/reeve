@@ -107,7 +107,11 @@ func (p *GitHubSecret) Acquire(ctx context.Context) (*auth.Credential, error) {
 	if val == "" {
 		return nil, fmt.Errorf("github_secret: env var %s is empty", p.EnvVar)
 	}
-	env, err := applyEnvMap(p.EnvMap, val)
+	envMap := p.EnvMap
+	if len(envMap) == 0 {
+		envMap = map[string]string{p.EnvVar: ""}
+	}
+	env, err := applyEnvMap(envMap, val)
 	if err != nil {
 		return nil, fmt.Errorf("github_secret %s: %w", p.EnvVar, err)
 	}
@@ -126,8 +130,6 @@ func (p *GitHubSecret) Acquire(ctx context.Context) (*auth.Credential, error) {
 // Error messages never include the secret value itself.
 func applyEnvMap(m map[string]string, value string) (map[string]string, error) {
 	if len(m) == 0 {
-		// Lint rejects secret providers without env_map; at runtime an
-		// empty map simply exports nothing.
 		return map[string]string{}, nil
 	}
 	out := make(map[string]string, len(m))

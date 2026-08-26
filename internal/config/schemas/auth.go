@@ -39,12 +39,12 @@ type ProviderYAML struct {
 	VaultName  string `yaml:"vault_name,omitempty"` // azure_key_vault
 	SecretName string `yaml:"secret_name,omitempty"`
 
-	// EnvMap maps env var name → field inside the fetched secret and is
-	// REQUIRED for every secret-manager provider (lint errors without it:
-	// the provider exports nothing). An empty field value ("") exports the
-	// whole secret and is only valid when the secret is a plain string -
-	// never a JSON bundle. A named field missing from the secret is a hard
-	// error at acquire time (fail closed).
+	// EnvMap maps env var name → field inside the fetched secret. It is
+	// required for remote secret-manager providers. github_secret defaults
+	// to passing its env_var through unchanged when this is omitted. An empty
+	// field value ("") exports the whole secret and is only valid when the
+	// secret is a plain string - never a JSON bundle. A named field missing
+	// from the secret is a hard error at acquire time (fail closed).
 	EnvMap map[string]string `yaml:"env_map,omitempty"`
 
 	TTL string `yaml:"ttl,omitempty"` // secret cache TTL
