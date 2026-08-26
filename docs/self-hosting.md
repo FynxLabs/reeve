@@ -226,6 +226,13 @@ reeve expects these events:
 - `schedule` - fires `drift run`
 - `workflow_dispatch` - manual re-runs
 
+### Prepared PR worktrees
+
+Set `checkout-pr-head: "false"` when earlier workflow steps already checked
+out the PR HEAD and prepared generated backend configuration. The caller owns
+commit selection in this mode, so use it only with an explicit PR ref and
+never with an untrusted `pull_request_target` checkout.
+
 For run coalescing, use a `concurrency` group keyed per PR with
 `cancel-in-progress` limited to preview runs: previews never take apply
 locks, so cancelling one loses nothing, while an apply holds per-stack locks

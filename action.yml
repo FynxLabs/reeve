@@ -27,6 +27,12 @@ inputs:
     description: Path to the consumer repo root (where .reeve/ lives). Defaults to $GITHUB_WORKSPACE.
     required: false
     default: ""
+  checkout-pr-head:
+    description: >-
+      Set "false" when the workflow already checked out and prepared the PR
+      worktree. The default "true" preserves the action's automatic checkout.
+    required: false
+    default: "true"
   pulumi-version:
     description: Version of the Pulumi CLI to install. Leave blank to skip.
     required: false
@@ -171,7 +177,7 @@ runs:
       # comment on a plain (non-PR) issue has issue.number set but no
       # refs/pull/<n>/head, so keying on issue.number made the job fail red.
       # issue.pull_request is present only when the issue is a PR.
-      if: ${{ github.event.pull_request.number || github.event.issue.pull_request }}
+      if: ${{ inputs.checkout-pr-head == 'true' && (github.event.pull_request.number || github.event.issue.pull_request) }}
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         ref: refs/pull/${{ github.event.pull_request.number || github.event.issue.number }}/head
