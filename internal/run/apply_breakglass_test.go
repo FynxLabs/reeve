@@ -15,6 +15,7 @@ import (
 	"github.com/reeveops/reeve/internal/core/approvals"
 	"github.com/reeveops/reeve/internal/core/discovery"
 	corelocks "github.com/reeveops/reeve/internal/core/locks"
+	"github.com/reeveops/reeve/internal/core/render"
 	"github.com/reeveops/reeve/internal/core/summary"
 	"github.com/reeveops/reeve/internal/iac"
 	"github.com/reeveops/reeve/internal/vcs"
@@ -434,4 +435,60 @@ func TestBreakGlassVCSBypassNotYetSupported(t *testing.T) {
 	if len(engine.applied) != 0 {
 		t.Fatal("nothing may be applied for an unsupported source")
 	}
+}
+
+// Under `section` the board is the commit's, so the apply must upsert the
+// marker the preview of this SHA wrote - not a second operation-keyed comment
+// the reader has to find. Regression guard for the two-board PR.
+func TestApplySectionStyleUpsertsTheCommitBoard(t *testing.T) {
+	ctx := context.Background()
+	engine, fv := newBGFixture()
+	store, _ := filesystem.New(t.TempDir())
+	shared := bgShared(&schemas.BreakGlassYAML{
+		Authorized: schemas.BreakGlassAuthorized{InternalList: []string{"alice"}},
+	})
+	shared.Comments.Style = render.StyleSection
+	in := bgApplyInput(t, engine, fv, shared, store)
+
+	if _, err := Apply(ctx, in); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := render.DashboardMarker(render.StyleSection, bgSHA)
+	if _, ok := fv.comments[want]; !ok {
+		t.Fatalf("apply must upsert the commit board %q; wrote %v", want, markersOf(fv))
+	}
+	for marker := range fv.comments {
+		if strings.Contains(marker, "reeve:apply:v1") {
+			t.Fatalf("retired apply marker written: %v", markersOf(fv))
+		}
+	}
+	if len(fv.posted) != 0 {
+		t.Fatalf("section must edit in place, not post: %v", fv.posted)
+	}
+}
+
+// Default style keeps the PR-wide board, so an existing PR's comment is still
+// found and edited rather than orphaned.
+func TestApplyReplaceStyleUpsertsThePRBoard(t *testing.T) {
+	ctx := context.Background()
+	engine, fv := newBGFixture()
+	store, _ := filesystem.New(t.TempDir())
+	in := bgApplyInput(t, engine, fv, bgShared(&schemas.BreakGlassYAML{
+		Authorized: schemas.BreakGlassAuthorized{InternalList: []string{"alice"}},
+	}), store)
+
+	if _, err := Apply(ctx, in); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if _, ok := fv.comments[render.Marker]; !ok {
+		t.Fatalf("replace must upsert the PR-wide board; wrote %v", markersOf(fv))
+	}
+}
+
+func markersOf(fv *bgVCS) []string {
+	out := make([]string, 0, len(fv.comments))
+	for m := range fv.comments {
+		out = append(out, m)
+	}
+	return out
 }

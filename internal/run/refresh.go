@@ -197,7 +197,10 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 			}, ttl)
 			if lerr != nil {
 				ss.Status = summary.StatusError
-				ss.Error = fmt.Sprintf("lock acquire: %v", lerr)
+				// The backend error can quote configuration (endpoints, bucket
+				// paths, credentials); it reaches the PR comment and the CI log,
+				// so redact it here where the summary is built.
+				ss.Error = BuildRedactor(in.Shared).Redact(fmt.Sprintf("lock acquire: %v", lerr))
 				anyFailed = true
 				summaries = append(summaries, ss)
 				continue
@@ -292,7 +295,7 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 	}
 
 	dur := int(time.Since(start).Seconds())
-	body := render.Refresh(render.RefreshInput{
+	body, trim := render.RefreshTrimmed(render.RefreshInput{
 		RunNumber:   in.RunNumber,
 		CommitSHA:   in.CommitSHA,
 		DurationSec: dur,
@@ -302,6 +305,9 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 		SortMode:    sortModeFor(in.Shared),
 		StackView:   stackView(in.Shared),
 	})
+	// Same contract as apply: the trim note points at the CI run, so the
+	// dropped refresh output has to be there.
+	logTrimmed("refresh", summaries, trim)
 
 	pctx, endTerminal := terminalContext(ctx)
 	defer endTerminal()

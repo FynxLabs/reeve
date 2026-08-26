@@ -25,16 +25,23 @@ listing available commands. A ready comment is upserted under
 `<!-- reeve:ready -->` when `/reeve ready` is triggered (manually or via `auto_ready`).
 
 Apply comment mirrors preview structure, adds durations, floats failures
-to top.
+to top. Apply writes the same marker preview wrote for that commit, so a
+commit has one board.
 
 ## `comments.style`
 
-Controls how reeve posts PR comments. Three modes: `replace` (default) upserts
-a single comment in place using the same marker (`<!-- reeve:pr-comment:v1 -->`);
-`append` posts a new comment on every run without editing the previous one;
-`section` uses a separate marker for apply results (`<!-- reeve:apply:v1 -->`)
-while preview keeps `<!-- reeve:pr-comment:v1 -->`, so preview and apply history
-remain distinct threads.
+Controls how reeve posts dashboard comments. Three modes:
+
+- `replace` (default) upserts one comment per PR under
+  `<!-- reeve:pr-comment:v1 -->`. Every operation edits it.
+- `section` upserts one comment per commit SHA, under
+  `<!-- reeve:pr-comment:v1:<short-sha> -->`. Preview and apply of one SHA share
+  that comment; a new SHA mints a new one, and a previous SHA's comment is never
+  edited again, so the plan it recorded stays readable.
+- `append` posts a new comment every run without editing the previous one.
+
+`section` does not split by operation. The marker `<!-- reeve:apply:v1 -->` is
+retired; comments already posted under it are left in place.
 
 ## `comments.stack_view`
 
@@ -71,6 +78,32 @@ guard-skipped) workflow run for every progress update.
 - 📡 `scope broadened` - unmapped files; applying all stacks.
 
 Separate from the replace-style dashboard comment.
+
+## Size-limit trimming
+
+GitHub rejects an oversize comment with a non-recoverable 422, so a rendered body
+must always fit. Renderers drop content in a fixed order, least-read first:
+
+1. full engine output (raw plan blob)
+2. per-stack diff
+3. plan summaries
+4. error text, clamped per stack rather than dropped
+5. whole per-stack sections, every stack keeping its table row
+6. table rows
+
+Rung 1 is silent on a preview: the blob is never read from a comment and the
+diff survives. On an apply or refresh it is the engine's own output, so it is
+named. From rung 2 on, the body carries a note naming what is missing.
+
+Trimming never cuts the document mid-structure. Each rung removes whole units,
+so tables, code fences, and `<details>` blocks stay closed. Dropped sections and
+dropped rows are stated in the comment with a count - silence would read as
+"nothing to report" for those stacks.
+
+Whatever a renderer reports dropping is written to the run log, so the note's
+pointer at the full run output is true. Errors are logged whenever they were
+clamped or their section went; a stack absent from the table is named nowhere in
+the comment, so the log is its only record.
 
 ## Safety rails
 

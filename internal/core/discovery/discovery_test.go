@@ -202,13 +202,14 @@ func TestAffectedNoChangesAllIgnored(t *testing.T) {
 // has to survive on Matched - otherwise a caller that must not widen its
 // blast radius has nothing to fall back to.
 func TestBroadeningPreservesPreciseMatches(t *testing.T) {
+	t.Parallel()
 	stacks := []Stack{
-		{Project: "payments", Path: "platform-edge/credova-payments", Name: "prod"},
+		{Project: "payments", Path: "platform-edge/payments", Name: "prod"},
 		{Project: "ledger", Path: "platform-core/ledger", Name: "prod"},
 	}
 	changed := []string{
-		"platform-edge/credova-payments/main.tf", // maps to one stack
-		"shared/provider-versions.hcl",           // maps to none
+		"platform-edge/payments/main.tf", // maps to one stack
+		"shared/provider-versions.hcl",   // maps to none
 	}
 
 	res := AffectedDetailed(stacks, changed, ChangeMapping{Scope: ScopeAuto})

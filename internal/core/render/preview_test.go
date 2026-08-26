@@ -230,15 +230,20 @@ func TestPreviewSizeLimit_DropsDiffToo(t *testing.T) {
 	if strings.Contains(out, "<details><summary>Diff</summary>") {
 		t.Errorf("expected per-stack Diff section to be dropped at second tier")
 	}
-	if !strings.Contains(out, "omitted: full plan output, per-stack diff") {
-		t.Errorf("expected truncation notice to call out both dropped sections")
+	// The raw plan blob is dropped silently on a preview - the diff a reviewer
+	// reads survived that rung - so the note names only what was actually lost.
+	if !strings.Contains(out, "omitted: per-stack diff") {
+		t.Errorf("expected the notice to name the dropped diff; got:\n%s", out[:min(400, len(out))])
+	}
+	if strings.Contains(out, "full plan output") {
+		t.Errorf("the silently-dropped plan blob must not be named:\n%s", out[:min(400, len(out))])
 	}
 }
 
-// TestPreviewSizeLimit_HardTruncate is the safety net: even with all
-// per-stack sections dropped, a pathologically long table must still
-// produce a body under the limit.
-func TestPreviewSizeLimit_HardTruncate(t *testing.T) {
+// A pathologically long table must still fit - and must stay a well-formed
+// document. This used to end in a byte truncate, which sliced through the table
+// and left GitHub rendering the remainder as garbage.
+func TestPreviewSizeLimit_OversizeTableStaysWellFormed(t *testing.T) {
 	// 5,000 stacks — each row is short but cumulatively past 65KB.
 	stacks := make([]summary.StackSummary, 5000)
 	for i := range stacks {
@@ -248,12 +253,27 @@ func TestPreviewSizeLimit_HardTruncate(t *testing.T) {
 			Status: summary.StatusPlanned,
 		}
 	}
-	out := Preview(PreviewInput{Op: "preview", RunNumber: 1, CommitSHA: "x", Stacks: stacks})
+	out, trim := PreviewTrimmed(PreviewInput{Op: "preview", RunNumber: 1, CommitSHA: "x", Stacks: stacks})
 	if len(out) > githubCommentMaxLen {
-		t.Fatalf("hard-truncate failed: %d chars > %d", len(out), githubCommentMaxLen)
+		t.Fatalf("body over the limit: %d chars > %d", len(out), githubCommentMaxLen)
 	}
-	if !strings.Contains(out, "hard-truncated") {
-		t.Errorf("expected hard-truncation notice; got tail:\n%s", out[max(0, len(out)-300):])
+	if strings.Contains(out, "hard-truncated") {
+		t.Error("the blind byte truncate must be gone")
+	}
+	// Rows had to go, and the reader must be told rather than left assuming the
+	// table is complete.
+	if trim.DroppedRows == 0 {
+		t.Fatalf("expected table rows to be dropped: %+v", trim)
+	}
+	if !strings.Contains(out, "more stacks") {
+		t.Errorf("dropped rows not accounted for; tail:\n%s", out[max(0, len(out)-400):])
+	}
+	// A truncated table row would leave a ragged final line: every rendered
+	// table row must open and close with a pipe.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "|") && !strings.HasSuffix(line, "|") {
+			t.Errorf("ragged table row: %q", line)
+		}
 	}
 }
 
@@ -278,5 +298,75 @@ func TestPreviewSizeLimit_UnderBudgetUnchanged(t *testing.T) {
 	}
 	if !strings.Contains(out, "small plan output") {
 		t.Errorf("under-budget body should contain the full plan verbatim")
+	}
+}
+
+// Dropping FullPlan while the diff survives loses nothing a reviewer reads, so
+// it stays silent - and the caller must not be told to log it.
+func TestPreviewTrimmedFullPlanOnlyIsSilent(t *testing.T) {
+	in := PreviewInput{
+		RunNumber: 3, CommitSHA: "abc1234", CIRunURL: "https://example.com/runs/3",
+		Stacks: []summary.StackSummary{{
+			Project: "api", Stack: "prod", Env: "prod",
+			Counts: summary.Counts{Change: 1}, Status: summary.StatusPlanned,
+			PlanDiff: "~ iam role",
+			FullPlan: strings.Repeat("x", githubCommentMaxLen),
+		}},
+	}
+	body, trim := PreviewTrimmed(in)
+	if !trim.DroppedFullPlan {
+		t.Fatal("FullPlan was dropped and must be reported as dropped")
+	}
+	if trim.DroppedDiff {
+		t.Fatal("the diff survived; it must not be reported as dropped")
+	}
+	if !strings.Contains(body, "~ iam role") {
+		t.Fatal("the diff reviewers read must survive the trim")
+	}
+	if strings.Contains(body, "Output trimmed") {
+		t.Fatal("dropping FullPlan alone must not stamp the trim note")
+	}
+}
+
+// `section` keys the board to the commit: preview and apply of one SHA share
+// it, a new SHA mints a new one. Keying on the operation (the original
+// `section`) made two permanent boards and overwrote both every run.
+func TestDashboardMarkerSectionIsPerCommit(t *testing.T) {
+	a := DashboardMarker(StyleSection, "abc1234def5678")
+	b := DashboardMarker(StyleSection, "999888777666")
+	if a == b {
+		t.Fatalf("two commits must not share a board: %q", a)
+	}
+	if a != "<!-- reeve:pr-comment:v1:abc1234 -->" {
+		t.Fatalf("unexpected section marker: %q", a)
+	}
+	// Preview and apply of one commit must land on one comment.
+	if got := DashboardMarker(StyleSection, "abc1234def5678"); got != a {
+		t.Fatalf("marker not stable for one commit: %q vs %q", got, a)
+	}
+}
+
+// A PR already running under replace must keep having its board edited. A
+// changed marker orphans the comment instead.
+func TestDashboardMarkerReplaceUnchanged(t *testing.T) {
+	for _, style := range []string{StyleReplace, StyleAppend, ""} {
+		if got := DashboardMarker(style, "abc1234def5678"); got != Marker {
+			t.Fatalf("style %q must use the PR-wide marker, got %q", style, got)
+		}
+	}
+	if Marker != "<!-- reeve:pr-comment:v1 -->" {
+		t.Fatalf("existing dashboard comments would be orphaned: %q", Marker)
+	}
+}
+
+// The rendered body and the upsert target have to agree, so the body must open
+// with the same marker the run path upserts against.
+func TestPreviewBodyOpensWithSectionMarker(t *testing.T) {
+	body := Preview(PreviewInput{
+		RunNumber: 5, CommitSHA: "abc1234def5678", Style: StyleSection,
+	})
+	want := DashboardMarker(StyleSection, "abc1234def5678")
+	if !strings.HasPrefix(body, want) {
+		t.Fatalf("body must open with %q:\n%s", want, body[:min(120, len(body))])
 	}
 }

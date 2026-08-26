@@ -15,6 +15,34 @@ import (
 // The VCS adapter uses it to find-or-create on UpsertComment.
 const Marker = "<!-- reeve:pr-comment:v1 -->"
 
+// Style values for comments.style.
+const (
+	StyleReplace = "replace" // default: one board per PR, edited in place
+	StyleSection = "section" // one board per commit SHA
+	StyleAppend  = "append"  // a new comment every run
+)
+
+// DashboardMarker is the marker the dashboard comment is upserted under.
+//
+// Under `section` the board is keyed to the commit, so preview, a re-preview,
+// and the apply of one SHA all edit one comment while a new SHA mints a new
+// one. That is what keeps a plan readable: the previous commit's board is never
+// written again. Keying on the operation instead - the original `section` - made
+// exactly two boards for the life of the PR and overwrote both on every run.
+//
+// Under `replace` the marker stays byte-identical to Marker. A PR already
+// running under it must keep having its board edited, not orphaned.
+//
+// Preview and apply MUST derive their marker from here rather than each
+// building one, or the two operations drift onto different comments for the
+// same commit.
+func DashboardMarker(style, commitSHA string) string {
+	if style != StyleSection {
+		return Marker
+	}
+	return fmt.Sprintf("<!-- reeve:pr-comment:v1:%s -->", shortSHA(commitSHA))
+}
+
 // githubCommentMaxLen is GitHub's hard limit on issue/PR comment body
 // length. The 422 error returned past this is non-recoverable, so the
 // renderer must guarantee the body never exceeds it. We target a small
@@ -34,6 +62,9 @@ type PreviewInput struct {
 	SortMode    string // "status_grouped" (default), "alphabetical"
 	StackView   string // "all" (default) lists every stack; "changed" hides no-ops
 	Notice      string // optional info banner (e.g. "already applied"); rendered above the table
+	// Style is comments.style. It selects the marker the body opens with, so
+	// the rendered comment and the upsert target cannot disagree.
+	Style string
 }
 
 // StackView values for the comment table.
@@ -62,63 +93,45 @@ func tableStacks(stacks []summary.StackSummary, view string) []summary.StackSumm
 // renderOpts controls which per-stack sections the renderer emits. Used
 // internally to progressively drop content when the body would exceed
 // GitHub's comment-size limit.
-type renderOpts struct {
-	includeFullPlan bool
-	includeDiff     bool
-	truncationNote  string
+// Preview returns the full comment body, marker included. If the body would
+// exceed GitHub's hard comment-size limit it walks a trim ladder, dropping the
+// least-read content first and reporting what went, so the note the comment
+// carries always matches what is actually missing.
+//
+// The ladder never cuts the document mid-structure. An earlier version ended in
+// a blind byte truncate, which sliced through tables, code fences, and
+// <details> tags - GitHub rendered the remainder as garbage - and discarded
+// whatever stacks fell past the cutoff with no account of them at all. The last
+// rung now drops whole per-stack sections and says how many.
+func Preview(in PreviewInput) string {
+	body, _ := PreviewTrimmed(in)
+	return body
 }
 
-// Preview returns the full comment body, marker included. If the body
-// would exceed GitHub's hard comment-size limit, drops the heaviest
-// per-stack content (FullPlan, then PlanDiff) and -- only when actual
-// reviewer-visible content is lost -- adds a notice pointing at the
-// CI run. Hard-truncates as a last resort so the body always fits,
-// even on pathological inputs.
+// PreviewTrimmed renders the comment and reports what it dropped, so the caller
+// can emit the dropped content where the trim note points. Preview wraps it for
+// callers that do not care.
 //
-// FullPlan is the raw `pulumi preview --json` blob, which is hundreds
-// of KB per stack and effectively never reviewed from a PR comment
-// (run logs have it). Dropping it is silent because the diff -- which
-// IS what reviewers read -- stays intact. Only when the diff itself
-// has to be dropped, or the body still doesn't fit after both drops,
-// do we stamp the trim warning.
-func Preview(in PreviewInput) string {
-	body := renderPreview(in, renderOpts{includeFullPlan: true, includeDiff: true})
-	if len(body) <= githubCommentMaxLen {
-		return body
-	}
-
-	// Silent drop: FullPlan was over budget but diff is still intact, so
-	// the reviewer sees everything they would have read anyway.
-	body = renderPreview(in, renderOpts{includeDiff: true})
-	if len(body) <= githubCommentMaxLen {
-		return body
-	}
-
-	// Now we're dropping content reviewers actually look at; stamp the note.
-	note := truncationNote(in)
-	body = renderPreview(in, renderOpts{
-		truncationNote: note + " (omitted: full plan output, per-stack diff)",
-	})
-	if len(body) <= githubCommentMaxLen {
-		return body
-	}
-
-	// Even with both heavy sections dropped we're over budget. The table
-	// itself or stacked summaries are oversize; hard-truncate the tail so
-	// the POST still lands.
-	const tail = "\n\n_…comment hard-truncated to fit GitHub's 65,536-char limit._\n"
-	cutoff := githubCommentMaxLen - len(tail)
-	if cutoff < 0 || cutoff > len(body) {
-		return body
-	}
-	return body[:cutoff] + tail
+// FullPlan is dropped silently here: it is the raw `pulumi preview --json` blob,
+// hundreds of KB per stack, and the diff that reviewers actually read survives
+// that rung. Apply and refresh name it, because for them it is the engine's own
+// output.
+func PreviewTrimmed(in PreviewInput) (string, Trim) {
+	return descend(
+		func(o renderOpts) string { return renderPreview(in, o) },
+		func(omitted string) string { return truncationNote(in) + " (omitted: " + omitted + ")" },
+		sorted, // sections render in preview order
+		in.Stacks, in.StackView, in.SortMode,
+		"full plan output",
+		true, // silent: the diff survives this rung
+	)
 }
 
 // renderPreview builds the body honoring per-section opts. Pure
 // string-builder; called multiple times by Preview when shrinking.
 func renderPreview(in PreviewInput, opts renderOpts) string {
 	var b strings.Builder
-	b.WriteString(Marker)
+	b.WriteString(DashboardMarker(in.Style, in.CommitSHA))
 	b.WriteString("\n")
 	writeHeader(&b, in)
 	if opts.truncationNote != "" {
@@ -127,7 +140,7 @@ func renderPreview(in PreviewInput, opts renderOpts) string {
 	if in.Notice != "" {
 		fmt.Fprintf(&b, "> ℹ️ %s\n\n", in.Notice)
 	}
-	writeTable(&b, in)
+	writeTable(&b, in, opts)
 	writeSections(&b, in, opts)
 	return b.String()
 }
@@ -169,21 +182,20 @@ func writeHeader(b *strings.Builder, in PreviewInput) {
 	fmt.Fprintf(b, "**%d %s changed**%s\n\n", n, noun, durBit)
 }
 
-func writeTable(b *strings.Builder, in PreviewInput) {
+func writeTable(b *strings.Builder, in PreviewInput, opts renderOpts) {
 	if len(in.Stacks) == 0 {
 		b.WriteString("_No stacks affected by this change._\n\n")
 		return
 	}
-	rows := tableStacks(in.Stacks, in.StackView)
-	if len(rows) == 0 {
+	rows, hidden := tableRows(sorted, in.Stacks, in.StackView, in.SortMode, opts.tableLimit)
+	if len(rows) == 0 && hidden == 0 {
 		b.WriteString("_No stacks with changes._\n\n")
 		return
 	}
 	b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Status |\n")
 	b.WriteString("|---|---|---|---|---|---|---|\n")
-	ordered := sorted(rows, in.SortMode)
 	anyReplace := false
-	for _, s := range ordered {
+	for _, s := range rows {
 		if s.Counts.Replace > 0 {
 			anyReplace = true
 		}
@@ -192,6 +204,7 @@ func writeTable(b *strings.Builder, in PreviewInput) {
 			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 			statusCell(s))
 	}
+	writeHiddenRowNote(b, hidden, 7)
 	b.WriteString("\n")
 	b.WriteString("<sub>Legend: `+` create · `~` update in place · `-` delete · `±` replace (delete & recreate)</sub>\n\n")
 	if anyReplace {
@@ -201,20 +214,25 @@ func writeTable(b *strings.Builder, in PreviewInput) {
 
 func writeSections(b *strings.Builder, in PreviewInput, opts renderOpts) {
 	ordered := sorted(in.Stacks, in.SortMode)
+	dropped := 0
 	for _, s := range ordered {
 		if s.Status == summary.StatusNoOp {
 			continue // no-ops collapse into the table line only
+		}
+		if !opts.sectionRendered(s.Ref()) {
+			dropped++
+			continue
 		}
 		b.WriteString("---\n\n")
 		fmt.Fprintf(b, "### %s · %s · %s\n\n", s.Ref(), envOrDash(s.Env), statusCell(s))
 		if s.Status == summary.StatusBlocked && s.BlockedBy > 0 {
 			fmt.Fprintf(b, "  Queued behind #%d.\n\n", s.BlockedBy)
 		}
-		writeError(b, s.Error)
+		writeError(b, opts.clampError(s.Error))
 		if len(s.RequiredApprovers) > 0 {
 			fmt.Fprintf(b, "👥 **Required approvers:** %s\n\n", strings.Join(s.RequiredApprovers, ", "))
 		}
-		if s.PlanSummary != "" {
+		if s.PlanSummary != "" && opts.includeSummary {
 			fmt.Fprintf(b, "<details><summary>Summary (%d add, %d change, %d delete, %d replace)</summary>\n\n```diff\n%s\n```\n\n</details>\n\n",
 				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
 				s.PlanSummary)
@@ -243,6 +261,7 @@ func writeSections(b *strings.Builder, in PreviewInput, opts renderOpts) {
 			b.WriteString("\n")
 		}
 	}
+	writeDroppedSectionNote(b, dropped)
 }
 
 func gateIcon(outcome string) string {
