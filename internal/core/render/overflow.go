@@ -79,6 +79,9 @@ type Part struct {
 	Trim Trim
 	// Stacks are the refs whose detail this part carries, for the run log.
 	Stacks []string
+	// OmittedStacks are the refs excluded by max_parts. The last part carries
+	// them so the caller can write their complete detail to the run log.
+	OmittedStacks []string
 }
 
 // PartMarker is the marker for one part of a board. Part 1 is byte-identical to
@@ -199,14 +202,18 @@ func splitByCapacity(ordered []summary.StackSummary, maxParts int,
 		}
 		return groups
 	}
-	// Two passes: the footer names the part count, so packing against a guessed
-	// count could overflow the final part by exactly the footer's width. The
-	// first pass learns the count, the second packs against the real one.
-	first := pack(1)
-	if len(first) <= 1 {
-		return first
+	// Iterate to a fixed point. Crossing a digit boundary (9 parts to 10) can
+	// make the real footer wider than the first estimate and require one more
+	// part; stopping after two passes would render that new count unmeasured.
+	total := 1
+	for i := 0; i <= maxParts; i++ {
+		groups := pack(total)
+		if len(groups) <= 1 || len(groups) == total {
+			return groups
+		}
+		total = len(groups)
 	}
-	return pack(len(first))
+	return pack(total)
 }
 
 // splitByGroup gives each status group its own part, in the order the per-stack
@@ -272,11 +279,19 @@ type boardRenderer struct {
 func paginate(r boardRenderer, stacks []summary.StackSummary, cfg OverflowConfig, boardMarker string) []Part {
 	maxParts := cfg.maxParts()
 	all := stacks
+	reserve := len(overCapNote(len(stacks)))
+	budget := func(part, total int) int {
+		if part == total || total == 0 {
+			return githubCommentMaxLen - reserve
+		}
+		return githubCommentMaxLen
+	}
 
 	// fits measures a real rendered part, not an estimate. partsTotal of 0 for
 	// the group split means "count not yet known": measure against the widest
 	// plausible footer so learning the real count cannot push a part over.
 	partOpts := func(part, total int) renderOpts {
+		budgetTotal := total
 		if total == 0 {
 			total = maxParts
 		}
@@ -287,26 +302,22 @@ func paginate(r boardRenderer, stacks []summary.StackSummary, cfg OverflowConfig
 			part:            part,
 			partsTotal:      total,
 			suppressTable:   part > 1,
+			commentLimit:    budget(part, budgetTotal) - (len(PartMarker(boardMarker, part)) - len(boardMarker)),
 		}
 		if part == 1 {
 			// The table on part 1 indexes the whole board, not just the stacks
 			// whose detail part 1 carries.
 			o.tableStacksOverride = all
+			o.stackParts = make(map[string]int, len(all))
+			for _, stack := range all {
+				o.stackParts[stack.Ref()] = maxParts
+			}
 		}
 		return o
 	}
-	// Reserve room for the over-cap note on the last part. It is appended after
-	// rendering, so packing to the full limit and then adding it would put that
-	// part over by exactly the note's width.
-	reserve := len(overCapNote(len(stacks)))
-	budget := func(part, total int) int {
-		if part == total || total == 0 {
-			return githubCommentMaxLen - reserve
-		}
-		return githubCommentMaxLen
-	}
 	fits := func(group []summary.StackSummary, part, total int) bool {
-		return len(r.render(group, partOpts(part, total))) <= budget(part, total)
+		o := partOpts(part, total)
+		return len(r.render(group, o)) <= o.commentLimit
 	}
 
 	groups := splitStacks(stacks, cfg.splitMode(), r.sortMode, maxParts, fits)
@@ -323,12 +334,22 @@ func paginate(r boardRenderer, stacks []summary.StackSummary, cfg OverflowConfig
 	overCap := len(stacks) - placed
 
 	total := len(groups)
+	stackParts := make(map[string]int, len(stacks))
+	for _, stack := range stacks {
+		stackParts[stack.Ref()] = 0
+	}
+	for i, group := range groups {
+		for _, stack := range group {
+			stackParts[stack.Ref()] = i + 1
+		}
+	}
 	parts := make([]Part, 0, total)
 	for i, g := range groups {
 		o := partOpts(i+1, total)
+		o.stackParts = stackParts
 		body := r.render(g, o)
 		trim := Trim{DroppedFullPlan: !r.keepFullPlan}
-		if len(body) > githubCommentMaxLen {
+		if len(body) > o.commentLimit {
 			// A single stack whose detail exceeds a whole comment cannot be
 			// paginated. Trim this part alone so the rest of the board still
 			// paginates cleanly and only the pathological stack loses content.
@@ -337,17 +358,33 @@ func paginate(r boardRenderer, stacks []summary.StackSummary, cfg OverflowConfig
 		if i == total-1 && overCap > 0 {
 			body += overCapNote(overCap)
 		}
+		partMarker := PartMarker(boardMarker, i+1)
+		body = strings.Replace(body, boardMarker, partMarker, 1)
 		refs := make([]string, 0, len(g))
 		for _, s := range g {
 			refs = append(refs, s.Ref())
 		}
-		parts = append(parts, Part{
+		part := Part{
 			Ordinal: i + 1,
-			Marker:  PartMarker(boardMarker, i+1),
+			Marker:  partMarker,
 			Body:    body,
 			Trim:    trim,
 			Stacks:  refs,
-		})
+		}
+		if i == total-1 && overCap > 0 {
+			placedRefs := make(map[string]bool, placed)
+			for _, group := range groups {
+				for _, stack := range group {
+					placedRefs[stack.Ref()] = true
+				}
+			}
+			for _, stack := range stacks {
+				if !placedRefs[stack.Ref()] {
+					part.OmittedStacks = append(part.OmittedStacks, stack.Ref())
+				}
+			}
+		}
+		parts = append(parts, part)
 	}
 	return parts
 }

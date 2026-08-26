@@ -3,9 +3,10 @@
 ## Why
 
 GitHub rejects a comment over 65,536 chars, so an oversize board has to lose
-something. Today it loses content: the diff, then summaries, then error text,
-then whole stack sections, then table rows. On a PR with 40 stacks the reviewer
-is told to read the run log for most of what they came for.
+something. Today it drops content in order: engine output, the diff, plan
+summaries, clamped error text, whole stack sections, then table rows. On a PR
+with 40 stacks the reviewer is told to read the run log for most of what they
+came for.
 
 Dropping content is the wrong trade when a second comment is available. A board
 that spills into continuation comments loses nothing.
@@ -13,7 +14,8 @@ that spills into continuation comments loses nothing.
 ## What
 
 Add a `comments.overflow` section. When a board exceeds the size limit it
-continues into as many comments as it needs instead of dropping stack detail.
+continues into more comments instead of dropping stack detail, up to a
+`max_parts` cap; stacks past the cap are dropped and named.
 
 Three split modes:
 
@@ -38,7 +40,8 @@ is a visible behavior change for every existing user.
 Under `continue`, the cheap rungs still apply first: the raw engine blob is
 still dropped, because it is hundreds of KB per stack that nobody reads from a
 comment and paginating it would mean dozens of parts. Diffs, summaries, and
-errors are never dropped - they paginate instead.
+errors paginate instead of being dropped, except for stacks past `max_parts`,
+which are dropped and named.
 
 Under `drop` nothing changes.
 

@@ -1,6 +1,13 @@
 package github
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	gh "github.com/google/go-github/v66/github"
+)
 
 func TestPartOrdinal(t *testing.T) {
 	const prefix = "<!-- reeve:pr-comment:v1"
@@ -37,5 +44,43 @@ func TestPartOrdinalSectionBoard(t *testing.T) {
 	}
 	if got, ok := partOrdinal("<!-- reeve:pr-comment:v1:abc1234:part3 -->", prefix); !ok || got != 3 {
 		t.Fatalf("section part 3: got (%d, %v)", got, ok)
+	}
+}
+
+func TestDeleteCommentsOnlyRemovesAuthenticatedAuthorsParts(t *testing.T) {
+	deleted := map[string]bool{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/user", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"login":"reeve-bot"}`))
+	})
+	mux.HandleFunc("/repos/acme/repo/issues/12/comments", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"id":2,"body":"<!-- reeve:pr-comment:v1:part2 -->","user":{"login":"reeve-bot"}},
+			{"id":3,"body":"<!-- reeve:pr-comment:v1:part3 -->","user":{"login":"attacker"}}
+		]`))
+	})
+	mux.HandleFunc("/repos/acme/repo/issues/comments/2", func(w http.ResponseWriter, _ *http.Request) {
+		deleted["2"] = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/repos/acme/repo/issues/comments/3", func(w http.ResponseWriter, _ *http.Request) {
+		deleted["3"] = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	api := gh.NewClient(server.Client())
+	base, _ := api.BaseURL.Parse(server.URL + "/")
+	api.BaseURL = base
+	client := &Client{gh: api, owner: "acme", repo: "repo"}
+
+	n, err := client.DeleteCommentsByMarkerPrefix(context.Background(), 12,
+		"<!-- reeve:pr-comment:v1", 1)
+	if err != nil {
+		t.Fatalf("DeleteCommentsByMarkerPrefix: %v", err)
+	}
+	if n != 1 || !deleted["2"] || deleted["3"] {
+		t.Fatalf("deleted=%v count=%d; must preserve the copied marker", deleted, n)
 	}
 }

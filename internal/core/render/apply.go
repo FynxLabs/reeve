@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/reeveops/reeve/internal/core/summary"
 )
@@ -74,7 +75,7 @@ func ApplyParts(in ApplyInput, cfg OverflowConfig, boardMarker string) []Part {
 			sub.Stacks = stacks
 			return descendWithBase(
 				func(oo renderOpts) string { return renderApply(sub, oo) },
-				note, sub.Stacks, sub.StackView, sub.SortMode, "full apply output", false, o,
+				note, sortApply, sub.Stacks, sub.StackView, sub.SortMode, "full apply output", false, o,
 			)
 		},
 		keepFullPlan: true,
@@ -89,6 +90,7 @@ func ApplyTrimmed(in ApplyInput) (string, Trim) {
 		func(omitted string) string {
 			return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
 		},
+		sortApply,
 		in.Stacks, in.StackView, in.SortMode,
 		"full apply output",
 		false, // this is the engine's output; never drop it silently
@@ -134,21 +136,34 @@ func renderApply(in ApplyInput, opts renderOpts) string {
 
 	if !opts.suppressTable {
 		// Table: failures first.
-		rows, hidden := tableRows(opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
-		b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |\n")
-		b.WriteString("|---|---|---|---|---|---|---|---|\n")
-		ordered := sortApply(rows, in.SortMode)
-		for _, s := range ordered {
+		rows, hidden := tableRows(sortApply, opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
+		if opts.paginated() {
+			b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status | Detail |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+		} else {
+			b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Duration | Status |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|\n")
+		}
+		for _, s := range rows {
 			dur := ""
 			if s.DurationMS > 0 {
 				dur = fmt.Sprintf("%ds", s.DurationMS/1000)
 			}
-			fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
-				s.Ref(), envOrDash(s.Env),
-				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
-				dur, applyStatusCell(s))
+			if opts.paginated() {
+				fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s | %s |\n",
+					s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+					s.Counts.Replace, dur, applyStatusCell(s), partCell(opts, s.Ref()))
+			} else {
+				fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
+					s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+					s.Counts.Replace, dur, applyStatusCell(s))
+			}
 		}
-		writeHiddenRowNote(&b, hidden)
+		columns := 8
+		if opts.paginated() {
+			columns++
+		}
+		writeHiddenRowNote(&b, hidden, columns)
 		b.WriteString("\n")
 	}
 
@@ -217,11 +232,28 @@ func renderBreakGlassNote(n BreakGlassNote) string {
 		b.WriteString(">\n> ⚠️ **The break-glass config or CODEOWNERS was modified in this same PR.** Authorization is head-resolved by design — verify the change was legitimate.\n")
 	}
 	b.WriteString(">\n> **Justification:**\n")
-	for _, line := range strings.Split(strings.TrimSpace(n.Justification), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(clampJustification(n.Justification)), "\n") {
 		fmt.Fprintf(&b, "> > %s\n", line)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+const breakGlassJustificationBudget = 4_000
+
+func clampJustification(msg string) string {
+	if len(msg) <= breakGlassJustificationBudget {
+		return msg
+	}
+	const note = "\n… justification truncated; see the run log."
+	cut := breakGlassJustificationBudget - len(note)
+	if cut < 0 {
+		cut = 0
+	}
+	for cut > 0 && !utf8.RuneStart(msg[cut]) {
+		cut--
+	}
+	return msg[:cut] + note
 }
 
 // applyHeadline states what actually happened, per outcome. Counting every

@@ -202,6 +202,7 @@ func TestAffectedNoChangesAllIgnored(t *testing.T) {
 // has to survive on Matched - otherwise a caller that must not widen its
 // blast radius has nothing to fall back to.
 func TestBroadeningPreservesPreciseMatches(t *testing.T) {
+	t.Parallel()
 	stacks := []Stack{
 		{Project: "payments", Path: "platform-edge/payments", Name: "prod"},
 		{Project: "ledger", Path: "platform-core/ledger", Name: "prod"},

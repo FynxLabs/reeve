@@ -150,6 +150,7 @@ func descendPart(in PreviewInput, o renderOpts) (string, Trim) {
 	return descendWithBase(
 		func(oo renderOpts) string { return renderPreview(in, oo) },
 		func(omitted string) string { return truncationNote(in) + " (omitted: " + omitted + ")" },
+		sorted,
 		in.Stacks, in.StackView, in.SortMode, "full plan output", true, base,
 	)
 }
@@ -158,6 +159,7 @@ func PreviewTrimmed(in PreviewInput) (string, Trim) {
 	return descend(
 		func(o renderOpts) string { return renderPreview(in, o) },
 		func(omitted string) string { return truncationNote(in) + " (omitted: " + omitted + ")" },
+		sorted,
 		in.Stacks, in.StackView, in.SortMode,
 		"full plan output",
 		true, // silent: the diff survives this rung
@@ -227,24 +229,38 @@ func writeTable(b *strings.Builder, in PreviewInput, opts renderOpts) {
 		b.WriteString("_No stacks affected by this change._\n\n")
 		return
 	}
-	rows, hidden := tableRows(opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
+	rows, hidden := tableRows(sorted, opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
 	if len(rows) == 0 && hidden == 0 {
 		b.WriteString("_No stacks with changes._\n\n")
 		return
 	}
-	b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Status |\n")
-	b.WriteString("|---|---|---|---|---|---|---|\n")
+	if opts.paginated() {
+		b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Status | Detail |\n")
+		b.WriteString("|---|---|---|---|---|---|---|---|\n")
+	} else {
+		b.WriteString("| Stack | Env | ➕ Add | 🔄 Change | ➖ Delete | 🔁 Replace | Status |\n")
+		b.WriteString("|---|---|---|---|---|---|---|\n")
+	}
 	anyReplace := false
 	for _, s := range rows {
 		if s.Counts.Replace > 0 {
 			anyReplace = true
 		}
-		fmt.Fprintf(b, "| %s | %s | %d | %d | %d | %d | %s |\n",
-			s.Project+"/"+s.Stack, envOrDash(s.Env),
-			s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
-			statusCell(s))
+		if opts.paginated() {
+			fmt.Fprintf(b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
+				s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+				s.Counts.Replace, statusCell(s), partCell(opts, s.Ref()))
+		} else {
+			fmt.Fprintf(b, "| %s | %s | %d | %d | %d | %d | %s |\n",
+				s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+				s.Counts.Replace, statusCell(s))
+		}
 	}
-	writeHiddenRowNote(b, hidden)
+	columns := 7
+	if opts.paginated() {
+		columns++
+	}
+	writeHiddenRowNote(b, hidden, columns)
 	b.WriteString("\n")
 	b.WriteString("<sub>Legend: `+` create · `~` update in place · `-` delete · `±` replace (delete & recreate)</sub>\n\n")
 	if anyReplace {

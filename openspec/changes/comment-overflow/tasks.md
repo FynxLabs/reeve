@@ -8,7 +8,7 @@
 
 - [x] Add `comments.overflow` to the schema: `mode`, `split`, `max_parts`.
 - [x] Add `render.PartMarker(style, sha, part)`; part 1 byte-identical.
-- [x] Render `part N of M` headers and part 1's forward link.
+- [x] Render `part N of M` headers and map each stack to its detail part.
 - [x] Implement the `divided`, `stack`, and `group` splits.
 - [x] Fall back to the trim ladder for a single stack that cannot fit a part.
 - [x] Add `DeleteCommentsByMarkerPrefix` to the VCS client and its interface.

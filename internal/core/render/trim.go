@@ -91,7 +91,13 @@ type renderOpts struct {
 	// detail it happens to carry, and the index would be missing every stack on
 	// a later part - the one thing the table exists to prevent.
 	tableStacksOverride []summary.StackSummary
-	truncationNote      string
+	// stackParts maps each stack to the continuation part carrying its detail.
+	// Zero means max_parts omitted it and the full detail is in the run log.
+	stackParts map[string]int
+	// commentLimit reserves bytes added outside the concrete renderer, such as
+	// a continuation marker. Zero uses githubCommentMaxLen.
+	commentLimit   int
+	truncationNote string
 }
 
 // tableSource returns the stacks the table should list: the whole board when
@@ -119,6 +125,13 @@ func writePartHeader(b *strings.Builder, o renderOpts) {
 		b.WriteString(" Per-stack detail continues in the comments below.")
 	}
 	b.WriteString("\n\n")
+}
+
+func partCell(o renderOpts, ref string) string {
+	if part := o.stackParts[ref]; part > 0 {
+		return fmt.Sprintf("part %d", part)
+	}
+	return "run log"
 }
 
 // sectionRendered reports whether ref gets a per-stack section under opts.
@@ -157,8 +170,8 @@ func writeDroppedSectionNote(b *strings.Builder, dropped int) {
 
 // tableRows applies the view mode, sort, and row cap, returning the rows to
 // render and how many were held back.
-func tableRows(stacks []summary.StackSummary, view, sortMode string, limit int) (rows []summary.StackSummary, hidden int) {
-	rows = sorted(tableStacks(stacks, view), sortMode)
+func tableRows(order stackOrder, stacks []summary.StackSummary, view, sortMode string, limit int) (rows []summary.StackSummary, hidden int) {
+	rows = order(tableStacks(stacks, view), sortMode)
 	if limit > 0 && len(rows) > limit {
 		hidden = len(rows) - limit
 		rows = rows[:limit]
@@ -167,18 +180,27 @@ func tableRows(stacks []summary.StackSummary, view, sortMode string, limit int) 
 }
 
 // writeHiddenRowNote names the rows the floor rung removed. Those stacks appear
-// nowhere else in the comment.
-func writeHiddenRowNote(b *strings.Builder, hidden int) {
+// nowhere else in the comment. columns is the table's column count, so the note
+// spans exactly one row: the preview table has 7, the apply and refresh tables 8
+// (they add Duration), and a short row renders ragged.
+func writeHiddenRowNote(b *strings.Builder, hidden, columns int) {
 	if hidden == 0 {
 		return
 	}
-	fmt.Fprintf(b, "| _+%d more stacks - see the run log_ | | | | | | |\n", hidden)
+	fmt.Fprintf(b, "| _+%d more stacks - see the run log_ |%s\n",
+		hidden, strings.Repeat(" |", columns-1))
 }
 
-// sectionRefs lists the stack refs that get a per-stack section, in render
-// order. No-ops have no section.
-func sectionRefs(stacks []summary.StackSummary, sortMode string) []string {
-	ordered := sorted(stacks, sortMode)
+// stackOrder returns stacks in the order a renderer emits its per-stack
+// sections. descend keeps the retained-section prefix in this same order, so the
+// sections rung drops the ones the reader sees last rather than a prefix of a
+// different sort.
+type stackOrder func(stacks []summary.StackSummary, sortMode string) []summary.StackSummary
+
+// sectionRefs lists the stack refs that get a per-stack section, in the render
+// order the caller supplies. No-ops have no section.
+func sectionRefs(order stackOrder, stacks []summary.StackSummary, sortMode string) []string {
+	ordered := order(stacks, sortMode)
 	refs := make([]string, 0, len(ordered))
 	for _, s := range ordered {
 		if s.Status == summary.StatusNoOp {
@@ -234,12 +256,13 @@ func omittedPhrase(t Trim, fullPlanLabel string, silentFullPlan bool) string {
 func descend(
 	render func(renderOpts) string,
 	note func(omitted string) string,
+	order stackOrder,
 	stacks []summary.StackSummary,
 	view, sortMode string,
 	fullPlanLabel string,
 	silentFullPlan bool,
 ) (string, Trim) {
-	return descendWithBase(render, note, stacks, view, sortMode, fullPlanLabel, silentFullPlan, renderOpts{})
+	return descendWithBase(render, note, order, stacks, view, sortMode, fullPlanLabel, silentFullPlan, renderOpts{})
 }
 
 // descendWithBase is descend with caller-supplied options every rung inherits.
@@ -248,12 +271,17 @@ func descend(
 func descendWithBase(
 	render func(renderOpts) string,
 	note func(omitted string) string,
+	order stackOrder,
 	stacks []summary.StackSummary,
 	view, sortMode string,
 	fullPlanLabel string,
 	silentFullPlan bool,
 	base renderOpts,
 ) (string, Trim) {
+	limit := base.commentLimit
+	if limit <= 0 {
+		limit = githubCommentMaxLen
+	}
 	// with layers a rung's gates onto the caller's base, so pagination fields
 	// survive every rung.
 	with := func(o renderOpts) renderOpts {
@@ -271,7 +299,7 @@ func descendWithBase(
 	render = func(o renderOpts) string { return render0(with(o)) }
 	fits := func(o renderOpts) (string, bool) {
 		body := render(o)
-		return body, len(body) <= githubCommentMaxLen
+		return body, len(body) <= limit
 	}
 	// noteFor derives the banner from what trim says is gone, so the text and
 	// the reported fields cannot disagree.
@@ -327,11 +355,11 @@ func descendWithBase(
 	// that already claims them before the search measures. Searching against a
 	// shorter note than the one rendered would put the body back over the limit
 	// by exactly that difference.
-	refs := sectionRefs(stacks, sortMode)
+	refs := sectionRefs(order, stacks, sortMode)
 	probe := trim
 	probe.DroppedSections = len(refs)
 	rung := renderOpts{errorBudget: perStackErrorBudget, truncationNote: noteFor(probe)}
-	keep, droppedSections := fitSections(render, rung, refs)
+	keep, droppedSections := fitSections(render, rung, refs, limit)
 	trim.DroppedSections = droppedSections
 	rung.keepStacks = keep
 	if droppedSections > 0 {
@@ -351,7 +379,7 @@ func descendWithBase(
 	probe = trim
 	probe.DroppedRows = total
 	rung.truncationNote = noteFor(probe)
-	rows, droppedRows := fitTable(render, rung, total)
+	rows, droppedRows := fitTable(render, rung, total, limit)
 	trim.DroppedRows = droppedRows
 	rung.tableLimit = rows
 	rung.truncationNote = noteFor(trim)
@@ -368,7 +396,7 @@ func descendWithBase(
 //
 // Because a longer prefix is never smaller than a shorter one, the fitting
 // length is monotonic and found by binary search - the same shape as fitTable.
-func fitSections(render func(renderOpts) string, base renderOpts, refs []string) (map[string]bool, int) {
+func fitSections(render func(renderOpts) string, base renderOpts, refs []string, limit int) (map[string]bool, int) {
 	build := func(n int) map[string]bool {
 		keep := make(map[string]bool, n)
 		for _, ref := range refs[:n] {
@@ -379,7 +407,7 @@ func fitSections(render func(renderOpts) string, base renderOpts, refs []string)
 	fits := func(n int) bool {
 		probe := base
 		probe.keepStacks = build(n)
-		return len(render(probe)) <= githubCommentMaxLen
+		return len(render(probe)) <= limit
 	}
 
 	// lo is the largest known-good prefix length. 0 sections is always
@@ -399,7 +427,7 @@ func fitSections(render func(renderOpts) string, base renderOpts, refs []string)
 // fitTable returns the row count that fits and how many rows that drops, found
 // by binary search. base must already carry the note the caller will render
 // with, or the measurement is against a different document than the one posted.
-func fitTable(render func(renderOpts) string, base renderOpts, total int) (rows, dropped int) {
+func fitTable(render func(renderOpts) string, base renderOpts, total, limit int) (rows, dropped int) {
 	// tableLimit of 0 means "no cap", so the search never probes 0. lo starts
 	// at 1 and a table that cannot fit even one row falls out below.
 	lo, hi := 1, total
@@ -407,7 +435,7 @@ func fitTable(render func(renderOpts) string, base renderOpts, total int) (rows,
 		mid := (lo + hi + 1) / 2
 		probe := base
 		probe.tableLimit = mid
-		if len(render(probe)) <= githubCommentMaxLen {
+		if len(render(probe)) <= limit {
 			lo = mid
 		} else {
 			hi = mid - 1
@@ -415,7 +443,7 @@ func fitTable(render func(renderOpts) string, base renderOpts, total int) (rows,
 	}
 	probe := base
 	probe.tableLimit = lo
-	if len(render(probe)) > githubCommentMaxLen {
+	if len(render(probe)) > limit {
 		// Not even one row fits: the fixed parts - header, banner, note - are
 		// themselves oversize. Nothing here can fix that; report every stack as
 		// dropped so the caller logs all of them.

@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/reeveops/reeve/internal/core/summary"
 )
@@ -121,6 +122,20 @@ func TestApplyBreakGlassSectionIsLoud(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("break-glass comment missing %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestApplyBreakGlassJustificationClampKeepsValidUTF8(t *testing.T) {
+	justification := strings.Repeat("é", breakGlassJustificationBudget)
+	body := Apply(ApplyInput{
+		RunNumber: 4, CommitSHA: "abcdef1234",
+		BreakGlass: &BreakGlassNote{Actor: "alice", Justification: justification},
+	})
+	if !strings.Contains(body, "justification truncated; see the run log") {
+		t.Fatal("oversize justification must point to the complete run log")
+	}
+	if !utf8.ValidString(body) {
+		t.Fatal("justification clamp split a UTF-8 encoding")
 	}
 }
 

@@ -197,7 +197,10 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 			}, ttl)
 			if lerr != nil {
 				ss.Status = summary.StatusError
-				ss.Error = fmt.Sprintf("lock acquire: %v", lerr)
+				// The backend error can quote configuration (endpoints, bucket
+				// paths, credentials); it reaches the PR comment and the CI log,
+				// so redact it here where the summary is built.
+				ss.Error = BuildRedactor(in.Shared).Redact(fmt.Sprintf("lock acquire: %v", lerr))
 				anyFailed = true
 				summaries = append(summaries, ss)
 				continue
@@ -303,10 +306,6 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 		StackView:   stackView(in.Shared),
 	}
 	body, trim := render.RefreshTrimmed(refreshIn)
-	// Same contract as apply: the trim note points at the CI run, so the
-	// dropped refresh output has to be there.
-	logTrimmed("refresh", summaries, trim)
-
 	pctx, endTerminal := terminalContext(ctx)
 	defer endTerminal()
 
@@ -315,7 +314,8 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshOutput, error) {
 		if parts := render.RefreshParts(refreshIn, overflowFor(in.Shared), render.RefreshMarker); len(parts) > 0 {
 			cerr = postBoard(pctx, in.VCS, in.PRNumber, "refresh", parts, render.RefreshMarker, summaries)
 		} else {
-			cerr = in.VCS.UpsertComment(pctx, in.PRNumber, body, render.RefreshMarker)
+			logTrimmed("refresh", summaries, trim)
+			cerr = postSingleBoard(pctx, in.VCS, in.PRNumber, "refresh", body, render.RefreshMarker)
 		}
 		if cerr != nil {
 			slog.Warn("refresh comment failed", "err", cerr, "pr", in.PRNumber)

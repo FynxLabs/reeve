@@ -168,13 +168,13 @@ func (c *Client) UpsertComment(ctx context.Context, number int, body, marker str
 // it no longer writes. A stale part left behind keeps claiming stacks the
 // current run does not have, and nothing else would ever touch it: markers are
 // found by match, and a marker nobody writes is a marker nobody edits.
-//
-// Scoped to reeve's own markers by construction: prefix comes from a board
-// marker, which only reeve's comments carry. It cannot match a comment written
-// by anyone else.
 func (c *Client) DeleteCommentsByMarkerPrefix(ctx context.Context, number int, prefix string, keepThrough int) (int, error) {
 	if prefix == "" {
 		return 0, errors.New("marker prefix is required")
+	}
+	author, err := c.authenticatedCommentAuthor(ctx)
+	if err != nil {
+		return 0, err
 	}
 	var stale []int64
 	opt := &gh.IssueListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}
@@ -184,6 +184,9 @@ func (c *Client) DeleteCommentsByMarkerPrefix(ctx context.Context, number int, p
 			return 0, fmt.Errorf("list comments: %w", err)
 		}
 		for _, cm := range comments {
+			if !strings.EqualFold(cm.GetUser().GetLogin(), author) {
+				continue
+			}
 			part, ok := partOrdinal(cm.GetBody(), prefix)
 			if ok && part > keepThrough {
 				stale = append(stale, cm.GetID())
@@ -205,6 +208,23 @@ func (c *Client) DeleteCommentsByMarkerPrefix(ctx context.Context, number int, p
 		deleted++
 	}
 	return deleted, nil
+}
+
+// authenticatedCommentAuthor identifies the account whose token writes reeve
+// comments. User tokens expose it through /user; GitHub Actions installation
+// tokens write as the platform's fixed github-actions[bot] identity.
+func (c *Client) authenticatedCommentAuthor(ctx context.Context) (string, error) {
+	user, _, err := c.gh.Users.Get(ctx, "")
+	if err == nil && user.GetLogin() != "" {
+		return user.GetLogin(), nil
+	}
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		return "github-actions[bot]", nil
+	}
+	if err == nil {
+		err = errors.New("authenticated user response had no login")
+	}
+	return "", fmt.Errorf("identify authenticated comment author: %w", err)
 }
 
 // partOrdinal extracts a board part's ordinal from a comment body, given the

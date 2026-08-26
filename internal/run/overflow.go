@@ -41,6 +41,10 @@ func postBoard(ctx context.Context, vcs commentUpserter, pr int, op string,
 ) error {
 	var firstErr error
 	for _, p := range parts {
+		if p.Trim.Lost() || (p.Trim.DroppedFullPlan && op != "preview") {
+			logTrimmed(op, stacksByRef(stacks, p.Stacks), p.Trim)
+		}
+		logOmittedPartStacks(op, stacksByRef(stacks, p.OmittedStacks))
 		if err := vcs.UpsertComment(ctx, pr, p.Body, p.Marker); err != nil {
 			// Keep going: a failed part must not cost the parts after it, and
 			// the run still reports the first failure.
@@ -51,15 +55,55 @@ func postBoard(ctx context.Context, vcs commentUpserter, pr int, op string,
 			}
 			continue
 		}
-		// A part that had to trim carries content the log must hold, exactly as
-		// an unpaginated trimmed board does.
-		if p.Trim.Lost() {
-			logTrimmed(op, stacksByRef(stacks, p.Stacks), p.Trim)
-		}
 	}
 
 	deleteStaleParts(ctx, vcs, pr, op, boardMarker, len(parts))
 	return firstErr
+}
+
+// postSingleBoard updates part 1 and removes continuations left by a previous
+// larger run. Without this path, shrinking all the way to one comment never
+// enters postBoard and stale parts remain forever.
+func postSingleBoard(ctx context.Context, vcs commentUpserter, pr int, op, body, marker string) error {
+	if err := vcs.UpsertComment(ctx, pr, body, marker); err != nil {
+		return err
+	}
+	deleteStaleParts(ctx, vcs, pr, op, marker, 1)
+	return nil
+}
+
+// postAppendBoard creates every part of an append-style board without editing
+// or deleting comments from earlier runs.
+func postAppendBoard(ctx context.Context, vcs commentPoster, pr int, op string,
+	parts []render.Part, stacks []summary.StackSummary,
+) error {
+	var firstErr error
+	for _, p := range parts {
+		if p.Trim.Lost() || (p.Trim.DroppedFullPlan && op != "preview") {
+			logTrimmed(op, stacksByRef(stacks, p.Stacks), p.Trim)
+		}
+		logOmittedPartStacks(op, stacksByRef(stacks, p.OmittedStacks))
+		if err := vcs.PostComment(ctx, pr, p.Body); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+	}
+	return firstErr
+}
+
+func logOmittedPartStacks(op string, stacks []summary.StackSummary) {
+	if len(stacks) == 0 {
+		return
+	}
+	logTrimmed(op, stacks, render.Trim{
+		DroppedFullPlan: true,
+		DroppedDiff:     true,
+		DroppedSummary:  true,
+		ClampedErrors:   true,
+		DroppedSections: len(stacks),
+	})
 }
 
 // deleteStaleParts removes the parts above the current count. A run that shrank

@@ -112,6 +112,13 @@ func TestOverflowPartMarkers(t *testing.T) {
 			t.Fatalf("prefix %q does not match part marker %q", pre, m)
 		}
 	}
+	parts := PreviewParts(previewIn(overflowStacks(60, 600, summary.StatusPlanned)),
+		OverflowConfig{Mode: OverflowContinue}, Marker)
+	for _, part := range parts {
+		if !strings.HasPrefix(part.Body, part.Marker) {
+			t.Errorf("part %d body is not discoverable by marker %q", part.Ordinal, part.Marker)
+		}
+	}
 }
 
 // The table is the board's index: whole on part 1, absent from the rest.
@@ -128,6 +135,14 @@ func TestOverflowTableOnlyOnFirstPart(t *testing.T) {
 	for _, s := range stacks {
 		if !strings.Contains(parts[0].Body, s.Ref()) {
 			t.Fatalf("stack %s missing from the part 1 table", s.Ref())
+		}
+	}
+	for _, part := range parts {
+		for _, ref := range part.Stacks {
+			row := tableRow(parts[0].Body, ref)
+			if !strings.Contains(row, fmt.Sprintf("part %d", part.Ordinal)) {
+				t.Errorf("table row for %s does not point to part %d: %q", ref, part.Ordinal, row)
+			}
 		}
 	}
 	for _, p := range parts[1:] {
@@ -255,6 +270,23 @@ func TestOverflowMaxPartsCapsAndSaysSo(t *testing.T) {
 	if !strings.Contains(last, "past the comment limit") {
 		t.Errorf("stacks dropped past the cap must be named:\n%s", last[max(0, len(last)-400):])
 	}
+	if len(parts[len(parts)-1].OmittedStacks) != len(stacks)-placed {
+		t.Fatalf("omitted refs=%d want=%d", len(parts[len(parts)-1].OmittedStacks), len(stacks)-placed)
+	}
+	for _, ref := range parts[len(parts)-1].OmittedStacks {
+		if row := tableRow(parts[0].Body, ref); !strings.Contains(row, "run log") {
+			t.Errorf("omitted stack %s is not mapped to the run log: %q", ref, row)
+		}
+	}
+}
+
+func tableRow(body, ref string) string {
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "| "+ref+" |") {
+			return line
+		}
+	}
+	return ""
 }
 
 // Apply and refresh paginate on the same terms.

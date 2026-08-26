@@ -13,6 +13,7 @@ import (
 // boardVCS records what a board wrote and what it swept.
 type boardVCS struct {
 	upserts   []string // markers, in write order
+	posts     []string
 	bodies    map[string]string
 	upsertErr map[string]error
 
@@ -23,6 +24,11 @@ type boardVCS struct {
 	deleteCount   int
 
 	supportsDelete bool
+}
+
+func (f *boardVCS) PostComment(_ context.Context, _ int, body string) error {
+	f.posts = append(f.posts, body)
+	return nil
 }
 
 func (f *boardVCS) UpsertComment(_ context.Context, _ int, body, marker string) error {
@@ -73,6 +79,16 @@ func TestPostBoardWritesEveryPartInOrder(t *testing.T) {
 	}
 }
 
+func TestPostAppendBoardCreatesEveryPart(t *testing.T) {
+	fv := &boardVCS{}
+	if err := postAppendBoard(context.Background(), fv, 12, "preview", threeParts(), nil); err != nil {
+		t.Fatalf("postAppendBoard: %v", err)
+	}
+	if len(fv.posts) != 3 || len(fv.upserts) != 0 {
+		t.Fatalf("posts=%d upserts=%d; append must create each part", len(fv.posts), len(fv.upserts))
+	}
+}
+
 // A failed part must not cost the parts after it: the reader is better served by
 // a board missing one comment than by a board that stops mid-write.
 func TestPostBoardContinuesPastAFailedPart(t *testing.T) {
@@ -109,6 +125,17 @@ func TestPostBoardSweepsStaleParts(t *testing.T) {
 	}
 	if base.deletedPrefix != render.PartMarkerPrefix(render.Marker) {
 		t.Errorf("sweep prefix %q must be the board's own", base.deletedPrefix)
+	}
+}
+
+func TestPostSingleBoardSweepsAllContinuationParts(t *testing.T) {
+	base := &boardVCS{deleteCount: 3}
+	fv := deletingVCS{base}
+	if err := postSingleBoard(context.Background(), fv, 12, "preview", "one", render.Marker); err != nil {
+		t.Fatalf("postSingleBoard: %v", err)
+	}
+	if base.deleteCalls != 1 || base.deletedKeep != 1 {
+		t.Fatalf("delete calls=%d keep=%d; single board must sweep parts above 1", base.deleteCalls, base.deletedKeep)
 	}
 }
 
@@ -154,6 +181,20 @@ func TestPostBoardLogsATrimmedPartsOwnStacks(t *testing.T) {
 	}
 	if strings.Contains(out, "web exploded") {
 		t.Errorf("a part that did not trim must not log its stacks:\n%s", out)
+	}
+}
+
+func TestPostBoardLogsApplyOutputDroppedByOnePart(t *testing.T) {
+	stacks := []summary.StackSummary{{Project: "api", Stack: "prod", FullPlan: "apply output"}}
+	parts := []render.Part{{Ordinal: 1, Marker: render.Marker, Body: "one",
+		Stacks: []string{"api/prod"}, Trim: render.Trim{DroppedFullPlan: true}}}
+	out := captureLogs(t, func() {
+		if err := postBoard(context.Background(), &boardVCS{}, 12, "apply", parts, render.Marker, stacks); err != nil {
+			t.Fatalf("postBoard: %v", err)
+		}
+	})
+	if !strings.Contains(out, "apply output") {
+		t.Errorf("dropped apply output missing from log:\n%s", out)
 	}
 }
 

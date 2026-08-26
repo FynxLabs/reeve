@@ -59,7 +59,7 @@ func RefreshParts(in RefreshInput, cfg OverflowConfig, boardMarker string) []Par
 			sub.Stacks = stacks
 			return descendWithBase(
 				func(oo renderOpts) string { return renderRefresh(sub, oo) },
-				note, sub.Stacks, sub.StackView, sub.SortMode, "full refresh output", false, o,
+				note, sortApply, sub.Stacks, sub.StackView, sub.SortMode, "full refresh output", false, o,
 			)
 		},
 		keepFullPlan: true,
@@ -74,6 +74,7 @@ func RefreshTrimmed(in RefreshInput) (string, Trim) {
 		func(omitted string) string {
 			return truncationNote(PreviewInput{CIRunURL: in.CIRunURL}) + " (omitted: " + omitted + ")"
 		},
+		sortApply,
 		in.Stacks, in.StackView, in.SortMode,
 		"full refresh output",
 		false, // this is the engine's output; never drop it silently
@@ -122,21 +123,34 @@ func renderRefresh(in RefreshInput, opts renderOpts) string {
 	}
 
 	if !opts.suppressTable {
-		rows, hidden := tableRows(opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
-		b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status |\n")
-		b.WriteString("|---|---|---|---|---|---|---|---|\n")
-		ordered := sortApply(rows, in.SortMode)
-		for _, s := range ordered {
+		rows, hidden := tableRows(sortApply, opts.tableSource(in.Stacks), in.StackView, in.SortMode, opts.tableLimit)
+		if opts.paginated() {
+			b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status | Detail |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+		} else {
+			b.WriteString("| Stack | Env | ➕ Added to state | 🔄 Updated | ➖ Dropped | 🔁 Replaced | Duration | Status |\n")
+			b.WriteString("|---|---|---|---|---|---|---|---|\n")
+		}
+		for _, s := range rows {
 			dur := ""
 			if s.DurationMS > 0 {
 				dur = fmt.Sprintf("%ds", s.DurationMS/1000)
 			}
-			fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
-				s.Ref(), envOrDash(s.Env),
-				s.Counts.Add, s.Counts.Change, s.Counts.Delete, s.Counts.Replace,
-				dur, applyStatusCell(s))
+			if opts.paginated() {
+				fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s | %s |\n",
+					s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+					s.Counts.Replace, dur, applyStatusCell(s), partCell(opts, s.Ref()))
+			} else {
+				fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d | %s | %s |\n",
+					s.Ref(), envOrDash(s.Env), s.Counts.Add, s.Counts.Change, s.Counts.Delete,
+					s.Counts.Replace, dur, applyStatusCell(s))
+			}
 		}
-		writeHiddenRowNote(&b, hidden)
+		columns := 8
+		if opts.paginated() {
+			columns++
+		}
+		writeHiddenRowNote(&b, hidden, columns)
 		b.WriteString("\n")
 	}
 

@@ -183,10 +183,10 @@ Controls how dashboard comments are keyed.
 | `section` | One board per commit, under `<!-- reeve:pr-comment:v1:<short-sha> -->`. Preview and apply of a commit share it; a new commit gets a new board and the old one is never rewritten, so each commit's plan stays on the PR. |
 | `append` | A new comment every run; nothing is edited. |
 
-`section` used to split by operation - one preview comment and one apply comment
-for the whole PR - which left two boards to jump between and overwrote both on
-every run. It now splits by commit. `<!-- reeve:apply:v1 -->` is retired;
-comments already posted under it are left in place.
+`section` now splits by commit instead of by operation, so each commit keeps its
+own board rather than two shared boards overwritten every run. The old
+`<!-- reeve:apply:v1 -->` marker is retired, and comments already posted under it
+are left in place.
 
 > **Draft PRs:** apply is always blocked on draft PRs regardless of config.
 > Convert to ready for review first. When a draft PR becomes ready, reeve runs `/reeve ready`
