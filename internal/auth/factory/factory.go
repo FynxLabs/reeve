@@ -59,10 +59,12 @@ func ValidateLint(cfg *schemas.Auth, stackRefs []string) error {
 				return fmt.Errorf("provider %q (env_passthrough): requires i_understand_this_is_dangerous: true", name)
 			}
 			fmt.Fprintf(os.Stderr, "⚠️  provider %q is env_passthrough - long-lived credentials bypass zero-trust\n", name)
-		case "aws_secrets_manager", "aws_ssm_parameter", "gcp_secret_manager", "azure_key_vault", "github_secret":
+		case "aws_secrets_manager", "aws_ssm_parameter", "gcp_secret_manager", "azure_key_vault":
 			// A secret provider without env_map fetches the secret and
 			// exports nothing - dead config at best, a silent no-op at
-			// worst. Require the mapping.
+			// worst. Require the mapping. github_secret is different: its
+			// env_var is already an unambiguous output name and defaults to
+			// passing the value through unchanged.
 			if len(decl.EnvMap) == 0 {
 				return fmt.Errorf("provider %q (%s): env_map is required - without it the provider exports nothing (map env var names to secret fields, e.g. env_map: { MY_TOKEN: \"\" } for a plain-string secret)", name, decl.Type)
 			}

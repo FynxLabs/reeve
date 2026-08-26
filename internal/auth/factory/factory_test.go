@@ -270,6 +270,33 @@ providers:
 	}
 }
 
+func TestGitHubSecretDefaultsToEnvVarFromYAML(t *testing.T) {
+	t.Setenv("CLOUDFLARE_API_TOKEN", "hush-token")
+	cfg := decodeAuthYAML(t, `
+version: 1
+config_type: auth
+providers:
+  cloudflare-api-token:
+    type: github_secret
+    env_var: CLOUDFLARE_API_TOKEN
+`)
+	r, err := Build(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	p, ok := r.Get("cloudflare-api-token")
+	if !ok {
+		t.Fatal("provider not registered")
+	}
+	cred, err := p.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if got := cred.Env["CLOUDFLARE_API_TOKEN"]; got != "hush-token" {
+		t.Fatalf("default env_var passthrough = %q; env=%+v", got, cred.Env)
+	}
+}
+
 // TestAWSSecretsManagerEnvMapFromYAML covers the same passthrough for a
 // JSON-bundle secret with per-field mapping, plus the fail-closed error
 // when a mapped field is absent.
@@ -360,8 +387,8 @@ func TestValidateLint(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("secret provider without env_map is a lint error", func(t *testing.T) {
-		for _, typ := range []string{"aws_secrets_manager", "aws_ssm_parameter", "gcp_secret_manager", "azure_key_vault", "github_secret"} {
+	t.Run("remote secret provider without env_map is a lint error", func(t *testing.T) {
+		for _, typ := range []string{"aws_secrets_manager", "aws_ssm_parameter", "gcp_secret_manager", "azure_key_vault"} {
 			cfg := &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
 				"dead": {Type: typ},
 			}}
@@ -369,6 +396,14 @@ func TestValidateLint(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "env_map is required") {
 				t.Errorf("%s: err = %v, want env_map-required error", typ, err)
 			}
+		}
+	})
+	t.Run("github secret without env_map uses env_var passthrough", func(t *testing.T) {
+		cfg := &schemas.Auth{Providers: map[string]schemas.ProviderYAML{
+			"cloudflare-api-token": {Type: "github_secret", EnvVar: "CLOUDFLARE_API_TOKEN"},
+		}}
+		if err := ValidateLint(cfg, nil); err != nil {
+			t.Fatal(err)
 		}
 	})
 	t.Run("secret provider with env_map passes lint", func(t *testing.T) {

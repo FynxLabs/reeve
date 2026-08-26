@@ -149,6 +149,17 @@ func TestBase64StdDecode(t *testing.T) {
 }
 
 func TestGitHubSecret(t *testing.T) {
+	t.Run("defaults to same-name passthrough", func(t *testing.T) {
+		t.Setenv("CLOUDFLARE_API_TOKEN", "hush")
+		p := NewGitHubSecret(&GitHubSecret{Name: "cloudflare-api-token", EnvVar: "CLOUDFLARE_API_TOKEN"})
+		cred, err := p.Acquire(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cred.Env["CLOUDFLARE_API_TOKEN"]; got != "hush" {
+			t.Fatalf("default passthrough = %q, want hush; env=%+v", got, cred.Env)
+		}
+	})
 	t.Run("resolves env var", func(t *testing.T) {
 		t.Setenv("REEVE_TEST_SECRET", "hush")
 		p := NewGitHubSecret(&GitHubSecret{Name: "gh", EnvVar: "REEVE_TEST_SECRET",

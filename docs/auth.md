@@ -304,11 +304,12 @@ is fine.
 All secret-manager providers use a parent auth provider for the API call
 and map the returned value into env vars for the engine via `env_map`.
 
-### `env_map` (required)
+### `env_map`
 
 `env_map` maps **env var name → field inside the fetched secret** and is
-required on every secret-manager provider — without it the provider would
+required on remote secret-manager providers — without it the provider would
 fetch the secret and export nothing, so `reeve lint` rejects the config.
+For `github_secret`, omitting `env_map` passes `env_var` through unchanged.
 
 ```yaml
 env_map:
@@ -400,6 +401,10 @@ workflow's `env:` or `secrets` wiring):
 
 ```yaml
 providers:
+  cloudflare-token:
+    type: github_secret
+    env_var: CLOUDFLARE_API_TOKEN     # exported with this same name by default
+
   custom-token:
     type: github_secret
     env_var: MY_CUSTOM_SECRET
